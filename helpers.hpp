@@ -15,6 +15,7 @@
 #include <Unreal/Hooks.hpp>
 #include <Unreal/UFunction.hpp>
 #include <Unreal/Core/Containers/Array.hpp>
+#include <Unreal/Core/Containers/ScriptArray.hpp> // Required for native array parsing
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <nlohmann/json.hpp>
 

@@ -291,7 +291,7 @@ public:
         return -1;
     }
 
-    void ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist)
+void ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist)
     {
         Output::send<LogLevel::Normal>(STR("[ALTR-CPP] Instantiating custom assets onto character mesh...\n"));
 
@@ -300,8 +300,9 @@ public:
         if (!MeshComp) return;
 
         // 1. Swap Skeletal Mesh
+        UObject* NewMesh = nullptr;
         if (!swap.SkelMeshPath.empty()) {
-            UObject* NewMesh = LoadAssetSafely(FormatAssetPath(swap.SkelMeshPath));
+            NewMesh = LoadAssetSafely(FormatAssetPath(swap.SkelMeshPath));
             if (NewMesh) {
                 struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
                 CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
@@ -312,7 +313,35 @@ public:
         // 2. Clear Old Material Overrides (Fixes the "WeaselDragon texture persisting" bug)
         CallFunction(MeshComp, STR("EmptyOverrideMaterials"));
 
-        // 3. Swap Materials
+        // 3. Reset the component's materials to the new mesh's defaults (Same as Blueprint Mod)
+        if (NewMesh) {
+            auto* MaterialsProp = GetProperty(NewMesh, STR("Materials"));
+            if (MaterialsProp) {
+                auto* ArrayProp = CastField<FArrayProperty>(MaterialsProp);
+                if (ArrayProp) {
+                    void* ArrayData = ArrayProp->ContainerPtrToValuePtr<void>(NewMesh);
+                    auto* ScriptArray = static_cast<FScriptArray*>(ArrayData);
+                    
+                    if (ScriptArray && ScriptArray->Num() > 0) {
+                        int32_t ElementSize = ArrayProp->GetInner()->GetElementSize();
+                        uint8_t* DataPtr = static_cast<uint8_t*>(ScriptArray->GetData());
+                        
+                        for (int32_t i = 0; i < ScriptArray->Num(); i++) {
+                            void* ElementPtr = DataPtr + (i * ElementSize);
+                            // First member of FSkeletalMaterial is UMaterialInterface* (offset 0)
+                            UObject* MatInterface = *reinterpret_cast<UObject**>(ElementPtr);
+                            if (MatInterface) {
+                                struct { int32_t ElementIndex; UObject* Material; } MatParams{i, MatInterface};
+                                CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
+                            }
+                        }
+                        Output::send<LogLevel::Normal>(STR("   -> Re-initialized {} material slots to mesh defaults.\n"), ScriptArray->Num());
+                    }
+                }
+            }
+        }
+
+        // 4. Swap Materials (Custom JSON Overrides)
         for (auto& mat : swap.MatReplaceList) {
             UObject* NewMat = LoadAssetSafely(FormatAssetPath(mat.matPath));
             if (NewMat) {
@@ -323,7 +352,7 @@ public:
             }
         }
 
-        // 4. Swap Morphs
+        // 5. Swap Morphs
         std::random_device rd;
         std::mt19937 gen(rd());
 
