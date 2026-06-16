@@ -17,8 +17,9 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
-    struct FAnchors { double MinimumX; double MinimumY; double MaximumX; double MaximumY; }; // Changed float to double!
+    struct FAnchors { double MinimumX; double MinimumY; double MaximumX; double MaximumY; }; 
     struct FMargin { float Left; float Top; float Right; float Bottom; };
+    struct FLinearColor { float R; float G; float B; float A; };
 
     UObject* UIManager::GetLocalPlayerController() {
         std::vector<UObject*> PCs;
@@ -176,24 +177,28 @@ namespace DynPals {
             return UObjectGlobals::StaticConstructObject(Params);
         };
 
+        // Get UMG Native classes
         UClass* CanvasPanelClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.CanvasPanel"));
+        UClass* BorderClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Border"));
         UClass* ScrollBoxClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.ScrollBox"));
         UClass* VerticalBoxClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.VerticalBox"));
         UClass* ComboBoxClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.ComboBoxString"));
         UClass* SliderClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Slider"));
         UClass* TextBlockClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.TextBlock"));
+        UClass* SpacerClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Spacer"));
 
-        if (!CanvasPanelClass || !ScrollBoxClass || !VerticalBoxClass || !ComboBoxClass || !SliderClass || !TextBlockClass) {
+        if (!CanvasPanelClass || !BorderClass || !ScrollBoxClass || !VerticalBoxClass || !ComboBoxClass || !SliderClass || !TextBlockClass) {
             Output::send<LogLevel::Error>(STR("[DynPals] BuildWidget: One or more native UMG classes could not be loaded!\n"));
             return;
         }
 
         UObject* Canvas = ConstructElement(CanvasPanelClass, STR("Canvas"));
+        UObject* BackgroundBorder = ConstructElement(BorderClass, STR("BackgroundBorder"));
         UObject* ScrollBox = ConstructElement(ScrollBoxClass, STR("ScrollBox"));
         UObject* VBox = ConstructElement(VerticalBoxClass, STR("VBox"));
 
-        if (!Canvas || !ScrollBox || !VBox) {
-            Output::send<LogLevel::Error>(STR("[DynPals] BuildWidget: Failed to construct core layout elements (Canvas/ScrollBox/VBox)!\n"));
+        if (!Canvas || !BackgroundBorder || !ScrollBox || !VBox) {
+            Output::send<LogLevel::Error>(STR("[DynPals] BuildWidget: Failed to construct core layout elements!\n"));
             return;
         }
 
@@ -206,26 +211,40 @@ namespace DynPals {
             return;
         }
 
-        struct { UObject* Content; UObject* ReturnValue; } AddScrollParams{ScrollBox, nullptr};
-        Utils::CallFunction(Canvas, STR("AddChild"), &AddScrollParams);
-        UObject* CanvasSlot = AddScrollParams.ReturnValue;
+        // Parent Border inside the Canvas
+        struct { UObject* Content; UObject* ReturnValue; } AddBorderParams{BackgroundBorder, nullptr};
+        Utils::CallFunction(Canvas, STR("AddChild"), &AddBorderParams);
+        UObject* CanvasSlot = AddBorderParams.ReturnValue;
         if (!CanvasSlot) {
-            Output::send<LogLevel::Error>(STR("[DynPals] BuildWidget: Failed to parent ScrollBox to Canvas!\n"));
+            Output::send<LogLevel::Error>(STR("[DynPals] BuildWidget: Failed to parent Border to Canvas!\n"));
             return;
         }
 
-        FAnchors Anchors{0.75, 0.0, 1.0, 1.0}; // Changed float literals to double literals!
+        // Floating Middle-Left Panel (2% margin left, 15% top to 85% bottom)
+        FAnchors Anchors{0.02, 0.15, 0.22, 0.85}; 
         struct { FAnchors InAnchors; } AnchorsParams{Anchors};
         Utils::CallFunction(CanvasSlot, STR("SetAnchors"), &AnchorsParams);
 
-
+        // Zero out offsets so it stretches exactly to the anchors
         FMargin Offsets{0.0f, 0.0f, 0.0f, 0.0f};
         struct { FMargin InOffsets; } OffsetsParams{Offsets};
         Utils::CallFunction(CanvasSlot, STR("SetOffsets"), &OffsetsParams);
 
+        // Styling the Border Box
+        struct { FLinearColor InBrushColor; } BrushColorParams{{0.015f, 0.015f, 0.02f, 0.85f}}; // Dark bluish-grey, transparent
+        Utils::CallFunction(BackgroundBorder, STR("SetBrushColor"), &BrushColorParams);
+
+        struct { FMargin InPadding; } PaddingParams{{15.0f, 15.0f, 15.0f, 15.0f}};
+        Utils::CallFunction(BackgroundBorder, STR("SetPadding"), &PaddingParams);
+
+        // Add ScrollBox > VBox chain
+        struct { UObject* Content; UObject* ReturnValue; } AddScrollParams{ScrollBox, nullptr};
+        Utils::CallFunction(BackgroundBorder, STR("AddChild"), &AddScrollParams);
+
         struct { UObject* Content; UObject* ReturnValue; } AddVBoxParams{VBox, nullptr};
         Utils::CallFunction(ScrollBox, STR("AddChild"), &AddVBoxParams);
 
+        // Text Utilities
         UObject* KTL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetTextLibrary"));
         if (!KTL) {
             Output::send<LogLevel::Error>(STR("[DynPals] BuildWidget: KismetTextLibrary not found!\n"));
@@ -243,15 +262,43 @@ namespace DynPals {
             return Params.ReturnValue;
         };
 
+        // Layout Utilities
+        auto AddSpacer = [&](double SizeY) {
+            if (SpacerClass) {
+                UObject* Spacer = ConstructElement(SpacerClass, STR("Spacer"));
+                if (Spacer) {
+                    struct FVector2D { double X, Y; };
+                    struct { FVector2D InSize; } SizeParams{{1.0, SizeY}};
+                    Utils::CallFunction(Spacer, STR("SetSize"), &SizeParams);
+                    struct { UObject* Content; UObject* ReturnValue; } AddSpacerParams{Spacer, nullptr};
+                    Utils::CallFunction(VBox, STR("AddChild"), &AddSpacerParams);
+                }
+            }
+        };
+
         UObject* TitleText = ConstructElement(TextBlockClass, STR("TitleText"));
         if (TitleText) {
-            FText titleTextVal = ConvStringToText(L"Customizing: " + TargetCharID);
+            FText titleTextVal = ConvStringToText(L"DynPals Settings:\n" + TargetCharID);
             struct { FText InText; } SetTitleParams{titleTextVal};
             Utils::CallFunction(TitleText, STR("SetText"), &SetTitleParams);
             
             struct { UObject* Content; UObject* ReturnValue; } AddTitleParams{TitleText, nullptr};
             Utils::CallFunction(VBox, STR("AddChild"), &AddTitleParams);
         }
+
+        AddSpacer(15.0);
+
+        UObject* SkinLabel = ConstructElement(TextBlockClass, STR("SkinLabel"));
+        if (SkinLabel) {
+            FText labelVal = ConvStringToText(L"Current Swap:");
+            struct { FText InText; } SetLabelParams{labelVal};
+            Utils::CallFunction(SkinLabel, STR("SetText"), &SetLabelParams);
+
+            struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{SkinLabel, nullptr};
+            Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
+        }
+
+        AddSpacer(5.0);
 
         ComboBoxWidget = ConstructElement(ComboBoxClass, STR("SkinCombo"));
         if (ComboBoxWidget) {
@@ -260,7 +307,23 @@ namespace DynPals {
             auto configs = ConfigManager::Get().GetConfigsForCharID(TargetCharID);
             for (int idx : configs) {
                 auto& cfg = ConfigManager::Get().GetConfigs()[idx];
-                std::wstring optName = cfg.PackName + L" / " + (cfg.SkinName.empty() ? L"Default" : cfg.SkinName);
+                
+                // fallback name processing to use SkelMesh filename if SkinName is empty in JSON
+                std::wstring labelName = cfg.SkinName;
+                if (labelName.empty()) {
+                    size_t lastSlash = cfg.SkelMeshPath.find_last_of(L'/');
+                    if (lastSlash != std::wstring::npos) {
+                        std::wstring filename = cfg.SkelMeshPath.substr(lastSlash + 1);
+                        if (filename.rfind(L"SK_", 0) == 0 || filename.rfind(L"sk_", 0) == 0) {
+                            filename = filename.substr(3);
+                        }
+                        labelName = filename;
+                    } else {
+                        labelName = L"Default";
+                    }
+                }
+
+                std::wstring optName = cfg.PackName + L" / " + labelName;
                 
                 struct { FString Option; } AddOptParams{ FString(optName.c_str()) };
                 Utils::CallFunction(ComboBoxWidget, STR("AddOption"), &AddOptParams);
@@ -277,11 +340,27 @@ namespace DynPals {
             Utils::CallFunction(VBox, STR("AddChild"), &AddComboParams);
         }
 
+        AddSpacer(20.0);
+
         ActiveSliders.clear();
         PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
         if (persist && persist->SwapIndex != -1) {
             auto& activeCfg = ConfigManager::Get().GetConfigs()[persist->SwapIndex];
             
+            if (!activeCfg.MorphTargetList.empty()) {
+                UObject* MorphLabel = ConstructElement(TextBlockClass, STR("MorphTitleLabel"));
+                if (MorphLabel) {
+                    FText labelVal = ConvStringToText(L"Morph Targets");
+                    struct { FText InText; } SetLabelParams{labelVal};
+                    Utils::CallFunction(MorphLabel, STR("SetText"), &SetLabelParams);
+
+                    struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{MorphLabel, nullptr};
+                    Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
+                }
+
+                AddSpacer(10.0);
+            }
+
             for (auto& morph : activeCfg.MorphTargetList) {
                 if (morph.type != L"Restrict" && morph.minVal < morph.maxVal) {
                     UObject* Label = ConstructElement(TextBlockClass, (morph.target + L"_Label").c_str());
@@ -309,6 +388,8 @@ namespace DynPals {
                         Utils::CallFunction(VBox, STR("AddChild"), &AddSliderParams);
 
                         ActiveSliders.push_back({morph.target, Slider, currentVal});
+
+                        AddSpacer(10.0);
                     }
                 }
             }
@@ -317,6 +398,7 @@ namespace DynPals {
         struct { uint8_t InVisibility; } VisParams{0}; 
         Utils::CallFunction(MyWidget, STR("SetVisibility"), &VisParams);
         Utils::CallFunction(Canvas, STR("SetVisibility"), &VisParams);
+        Utils::CallFunction(BackgroundBorder, STR("SetVisibility"), &VisParams);
         Utils::CallFunction(ScrollBox, STR("SetVisibility"), &VisParams);
         Utils::CallFunction(VBox, STR("SetVisibility"), &VisParams);
 
@@ -356,22 +438,33 @@ namespace DynPals {
             if (selectedStr != LastSelectedOption) {
                 LastSelectedOption = selectedStr;
                 
-                size_t slash = selectedStr.find(L" / ");
-                if (slash != std::wstring::npos) {
-                    std::wstring pack = selectedStr.substr(0, slash);
-                    std::wstring skin = selectedStr.substr(slash + 3);
-                    if (skin == L"Default") skin = L"";
-
-                    auto configs = ConfigManager::Get().GetConfigsForCharID(TargetCharID);
-                    for (int idx : configs) {
-                        auto& cfg = ConfigManager::Get().GetConfigs()[idx];
-                        if (cfg.PackName == pack && cfg.SkinName == skin) {
-                            PalProcessor::Get().ForceSwap(TargetPal, idx);
-                            
-                            DestroyWidget();
-                            BuildWidget();
-                            break;
+                auto configs = ConfigManager::Get().GetConfigsForCharID(TargetCharID);
+                for (int idx : configs) {
+                    auto& cfg = ConfigManager::Get().GetConfigs()[idx];
+                    
+                    // Re-generate the identical display name for match check
+                    std::wstring labelName = cfg.SkinName;
+                    if (labelName.empty()) {
+                        size_t lastSlash = cfg.SkelMeshPath.find_last_of(L'/');
+                        if (lastSlash != std::wstring::npos) {
+                            std::wstring filename = cfg.SkelMeshPath.substr(lastSlash + 1);
+                            if (filename.rfind(L"SK_", 0) == 0 || filename.rfind(L"sk_", 0) == 0) {
+                                filename = filename.substr(3);
+                            }
+                            labelName = filename;
+                        } else {
+                            labelName = L"Default";
                         }
+                    }
+
+                    std::wstring optName = cfg.PackName + L" / " + labelName;
+
+                    if (optName == selectedStr) {
+                        PalProcessor::Get().ForceSwap(TargetPal, idx);
+                        
+                        DestroyWidget();
+                        BuildWidget();
+                        break;
                     }
                 }
             }
