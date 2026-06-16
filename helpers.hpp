@@ -55,6 +55,25 @@ struct PalPersistData {
     std::map<std::wstring, double> MorphSet;
 };
 
+// PalSchema technique: Custom-aligned memory structures with non-conflicting names
+struct AltrSoftObjectPath {
+    FName PackageName;
+    FName AssetName;
+    FString SubPathString;
+};
+
+struct AltrWeakObjectPtr {
+    int32_t ObjectIndex = 0;
+    int32_t ObjectSerialNumber = 0;
+};
+
+struct AltrSoftObjectPtr {
+    AltrWeakObjectPtr WeakPtr;
+    int32_t TagAtLastTest = 0;
+    int32_t Padding = 0;
+    AltrSoftObjectPath ObjectID;
+};
+
 // Global stable helper functions (No namespace nesting to prevent resolution errors)
 inline std::wstring StringToWString(const std::string& str) {
     return std::wstring(str.begin(), str.end());
@@ -120,37 +139,49 @@ inline std::string ReadFileToString(const std::wstring& path) {
     return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
 
-inline UObject* LoadAssetSafely(const std::wstring& AssetPath) {
+inline void ParseAssetPath(const std::wstring& Path, std::wstring& OutPackage, std::wstring& OutAsset)
+{
+    std::wstring formatted = FormatAssetPath(Path);
+    size_t dot = formatted.find(L'.');
+    if (dot != std::wstring::npos)
+    {
+        OutPackage = formatted.substr(0, dot);
+        OutAsset = formatted.substr(dot + 1);
+    }
+    else
+    {
+        OutPackage = formatted;
+        size_t lastSlash = formatted.find_last_of(L'/');
+        if (lastSlash != std::wstring::npos)
+        {
+            OutAsset = formatted.substr(lastSlash + 1);
+        }
+    }
+}
+
+// Pure reflection asset loader using custom-aligned structures
+inline UObject* LoadAssetSafely(const std::wstring& AssetPath)
+{
+    std::wstring package, asset;
+    ParseAssetPath(AssetPath, package, asset);
+
+    // Build the exact, aligned C++ memory structure for AltrSoftObjectPtr
+    AltrSoftObjectPtr SoftPtr;
+    SoftPtr.ObjectID.PackageName = FName(package.c_str(), FNAME_Add);
+    SoftPtr.ObjectID.AssetName = FName(asset.c_str(), FNAME_Add);
+    SoftPtr.ObjectID.SubPathString = FString(STR(""));
+
     UObject* KismetLib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetSystemLibrary"));
     if (!KismetLib) return nullptr;
-
-    UFunction* MakePathFunc = KismetLib->GetFunctionByNameInChain(STR("MakeSoftObjectPath"));
-    if (!MakePathFunc) return nullptr;
-
-    struct {
-        FString Path;
-        uint8_t ReturnValue[64];
-    } MakePathParams{FString(AssetPath.c_str()), {0}};
-    KismetLib->ProcessEvent(MakePathFunc, &MakePathParams);
-
-    UFunction* ConvFunc = KismetLib->GetFunctionByNameInChain(STR("Conv_SoftObjPathToSoftObjRef"));
-    if (!ConvFunc) return nullptr;
-
-    struct {
-        uint8_t SoftObjectPath[64];
-        uint8_t ReturnValue[64];
-    } ConvParams{{0}, {0}};
-    memcpy(ConvParams.SoftObjectPath, MakePathParams.ReturnValue, 64);
-    KismetLib->ProcessEvent(ConvFunc, &ConvParams);
 
     UFunction* LoadFunc = KismetLib->GetFunctionByNameInChain(STR("LoadAsset_Blocking"));
     if (!LoadFunc) return nullptr;
 
     struct {
-        uint8_t Asset[64];
+        AltrSoftObjectPtr Asset;
         UObject* ReturnValue;
-    } LoadParams{{0}, nullptr};
-    memcpy(LoadParams.Asset, ConvParams.ReturnValue, 64);
+    } LoadParams{SoftPtr, nullptr};
+    
     KismetLib->ProcessEvent(LoadFunc, &LoadParams);
 
     return LoadParams.ReturnValue;
