@@ -4,7 +4,7 @@
 #include <map>
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/FString.hpp> 
-#include <Unreal/NameTypes.hpp> // <-- Fixed: UE4SS stores FName here!
+#include <Unreal/NameTypes.hpp> 
 
 struct MatReplace {
     std::string index;
@@ -20,7 +20,7 @@ struct MorphTarget {
 };
 
 struct SwapConfig {
-    std::wstring PackName = L"Default"; // <-- New field
+    std::wstring PackName = L"Default Pack";
     std::wstring CharacterID;
     std::wstring SkelMeshPath;
     std::wstring Gender = L"None";
@@ -34,14 +34,12 @@ struct SwapConfig {
     std::vector<MorphTarget> MorphTargetList;
 };
 
-
 struct PalPersistData {
     std::wstring InstanceID;
     int SwapIndex = -1;
     std::map<std::wstring, double> MorphSet;
 };
 
-// Alignment-safe Unreal Reflection structs
 struct AltrSoftObjectPath {
     RC::Unreal::FName PackageName;
     RC::Unreal::FName AssetName;

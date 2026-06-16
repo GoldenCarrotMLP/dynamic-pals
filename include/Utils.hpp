@@ -7,6 +7,7 @@
 #include <Unreal/UClass.hpp>
 #include <Unreal/UFunction.hpp>
 #include <Unreal/Core/Containers/Array.hpp>
+#include <Unreal/FText.hpp> 
 #include "DataTypes.hpp"
 
 namespace DynPals {
@@ -19,11 +20,21 @@ namespace DynPals::Utils {
     using namespace RC::Unreal;
 
     inline std::wstring StringToWString(const std::string& str) {
-        return std::wstring(str.begin(), str.end());
+        std::wstring wstr;
+        wstr.reserve(str.size());
+        for (char c : str) {
+            wstr.push_back(static_cast<wchar_t>(c));
+        }
+        return wstr;
     }
 
     inline std::string WStringToString(const std::wstring& wstr) {
-        return std::string(wstr.begin(), wstr.end());
+        std::string str;
+        str.reserve(wstr.size());
+        for (wchar_t wc : wstr) {
+            str.push_back(static_cast<char>(wc));
+        }
+        return str;
     }
 
     inline std::wstring FStringToWString(const FString& fstr) {
@@ -31,7 +42,6 @@ namespace DynPals::Utils {
         return data ? std::wstring(data) : L"";
     }
 
-    // Swapped to our custom struct to prevent header conflicts
     inline std::wstring GuidToWString(const DynPalsGuid& Guid) {
         wchar_t buf[64];
         swprintf(buf, 64, L"%08X%08X%08X%08X", Guid.A, Guid.B, Guid.C, Guid.D);
@@ -79,7 +89,7 @@ namespace DynPals::Utils {
     }
 
     inline UObject* LoadAssetSafely(const std::wstring& AssetPath) {
-        std::wstring formatted = FormatAssetPath(AssetPath);
+        std::wstring formatted = FormatAssetPath(AssetPath); // Fixed: Changed 'Path' to 'AssetPath'
         std::wstring package, asset;
         
         size_t dot = formatted.find(L'.');
