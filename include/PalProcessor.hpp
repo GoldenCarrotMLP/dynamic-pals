@@ -20,6 +20,7 @@ namespace DynPals {
         PalProcessor(const PalProcessor&) = delete;
         PalProcessor& operator=(const PalProcessor&) = delete;
 
-        void ApplySwap(RC::Unreal::UObject* Character, const SwapConfig& swap);
+        // Updated signature: Now accepts persistence reference for tracking morph states
+        void ApplySwap(RC::Unreal::UObject* Character, const SwapConfig& swap, PalPersistData& persist);
     };
 }

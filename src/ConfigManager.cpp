@@ -1,10 +1,11 @@
 #include "ConfigManager.hpp"
 #include "Utils.hpp"
 #include <DynamicOutput/DynamicOutput.hpp>
-#include "json.hpp" // Updated include
+#include "json.hpp"
 #include <random>
 
 using namespace RC;
+using namespace RC::Unreal;
 
 namespace DynPals {
 
@@ -40,7 +41,7 @@ namespace DynPals {
                     ParseSwaps(configData.at("SkelMeshSwap"));
                 }
             }
-            Output::send<LogLevel::Normal>(STR("[DynPals] Loaded {} swaps.\n"), Configs.size());
+            Output::send<LogLevel::Normal>(STR("[DynPals] Complete matchmaking table compiled with {} swaps.\n"), Configs.size());
         } catch (const std::exception& e) {
             Output::send<LogLevel::Error>(STR("[DynPals] JSON Error: {}\n"), Utils::StringToWString(e.what()));
         }
@@ -56,8 +57,19 @@ namespace DynPals {
             if (swapJson.contains("MinLevel")) sc.MinLevel = swapJson.at("MinLevel").get<int>();
             if (swapJson.contains("MaxLevel")) sc.MaxLevel = swapJson.at("MaxLevel").get<int>();
             
+            if (swapJson.contains("IsRarePal")) {
+                if (swapJson.at("IsRarePal").is_boolean()) {
+                    sc.IsRarePal = swapJson.at("IsRarePal").get<bool>() ? L"true" : L"false";
+                } else {
+                    sc.IsRarePal = Utils::StringToWString(swapJson.at("IsRarePal").get<std::string>());
+                }
+            }
+
             if (swapJson.contains("ReqTrait")) {
                 for (auto& trait : swapJson.at("ReqTrait")) sc.ReqTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+            }
+            if (swapJson.contains("PrefTrait")) {
+                for (auto& trait : swapJson.at("PrefTrait")) sc.PrefTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
             }
             
             if (swapJson.contains("MatReplace")) {
@@ -66,6 +78,18 @@ namespace DynPals {
                     mr.index = mat.at("Index").is_string() ? mat.at("Index").get<std::string>() : std::to_string(mat.at("Index").get<int>());
                     mr.matPath = Utils::StringToWString(mat.at("MatPath").get<std::string>());
                     sc.MatReplaceList.push_back(mr);
+                }
+            }
+
+            if (swapJson.contains("MorphTarget")) {
+                for (auto& morph : swapJson.at("MorphTarget")) {
+                    MorphTarget mt;
+                    mt.target = Utils::StringToWString(morph.at("Target").get<std::string>());
+                    if (morph.contains("Set")) mt.setVal = morph.at("Set").get<double>();
+                    if (morph.contains("Min")) mt.minVal = morph.at("Min").get<double>();
+                    if (morph.contains("Max")) mt.maxVal = morph.at("Max").get<double>();
+                    if (morph.contains("Type")) mt.type = Utils::StringToWString(morph.at("Type").get<std::string>());
+                    sc.MorphTargetList.push_back(mt);
                 }
             }
             Configs.push_back(sc);
@@ -83,20 +107,79 @@ namespace DynPals {
             int score = 0;
             bool isValid = true;
 
-            if (Level < swap.MinLevel || Level > swap.MaxLevel) isValid = false;
-            
-            if (isValid && swap.Gender != L"None" && swap.Gender != GenderStr) isValid = false;
+            // 1. Level Check (Fail if out of bounds)
+            if (Level < swap.MinLevel || Level > swap.MaxLevel) {
+                isValid = false;
+            }
 
-            if (isValid && !swap.SkinName.empty() && SkinName != swap.SkinName) isValid = false;
+            // 2. Gender Match with fallbacks (SCake mappings support included)
+            if (isValid && swap.Gender != L"None") {
+                if (swap.Gender != GenderStr) {
+                    bool fallbackMatched = false;
+                    
+                    if (swap.Gender == L"Male" && (GenderStr == L"Futa" || GenderStr == L"FullFuta")) {
+                        score += 50000;
+                        fallbackMatched = true;
+                    } else if (swap.Gender == L"Female" && (GenderStr == L"Andro" || GenderStr == L"Neutered" || GenderStr == L"FullNeutered")) {
+                        score += 50000;
+                        fallbackMatched = true;
+                    }
+                    
+                    if (!fallbackMatched) isValid = false;
+                }
+            } else if (isValid && swap.Gender == L"None" && GenderStr != L"None") {
+                score += 500000; // Genderless fallback degrade
+            }
 
+            // 3. Skin Name Check (Fail on mismatch)
             if (isValid) {
-                for (auto& req : swap.ReqTrait) {
-                    bool hasTrait = false;
-                    for (auto& t : Traits) if (t == req) { hasTrait = true; break; }
-                    if (!hasTrait) { isValid = false; break; }
+                if (!swap.SkinName.empty() && SkinName != swap.SkinName) {
+                    isValid = false;
                 }
             }
 
+            // 4. Rare Status Match
+            if (isValid && !swap.IsRarePal.empty()) {
+                bool reqRare = (swap.IsRarePal == L"true");
+                if (reqRare && !IsRare) {
+                    isValid = false; // Required is true, pal is not -> Fail
+                } else if (!reqRare && IsRare) {
+                    score += 110; // Rule is normal, pal is rare -> Miss (+110)
+                }
+            }
+
+            // 5. Required Traits (Fail on any missing)
+            if (isValid) {
+                for (auto& req : swap.ReqTrait) {
+                    bool hasTrait = false;
+                    for (auto& t : Traits) {
+                        if (t == req) { hasTrait = true; break; }
+                    }
+                    if (!hasTrait) {
+                        isValid = false;
+                        break;
+                    } else {
+                        score -= 5; // Hit (-5)
+                    }
+                }
+            }
+
+            // 6. Preferred Traits (degrade score on miss)
+            if (isValid) {
+                for (auto& pref : swap.PrefTrait) {
+                    bool hasTrait = false;
+                    for (auto& t : Traits) {
+                        if (t == pref) { hasTrait = true; break; }
+                    }
+                    if (hasTrait) {
+                        score -= 5; // Hit (-5)
+                    } else {
+                        score += 5; // Miss (+5)
+                    }
+                }
+            }
+
+            // Matchmaking Evaluation
             if (isValid) {
                 if (score < bestScore) {
                     bestScore = score;

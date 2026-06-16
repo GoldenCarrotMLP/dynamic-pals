@@ -3,6 +3,7 @@
 #include "SaveManager.hpp"
 #include "Utils.hpp"
 #include <DynamicOutput/DynamicOutput.hpp>
+#include <random>
 
 #include <Unreal/UObject.hpp>
 #include <Unreal/FString.hpp>
@@ -46,34 +47,28 @@ namespace DynPals {
         if (ExistingData && !ForceReroll) {
             SwapIndex = ExistingData->SwapIndex;
         } else {
-            // SAFE REFLECTION: Get Character ID using PalUtility
             UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
             struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
             if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
             std::wstring CharID = StripCharacterPrefix(CharIDParams.RetVal.ToString());
 
-            // SAFE REFLECTION: Get Rare Status
             struct { bool RetVal; } RareParams{false};
             Utils::CallFunction(IndivParam, STR("IsRarePal"), &RareParams);
             bool IsRare = RareParams.RetVal;
 
-            // SAFE REFLECTION: Get Gender
             struct { uint8_t RetVal; } GenderParams{0};
             Utils::CallFunction(IndivParam, STR("GetGenderType"), &GenderParams);
             std::wstring GenderStr = (GenderParams.RetVal == 1) ? L"Male" : (GenderParams.RetVal == 2) ? L"Female" : L"None";
 
-            // SAFE REFLECTION: Get Level
             struct { int32_t RetVal; } LevelParams{1};
             Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
             int LevelNum = LevelParams.RetVal;
 
-            // SAFE REFLECTION: Get Skin Name
             struct { FName RetVal; } SkinParams{FName()};
             Utils::CallFunction(IndivParam, STR("GetSkinName"), &SkinParams);
             std::wstring SkinName = SkinParams.RetVal.ToString();
             if (SkinName == L"None") SkinName = L"";
 
-            // SAFE REFLECTION: Get Passive Traits
             std::vector<std::wstring> Traits;
             struct { TArray<FName> RetVal; } TraitsParams;
             Utils::CallFunction(IndivParam, STR("GetPassiveSkillList"), &TraitsParams);
@@ -90,17 +85,18 @@ namespace DynPals {
         }
 
         if (SwapIndex >= 0 && SwapIndex < (int)ConfigManager::Get().GetConfigs().size()) {
-            ApplySwap(Character, ConfigManager::Get().GetConfigs()[SwapIndex]);
+            ApplySwap(Character, ConfigManager::Get().GetConfigs()[SwapIndex], *SaveManager::Get().GetPersistData(InstanceID));
         }
     }
 
-    void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap) {
+    void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
         UObject* MeshComp = nullptr;
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp) return;
 
+        UObject* NewMesh = nullptr;
         if (!swap.SkelMeshPath.empty()) {
-            UObject* NewMesh = Utils::LoadAssetSafely(swap.SkelMeshPath);
+            NewMesh = Utils::LoadAssetSafely(swap.SkelMeshPath);
             if (NewMesh) {
                 struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
@@ -115,6 +111,39 @@ namespace DynPals {
                 int idx = std::stoi(mat.index);
                 struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
                 Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
+            }
+        }
+
+        // Apply Morph Targets (With session load/save)
+        if (!swap.MorphTargetList.empty()) {
+            std::random_device rd;
+            std::mt19937 gen(rd());
+
+            for (auto& morph : swap.MorphTargetList) {
+                double val = 0.0;
+                auto it = persist.MorphSet.find(morph.target);
+                
+                if (it == persist.MorphSet.end()) {
+                    if (morph.setVal != -1000.0) {
+                        val = morph.setVal;
+                    } else {
+                        if (morph.type == L"Restrict") {
+                            std::uniform_int_distribution<> dis(0, 1);
+                            val = dis(gen) ? morph.maxVal : morph.minVal;
+                        } else {
+                            std::uniform_real_distribution<> dis(morph.minVal, morph.maxVal);
+                            val = dis(gen);
+                        }
+                    }
+                    persist.MorphSet[morph.target] = val;
+                } else {
+                    val = it->second;
+                }
+
+                struct { FName MorphTargetName; float Value; bool bRemoveZeroWeight; } MorphParams{
+                    FName(morph.target.c_str(), FNAME_Add), (float)val, false
+                };
+                Utils::CallFunction(MeshComp, STR("SetMorphTarget"), &MorphParams);
             }
         }
     }
