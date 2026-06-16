@@ -1,10 +1,15 @@
+#define NOMINMAX // Disable Windows min/max macros to prevent Unreal template corruption
+#include <Windows.h>
+
 #include <Mod/CppUserModBase.hpp>
+#include <UE4SSProgram.hpp> // Required for UE4SS_ENABLE_IMGUI()
 #include <DynamicOutput/DynamicOutput.hpp>
 
 #include "ConfigManager.hpp"
 #include "SaveManager.hpp"
 #include "HooksManager.hpp"
 #include "PalProcessor.hpp"
+#include "UIManager.hpp"
 #include "Utils.hpp"
 
 using namespace RC;
@@ -20,15 +25,37 @@ public:
         ModDescription = STR("Native C++ run-time mesh and material swapper.");
         ModAuthors = STR("Modder");
 
-        Output::send<LogLevel::Normal>(STR("[DynPals] Mod DLL loaded.\n"));
+        // Enable the ImGui renderer subsystem for this mod
+        UE4SS_ENABLE_IMGUI()
+
+        // Register our custom UI drawer callback with the UE4SS standard renderer
+        register_tab(STR("DynamicPals"), [](CppUserModBase* instance) {
+            DynPals::UIManager::Get().DrawUI();
+        });
     }
 
     ~DynPalsMod() override {}
 
+    auto on_ui_init() -> void override
+    {
+        // Handled in constructor
+    }
+
     auto on_update() -> void override
     {
-        // Safe, asynchronous JSON autosaving
         DynPals::SaveManager::Get().TickSave();
+
+        // Listen for Ctrl + N (0x4E = N key)
+        static bool bMenuKeyPressed = false;
+        if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(0x4E) & 0x8000)) {
+            if (!bMenuKeyPressed) {
+                bMenuKeyPressed = true;
+                Output::send<LogLevel::Normal>(STR("[DynPals] Hotkey Ctrl+N detected. Toggling menu state...\n"));
+                DynPals::UIManager::Get().ToggleMenu();
+            }
+        } else {
+            bMenuKeyPressed = false;
+        }
     }
 
     auto on_unreal_init() -> void override

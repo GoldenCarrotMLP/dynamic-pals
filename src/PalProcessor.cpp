@@ -89,7 +89,7 @@ namespace DynPals {
         }
     }
 
-    void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
+void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
         UObject* MeshComp = nullptr;
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp) return;
@@ -114,7 +114,7 @@ namespace DynPals {
             }
         }
 
-        // Apply Morph Targets (With session load/save)
+        // 1:1 ALTERMATIC PARITY: Upgraded Morph Target Application
         if (!swap.MorphTargetList.empty()) {
             std::random_device rd;
             std::mt19937 gen(rd());
@@ -123,22 +123,51 @@ namespace DynPals {
                 double val = 0.0;
                 auto it = persist.MorphSet.find(morph.target);
                 
-                if (it == persist.MorphSet.end()) {
-                    if (morph.setVal != -1000.0) {
-                        val = morph.setVal;
+                bool hasValidSavedVal = false;
+                double savedVal = -1000.0;
+                
+                if (it != persist.MorphSet.end()) {
+                    savedVal = it->second;
+                    // Altermatic checks if value is >= -900.0 to verify it's initialized
+                    if (savedVal >= -900.0) {
+                        hasValidSavedVal = true;
+                    }
+                }
+
+                if (morph.setVal != -1000.0) {
+                    // Explicit override in config takes immediate priority
+                    val = morph.setVal;
+                } 
+                else if (hasValidSavedVal) {
+                    // Valid saved state exists, verify against active config bounds
+                    if (morph.type == L"Restrict") {
+                        // Restrict mode: round to nearest bound via midpoint calculation
+                        double midpoint = ((morph.maxVal - morph.minVal) / 2.0) + morph.minVal;
+                        val = (savedVal >= midpoint) ? morph.maxVal : morph.minVal;
                     } else {
-                        if (morph.type == L"Restrict") {
-                            std::uniform_int_distribution<> dis(0, 1);
-                            val = dis(gen) ? morph.maxVal : morph.minVal;
+                        // Free mode: verify saved value is still within config limits
+                        if (savedVal >= morph.minVal && savedVal <= morph.maxVal) {
+                            val = savedVal;
                         } else {
+                            // Config bounds updated, safely regenerate
                             std::uniform_real_distribution<> dis(morph.minVal, morph.maxVal);
                             val = dis(gen);
                         }
                     }
-                    persist.MorphSet[morph.target] = val;
-                } else {
-                    val = it->second;
+                } 
+                else {
+                    // Uninitialized or missing: generate new weight
+                    if (morph.type == L"Restrict") {
+                        std::uniform_int_distribution<> dis(0, 1);
+                        val = dis(gen) ? morph.maxVal : morph.minVal;
+                    } else {
+                        std::uniform_real_distribution<> dis(morph.minVal, morph.maxVal);
+                        val = dis(gen);
+                    }
                 }
+
+                // Synchronize final normalized weight back to memory
+                persist.MorphSet[morph.target] = val;
 
                 struct { FName MorphTargetName; float Value; bool bRemoveZeroWeight; } MorphParams{
                     FName(morph.target.c_str(), FNAME_Add), (float)val, false
@@ -147,4 +176,35 @@ namespace DynPals {
             }
         }
     }
+void PalProcessor::ForceSwap(UObject* Character, int SwapIndex) {
+        if (!Character || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
+
+        UObject* ParamComp = nullptr;
+        Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp);
+        if (!ParamComp) return;
+
+        UObject* IndivParam = nullptr;
+        Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
+        if (!IndivParam) return;
+
+        struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } InstanceIDStruct;
+        if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct)) return;
+        
+        std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
+
+        // Fetch existing data or create a new block
+        PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
+        if (!ExistingData) {
+            PalPersistData newData = { InstanceID, SwapIndex, {} };
+            SaveManager::Get().SetPersistData(InstanceID, newData);
+            ExistingData = SaveManager::Get().GetPersistData(InstanceID);
+        } else {
+            ExistingData->SwapIndex = SwapIndex;
+            SaveManager::Get().SetPersistData(InstanceID, *ExistingData); // Trigger save flag
+        }
+
+        // Apply it immediately
+        ApplySwap(Character, ConfigManager::Get().GetConfigs()[SwapIndex], *ExistingData);
+    }
 }
+

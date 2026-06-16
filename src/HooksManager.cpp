@@ -1,3 +1,4 @@
+#define NOMINMAX // Disable Windows min/max macros to prevent Unreal template corruption
 #include "HooksManager.hpp"
 #include "PalProcessor.hpp"
 #include "SaveManager.hpp"
@@ -6,6 +7,7 @@
 #include <Unreal/UFunction.hpp>
 #include <Unreal/UObjectGlobals.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
+#include <Windows.h>
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -15,7 +17,6 @@ namespace DynPals {
     void HooksManager::OnPalInit(UnrealScriptFunctionCallableContext& Context, void*) {
         UObject* ParamComp = Context.Context;
         if (ParamComp && ParamComp->GetOuterPrivate()) {
-            // Process the Pal immediately on the same execution frame.
             PalProcessor::Get().ProcessPal(ParamComp->GetOuterPrivate(), false);
         }
     }

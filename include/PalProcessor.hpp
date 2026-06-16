@@ -14,6 +14,7 @@ namespace DynPals {
 
         std::wstring StripCharacterPrefix(const std::wstring& InputID);
         void ProcessPal(RC::Unreal::UObject* Character, bool ForceReroll);
+void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex);
 
     private:
         PalProcessor() = default;

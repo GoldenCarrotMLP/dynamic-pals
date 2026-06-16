@@ -20,6 +20,7 @@ struct MorphTarget {
 };
 
 struct SwapConfig {
+    std::wstring PackName = L"Default"; // <-- New field
     std::wstring CharacterID;
     std::wstring SkelMeshPath;
     std::wstring Gender = L"None";
@@ -32,6 +33,7 @@ struct SwapConfig {
     std::vector<MatReplace> MatReplaceList;
     std::vector<MorphTarget> MorphTargetList;
 };
+
 
 struct PalPersistData {
     std::wstring InstanceID;
@@ -56,4 +58,8 @@ struct AltrSoftObjectPtr {
     int32_t TagAtLastTest = 0;
     int32_t Padding = 0;
     AltrSoftObjectPath ObjectID;
+};
+
+struct FVector_UE5 {
+    double X, Y, Z;
 };

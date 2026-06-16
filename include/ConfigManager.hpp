@@ -12,6 +12,10 @@ namespace DynPals {
             return instance;
         }
 
+        // Add this inside the public block:
+        std::vector<int> GetConfigsForCharID(const std::wstring& CharID) const;
+        void ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray);
+
         void Initialize(const std::wstring& BasePath);
         void LoadConfigJSONs();
         int FindBestSwap(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName);

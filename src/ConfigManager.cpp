@@ -37,9 +37,15 @@ namespace DynPals {
                 if (fileContent.empty()) continue;
 
                 nlohmann::json configData = nlohmann::json::parse(fileContent, nullptr, true, true);
-                if (configData.contains("SkelMeshSwap")) {
-                    ParseSwaps(configData.at("SkelMeshSwap"));
+                std::wstring packName = L"Default Pack";
+                if (configData.contains("PackName")) {
+                    packName = Utils::StringToWString(configData.at("PackName").get<std::string>());
                 }
+
+                if (configData.contains("SkelMeshSwap")) {
+                    ParseSwaps(packName, configData.at("SkelMeshSwap"));
+                }
+
             }
             Output::send<LogLevel::Normal>(STR("[DynPals] Complete matchmaking table compiled with {} swaps.\n"), Configs.size());
         } catch (const std::exception& e) {
@@ -47,9 +53,10 @@ namespace DynPals {
         }
     }
 
-    void ConfigManager::ParseSwaps(const nlohmann::json& swapArray) {
+    void ConfigManager::ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray) {
         for (auto& swapJson : swapArray) {
             SwapConfig sc;
+            sc.PackName = PackName; 
             sc.CharacterID = Utils::StringToWString(swapJson.at("CharacterID").get<std::string>());
             if (swapJson.contains("SkelMeshPath")) sc.SkelMeshPath = Utils::StringToWString(swapJson.at("SkelMeshPath").get<std::string>());
             if (swapJson.contains("Gender")) sc.Gender = Utils::StringToWString(swapJson.at("Gender").get<std::string>());
@@ -198,4 +205,14 @@ namespace DynPals {
         }
         return -1;
     }
+    std::vector<int> ConfigManager::GetConfigsForCharID(const std::wstring& CharID) const {
+        std::vector<int> results;
+        for (size_t i = 0; i < Configs.size(); ++i) {
+            if (Configs[i].CharacterID == CharID) {
+                results.push_back((int)i);
+            }
+        }
+        return results;
+    }
+
 }
