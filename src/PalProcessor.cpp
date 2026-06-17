@@ -53,9 +53,15 @@ namespace DynPals {
             SwapIndex = ExistingData->SwapIndex;
         } else {
             UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+            
             struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
             if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
             std::wstring CharID = StripCharacterPrefix(CharIDParams.RetVal.ToString());
+
+            // NEW: Fetch Wild status via UPalUtility
+            struct { UObject* Actor; bool RetVal; } WildParams{Character, false};
+            if (PalUtil) Utils::CallFunction(PalUtil, STR("IsWildNPC"), &WildParams);
+            bool IsWild = WildParams.RetVal;
 
             struct { bool RetVal; } RareParams{false};
             Utils::CallFunction(IndivParam, STR("IsRarePal"), &RareParams);
@@ -91,8 +97,9 @@ namespace DynPals {
                 Traits.push_back(TraitsParams.RetVal[i].ToString());
             }
 
-            SwapIndex = ConfigManager::Get().FindBestSwap(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum);
-
+            // Execute Matchmaker Pipeline
+            auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
+            SwapIndex = ConfigManager::Get().PickBestSwap(evaluations);
             if (SwapIndex != -1) {
                 PalPersistData newData = { InstanceID, SwapIndex, {} };
                 SaveManager::Get().SetPersistData(InstanceID, newData);
@@ -186,7 +193,6 @@ namespace DynPals {
     void PalProcessor::ForceSwap(UObject* Character, int SwapIndex) {
         if (!Character || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
 
-        // Register tracking so forced characters aren't reverted
         ProcessedPals.insert(Character);
 
         UObject* ParamComp = nullptr;
@@ -215,34 +221,27 @@ namespace DynPals {
         ApplySwap(Character, ConfigManager::Get().GetConfigs()[SwapIndex], *ExistingData);
     }
 
-    // --- ALTR 1:1 PASSIVE SCANNER ---
-    // Acts exactly like Altermatic's CheckToSwap Delay Loop
     void PalProcessor::ScanActivePals() {
         auto now = std::chrono::steady_clock::now();
-        // Wait 3 seconds between sweeps to prevent performance hit
         if (now - LastScanTime < std::chrono::seconds(3)) return;
         LastScanTime = now;
 
         std::vector<UObject*> AllPals;
         UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
 
-        // Convert the found arrays to a fast-lookup set for validation
         std::set<UObject*> CurrentActivePals(AllPals.begin(), AllPals.end());
 
-        // Process any undocumented Pals that weren't caught via Hook
         for (UObject* Pal : AllPals) {
             if (!Pal) continue; 
             
-            // If the Pal hasn't successfully received its swap yet, trigger the pipeline
             if (ProcessedPals.find(Pal) == ProcessedPals.end()) {
                 ProcessPal(Pal, false);
             }
         }
 
-        // Garbage Collect: Removes Destroyed/Despawned Pals from Memory
         for (auto it = ProcessedPals.begin(); it != ProcessedPals.end(); ) {
             if (CurrentActivePals.find(*it) == CurrentActivePals.end()) {
-                it = ProcessedPals.erase(it); // Safe iterator removal
+                it = ProcessedPals.erase(it); 
             } else {
                 ++it;
             }

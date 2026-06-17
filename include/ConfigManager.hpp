@@ -17,7 +17,10 @@ namespace DynPals {
 
         void Initialize(const std::wstring& BasePath);
         void LoadConfigJSONs();
-        int FindBestSwap(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust);
+        
+        // NEW: Single Source of Truth Architecture
+        std::vector<SwapEvaluation> EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild) const;
+        int PickBestSwap(const std::vector<SwapEvaluation>& evaluations) const;
 
         const std::vector<SwapConfig>& GetConfigs() const { return Configs; }
 

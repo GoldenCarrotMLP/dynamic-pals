@@ -1,0 +1,37 @@
+{
+    "PackName":  "Default Pack",
+    "CharacterID":  "",
+    "SkelMeshPath":  "",
+    "Gender":  "None",
+    "SkinName":  "",
+    "MinLevel":  1,
+    "MaxLevel":  999,
+    "MinTrust":  0,
+    "MaxTrust":  999999,
+    "MinRank":  0,
+    "MaxRank":  5,
+    "Weight":  1,
+    "IsRarePal":  false,
+    "IsWildPal":  false,
+    "ReqTrait":  [
+                     "TraitExample"
+                 ],
+    "PrefTrait":  [
+                      "TraitExample"
+                  ],
+    "MatReplaceList":  [
+                           {
+                               "MatPath":  "/Game/MaterialPath",
+                               "Index":  "0"
+                           }
+                       ],
+    "MorphTargetList":  [
+                            {
+                                "Max":  1,
+                                "Min":  0,
+                                "Target":  "MorphName",
+                                "Type":  "Free",
+                                "Set":  1
+                            }
+                        ]
+}

@@ -33,9 +33,11 @@ namespace DynPals {
         void LockInput(bool bLock);
 
         bool bIsMenuOpen = false;
+        bool bHideInvalidSwaps = true; // NEW: Defaults to TRUE to hide failed swaps
         
         RC::Unreal::UObject* MyWidget = nullptr;
         RC::Unreal::UObject* ComboBoxWidget = nullptr;
+        RC::Unreal::UObject* CheckBoxWidget = nullptr; // NEW: The CheckBox reference
         RC::Unreal::UObject* TargetPal = nullptr;
 
         std::wstring TargetInstanceID = L"";

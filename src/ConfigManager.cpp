@@ -62,21 +62,35 @@ namespace DynPals {
             if (swapJson.contains("Gender")) sc.Gender = Utils::StringToWString(swapJson.at("Gender").get<std::string>());
             if (swapJson.contains("SkinName")) sc.SkinName = Utils::StringToWString(swapJson.at("SkinName").get<std::string>());
             
-            // New Matchmaking Properties
             if (swapJson.contains("MinLevel")) sc.MinLevel = swapJson.at("MinLevel").get<int>();
             if (swapJson.contains("MaxLevel")) sc.MaxLevel = swapJson.at("MaxLevel").get<int>();
             if (swapJson.contains("MinTrust")) sc.MinTrust = swapJson.at("MinTrust").get<int>();
             if (swapJson.contains("MaxTrust")) sc.MaxTrust = swapJson.at("MaxTrust").get<int>();
             if (swapJson.contains("MinRank")) sc.MinRank = swapJson.at("MinRank").get<int>();
             if (swapJson.contains("MaxRank")) sc.MaxRank = swapJson.at("MaxRank").get<int>();
+            if (swapJson.contains("Weight")) {
+                int w = swapJson.at("Weight").get<int>();
+                sc.Weight = w > 0 ? w : 1;
+            }
             
             if (swapJson.contains("IsRarePal")) {
                 if (swapJson.at("IsRarePal").is_boolean()) {
-                    sc.IsRarePal = swapJson.at("IsRarePal").get<bool>() ? L"true" : L"false";
-                } else {
-                    sc.IsRarePal = Utils::StringToWString(swapJson.at("IsRarePal").get<std::string>());
+                    sc.IsRarePal = swapJson.at("IsRarePal").get<bool>();
+                } else if (swapJson.at("IsRarePal").is_string()) {
+                    std::string s = swapJson.at("IsRarePal").get<std::string>();
+                    sc.IsRarePal = (s == "true");
                 }
             }
+
+            if (swapJson.contains("IsWildPal")) {
+                if (swapJson.at("IsWildPal").is_boolean()) {
+                    sc.IsWildPal = swapJson.at("IsWildPal").get<bool>();
+                } else if (swapJson.at("IsWildPal").is_string()) {
+                    std::string s = swapJson.at("IsWildPal").get<std::string>();
+                    sc.IsWildPal = (s == "true");
+                }
+            }
+
 
             if (swapJson.contains("ReqTrait")) {
                 for (auto& trait : swapJson.at("ReqTrait")) sc.ReqTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
@@ -109,101 +123,127 @@ namespace DynPals {
         }
     }
 
-    int ConfigManager::FindBestSwap(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust) {
-        int bestScore = 999999;
-        std::vector<int> bestMatches;
+  std::vector<SwapEvaluation> ConfigManager::EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild) const {
+        std::vector<SwapEvaluation> results;
 
         for (size_t i = 0; i < Configs.size(); i++) {
             auto& swap = Configs[i];
             if (swap.CharacterID != CharID) continue;
 
-            int score = 0;
-            bool isValid = true;
+            SwapEvaluation eval;
+            eval.ConfigIndex = (int)i;
+            eval.Score = 0;
+            eval.IsValid = true;
 
-            // 1. Level Check
-            if (Level < swap.MinLevel || Level > swap.MaxLevel) isValid = false;
+            // 1. Hard Limits
+            if (Level < swap.MinLevel || Level > swap.MaxLevel) eval.IsValid = false;
+            if (eval.IsValid && (Rank < swap.MinRank || Rank > swap.MaxRank)) eval.IsValid = false;
+            if (eval.IsValid && (Trust < swap.MinTrust || Trust > swap.MaxTrust)) eval.IsValid = false;
 
-            // 2. Rank Check (Stars 0-4)
-            if (isValid && (Rank < swap.MinRank || Rank > swap.MaxRank)) isValid = false;
-
-            // 3. Trust Check (Friendship)
-            if (isValid && (Trust < swap.MinTrust || Trust > swap.MaxTrust)) isValid = false;
-
-            // 4. Gender Match with fallbacks
-            if (isValid && swap.Gender != L"None") {
+            // 2. Gender Match with fallbacks
+            if (eval.IsValid && swap.Gender != L"None") {
                 if (swap.Gender != GenderStr) {
                     bool fallbackMatched = false;
-                    
                     if (swap.Gender == L"Male" && (GenderStr == L"Futa" || GenderStr == L"FullFuta")) {
-                        score += 50000;
+                        eval.Score += 50000;
                         fallbackMatched = true;
                     } else if (swap.Gender == L"Female" && (GenderStr == L"Andro" || GenderStr == L"Neutered" || GenderStr == L"FullNeutered")) {
-                        score += 50000;
+                        eval.Score += 50000;
                         fallbackMatched = true;
                     }
-                    
-                    if (!fallbackMatched) isValid = false;
+                    if (!fallbackMatched) eval.IsValid = false;
                 }
-            } else if (isValid && swap.Gender == L"None" && GenderStr != L"None") {
-                score += 500000; // Genderless fallback degrade
+            } else if (eval.IsValid && swap.Gender == L"None" && GenderStr != L"None") {
+                eval.Score += 500000; 
             }
 
-            // 5. Skin Name Check
-            if (isValid && !swap.SkinName.empty() && SkinName != swap.SkinName) {
-                isValid = false;
+            // 3. Exact String Matches
+            if (eval.IsValid && !swap.SkinName.empty() && SkinName != swap.SkinName) {
+                eval.IsValid = false;
             }
 
-            // 6. Rare Status Match
-            if (isValid && !swap.IsRarePal.empty()) {
-                bool reqRare = (swap.IsRarePal == L"true");
-                if (reqRare && !IsRare) isValid = false; 
-                else if (!reqRare && IsRare) score += 110; 
+            // 4. Boolean Flags
+            if (eval.IsValid && swap.IsRarePal.has_value()) {
+                bool reqRare = swap.IsRarePal.value();
+                if (reqRare && !IsRare) eval.IsValid = false; 
+                else if (!reqRare && IsRare) eval.Score += 110; 
             }
 
-            // 7. Required Traits
-            if (isValid) {
+            if (eval.IsValid && swap.IsWildPal.has_value()) {
+                bool reqWild = swap.IsWildPal.value();
+                if (reqWild != IsWild) eval.IsValid = false;
+            }
+
+            // 5. Traits
+            if (eval.IsValid) {
                 for (const auto& req : swap.ReqTrait) {
                     bool hasTrait = false;
                     for (const auto& t : Traits) {
                         if (t == req) { hasTrait = true; break; }
                     }
                     if (!hasTrait) {
-                        isValid = false;
+                        eval.IsValid = false;
                         break;
                     } else {
-                        score -= 5; 
+                        eval.Score -= 5; 
                     }
                 }
             }
 
-            // 8. Preferred Traits
-            if (isValid) {
+            if (eval.IsValid) {
                 for (const auto& pref : swap.PrefTrait) {
                     bool hasTrait = false;
                     for (const auto& t : Traits) {
                         if (t == pref) { hasTrait = true; break; }
                     }
-                    if (hasTrait) score -= 5; 
-                    else score += 5; 
+                    if (hasTrait) eval.Score -= 5; 
+                    else eval.Score += 5; 
                 }
             }
 
-            // Evaluation
-            if (isValid) {
-                if (score < bestScore) {
-                    bestScore = score;
-                    bestMatches = { (int)i };
-                } else if (score == bestScore) {
-                    bestMatches.push_back((int)i);
-                }
+            results.push_back(eval);
+        }
+        return results;
+    }
+
+    int ConfigManager::PickBestSwap(const std::vector<SwapEvaluation>& evaluations) const {
+        int bestScore = 999999;
+        std::vector<int> bestMatches;
+
+        for (const auto& eval : evaluations) {
+            if (!eval.IsValid) continue;
+            
+            if (eval.Score < bestScore) {
+                bestScore = eval.Score;
+                bestMatches = { eval.ConfigIndex };
+            } else if (eval.Score == bestScore) {
+                bestMatches.push_back(eval.ConfigIndex);
             }
         }
 
         if (!bestMatches.empty()) {
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::uniform_int_distribution<> dis(0, (int)bestMatches.size() - 1);
-            return bestMatches[dis(gen)];
+            // NEW: Calculate the sum of weights among the tied configurations
+            int totalWeight = 0;
+            for (int idx : bestMatches) {
+                totalWeight += Configs[idx].Weight;
+            }
+
+            if (totalWeight > 0) {
+                std::random_device rd;
+                std::mt19937 gen(rd());
+                std::uniform_int_distribution<> dis(0, totalWeight - 1);
+                int randomValue = dis(gen);
+
+                // Run a cumulative weight select to find the weighted winner
+                int cumulativeWeight = 0;
+                for (int idx : bestMatches) {
+                    cumulativeWeight += Configs[idx].Weight;
+                    if (randomValue < cumulativeWeight) {
+                        return idx;
+                    }
+                }
+            }
+            return bestMatches[0]; // Fallback
         }
         return -1;
     }
