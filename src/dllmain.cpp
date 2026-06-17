@@ -31,10 +31,13 @@ public:
     {
         DynPals::SaveManager::Get().TickSave();
         DynPals::UIManager::Get().TickUI(); 
+        
+        // Passive Scanner runs in the background
+        DynPals::PalProcessor::Get().ScanActivePals(); 
 
-        // Listen for Ctrl + N (0x4E)
+        // Listen for Alt + N (VK_MENU = Alt Key)
         static bool bMenuKeyPressed = false;
-        if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) && (GetAsyncKeyState(0x4E) & 0x8000)) {
+        if ((GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(0x4E) & 0x8000)) {
             if (!bMenuKeyPressed) {
                 bMenuKeyPressed = true;
                 DynPals::UIManager::Get().ToggleMenu();

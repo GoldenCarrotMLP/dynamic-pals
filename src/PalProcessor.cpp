@@ -39,7 +39,12 @@ namespace DynPals {
         if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct)) return;
         
         std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
+        
+        // Wait until Pal is fully initialized with a valid InstanceID before tracking/processing it.
         if (InstanceID == L"00000000000000000000000000000000") return;
+
+        // Register the Pal as initialized so the scanner leaves it alone
+        ProcessedPals.insert(Character);
 
         PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
         int SwapIndex = -1;
@@ -89,7 +94,7 @@ namespace DynPals {
         }
     }
 
-void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
+    void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
         UObject* MeshComp = nullptr;
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp) return;
@@ -114,7 +119,6 @@ void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPers
             }
         }
 
-        // 1:1 ALTERMATIC PARITY: Upgraded Morph Target Application
         if (!swap.MorphTargetList.empty()) {
             std::random_device rd;
             std::mt19937 gen(rd());
@@ -128,35 +132,28 @@ void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPers
                 
                 if (it != persist.MorphSet.end()) {
                     savedVal = it->second;
-                    // Altermatic checks if value is >= -900.0 to verify it's initialized
                     if (savedVal >= -900.0) {
                         hasValidSavedVal = true;
                     }
                 }
 
                 if (morph.setVal != -1000.0) {
-                    // Explicit override in config takes immediate priority
                     val = morph.setVal;
                 } 
                 else if (hasValidSavedVal) {
-                    // Valid saved state exists, verify against active config bounds
                     if (morph.type == L"Restrict") {
-                        // Restrict mode: round to nearest bound via midpoint calculation
                         double midpoint = ((morph.maxVal - morph.minVal) / 2.0) + morph.minVal;
                         val = (savedVal >= midpoint) ? morph.maxVal : morph.minVal;
                     } else {
-                        // Free mode: verify saved value is still within config limits
                         if (savedVal >= morph.minVal && savedVal <= morph.maxVal) {
                             val = savedVal;
                         } else {
-                            // Config bounds updated, safely regenerate
                             std::uniform_real_distribution<> dis(morph.minVal, morph.maxVal);
                             val = dis(gen);
                         }
                     }
                 } 
                 else {
-                    // Uninitialized or missing: generate new weight
                     if (morph.type == L"Restrict") {
                         std::uniform_int_distribution<> dis(0, 1);
                         val = dis(gen) ? morph.maxVal : morph.minVal;
@@ -166,7 +163,6 @@ void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPers
                     }
                 }
 
-                // Synchronize final normalized weight back to memory
                 persist.MorphSet[morph.target] = val;
 
                 struct { FName MorphTargetName; float Value; bool bRemoveZeroWeight; } MorphParams{
@@ -176,8 +172,12 @@ void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPers
             }
         }
     }
-void PalProcessor::ForceSwap(UObject* Character, int SwapIndex) {
+
+    void PalProcessor::ForceSwap(UObject* Character, int SwapIndex) {
         if (!Character || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
+
+        // Register tracking so forced characters aren't reverted
+        ProcessedPals.insert(Character);
 
         UObject* ParamComp = nullptr;
         Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp);
@@ -192,7 +192,6 @@ void PalProcessor::ForceSwap(UObject* Character, int SwapIndex) {
         
         std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
 
-        // Fetch existing data or create a new block
         PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
         if (!ExistingData) {
             PalPersistData newData = { InstanceID, SwapIndex, {} };
@@ -200,11 +199,44 @@ void PalProcessor::ForceSwap(UObject* Character, int SwapIndex) {
             ExistingData = SaveManager::Get().GetPersistData(InstanceID);
         } else {
             ExistingData->SwapIndex = SwapIndex;
-            SaveManager::Get().SetPersistData(InstanceID, *ExistingData); // Trigger save flag
+            SaveManager::Get().SetPersistData(InstanceID, *ExistingData); 
         }
 
-        // Apply it immediately
         ApplySwap(Character, ConfigManager::Get().GetConfigs()[SwapIndex], *ExistingData);
     }
-}
 
+    // --- ALTR 1:1 PASSIVE SCANNER ---
+    // Acts exactly like Altermatic's CheckToSwap Delay Loop
+    void PalProcessor::ScanActivePals() {
+        auto now = std::chrono::steady_clock::now();
+        // Wait 3 seconds between sweeps to prevent performance hit
+        if (now - LastScanTime < std::chrono::seconds(3)) return;
+        LastScanTime = now;
+
+        std::vector<UObject*> AllPals;
+        UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+
+        // Convert the found arrays to a fast-lookup set for validation
+        std::set<UObject*> CurrentActivePals(AllPals.begin(), AllPals.end());
+
+        // Process any undocumented Pals that weren't caught via Hook
+        for (UObject* Pal : AllPals) {
+            if (!Pal) continue; // Safe standard null-check (avoids non-exported IsUnreachable)
+            
+            // If the Pal hasn't successfully received its swap yet, trigger the pipeline
+            if (ProcessedPals.find(Pal) == ProcessedPals.end()) {
+                ProcessPal(Pal, false);
+            }
+        }
+
+        // Garbage Collect: Removes Destroyed/Despawned Pals from Memory
+        for (auto it = ProcessedPals.begin(); it != ProcessedPals.end(); ) {
+            if (CurrentActivePals.find(*it) == CurrentActivePals.end()) {
+                it = ProcessedPals.erase(it); // Safe iterator removal
+            } else {
+                ++it;
+
+            }
+        }
+    }
+}
