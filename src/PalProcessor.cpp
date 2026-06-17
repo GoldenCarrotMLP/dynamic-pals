@@ -124,8 +124,122 @@ namespace DynPals {
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
             }
         }
+// NEW: Animation Bridging System with Deep Diagnostic Logging
+if (!swap.AnimTarget.empty()) {
+    std::wstring AnimPath = swap.AnimTarget;
+    
+    // Quality of Life: Auto-format simple IDs (like "WeaselDragon") into full Blueprint paths
+    if (AnimPath.find(L'/') == std::wstring::npos) {
+        AnimPath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
+    }
 
-        Utils::CallFunction(MeshComp, STR("EmptyOverrideMaterials"));
+    Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Initiating swap to target: {}\n"), AnimPath.c_str());
+
+    // Split the package path and class name to construct the Class Default Object (CDO) path
+    size_t dotPos = AnimPath.find(L'.');
+    if (dotPos != std::wstring::npos) {
+        std::wstring PackagePath = AnimPath.substr(0, dotPos);
+        std::wstring ClassName = AnimPath.substr(dotPos + 1);
+        
+        // Construct the CDO path: e.g. "/Game/.../BP_WeaselDragon.Default__BP_WeaselDragon_C"
+        std::wstring CDOPath = PackagePath + L".Default__" + ClassName;
+        Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Calculated CDO Path: {}\n"), CDOPath.c_str());
+
+        // Load both the Class and the CDO safely as standard asset paths
+        UClass* TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
+        UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
+        
+        if (!TargetBPClass) {
+            Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to load target Blueprint Class at: {}\n"), AnimPath.c_str());
+        }
+        if (!TargetCDO) {
+            Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to load target CDO at: {}\n"), CDOPath.c_str());
+        }
+
+        if (TargetBPClass && TargetCDO) {
+            Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Successfully loaded Class and CDO. Processing subcomponents...\n"));
+            
+            // 1. Swap the Base AnimBlueprint on the Skeletal Mesh
+            UObject* TargetMesh = nullptr;
+Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
+if (TargetMesh) {
+    UClass* TargetAnimClass = nullptr;
+    Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
+    
+    if (TargetAnimClass) {
+        std::wstring AnimClassName = TargetAnimClass->GetName();
+        Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Found Target AnimClass: {}\n"), AnimClassName.c_str());
+        
+        // FIX: Changed "SetAnimInstanceClass" to "SetAnimClass" for UE5 compatibility
+        UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
+        if (SetAnimFunc) {
+            struct { UClass* NewClass; } Params{ TargetAnimClass };
+            MeshComp->ProcessEvent(SetAnimFunc, &Params);
+            Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Successfully called SetAnimClass on MeshComp.\n"));
+        } else {
+            Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: MeshComp does not have 'SetAnimClass' function!\n"));
+        }
+    } else {
+        Output::send<LogLevel::Warning>(STR("[DynPals] Animation Bridge Warning: Target mesh does not have an AnimClass defined.\n"));
+    }
+} else {
+    Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to find 'Mesh' property on Target CDO.\n"));
+
+            }
+
+            // 2. Clone the Animation Montages from the Target's Static Parameter Component
+            UObject* TargetStaticParam = nullptr;
+            Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+
+            UObject* CurrentStaticParam = nullptr;
+            Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), CurrentStaticParam);
+
+            if (!TargetStaticParam) {
+                Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to find StaticCharacterParameterComponent on Target CDO.\n"));
+            }
+            if (!CurrentStaticParam) {
+                Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to find StaticCharacterParameterComponent on Current Character.\n"));
+            }
+
+            if (TargetStaticParam && CurrentStaticParam) {
+                Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Found both parameter components. Copying properties...\n"));
+                
+                // Helper lambda to safely copy memory values between FProperties with strict logging
+                auto CopyProp = [](UObject* Src, UObject* Dest, const wchar_t* PropName) {
+                    FProperty* SrcProp = Utils::GetProperty(Src, PropName);
+                    FProperty* DestProp = Utils::GetProperty(Dest, PropName);
+                    if (!SrcProp) {
+                        Output::send<LogLevel::Warning>(STR("[DynPals] Animation Bridge: Property '{}' missing on SOURCE.\n"), PropName);
+                    }
+                    if (!DestProp) {
+                        Output::send<LogLevel::Warning>(STR("[DynPals] Animation Bridge: Property '{}' missing on DESTINATION.\n"), PropName);
+                    }
+                    
+                    if (SrcProp && DestProp) {
+                        void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(Src);
+                        void* DestPtr = DestProp->ContainerPtrToValuePtr<void>(Dest);
+                        if (SrcPtr && DestPtr) {
+                            DestProp->CopyCompleteValue(DestPtr, SrcPtr);
+                            Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Copied '{}' successfully.\n"), PropName);
+                            return;
+                        }
+                    }
+                };
+
+                // Copy all fundamental Animation Maps/Arrays
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
+            }
+        }
+    } else {
+        Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Malformed AnimTarget path (No dot found): {}\n"), AnimPath.c_str());
+    }
+}
+Utils::CallFunction(MeshComp, STR("EmptyOverrideMaterials"));
 
         for (auto& mat : swap.MatReplaceList) {
             UObject* NewMat = Utils::LoadAssetSafely(mat.matPath);

@@ -27,6 +27,7 @@ struct SwapConfig {
     std::wstring PackName = L"Default Pack";
     std::wstring CharacterID;
     std::wstring SkelMeshPath;
+    std::wstring AnimTarget = L"";
     GenderType Gender = L"None"; 
     std::wstring SkinName = L"";
     int MinLevel = 1;
@@ -35,13 +36,15 @@ struct SwapConfig {
     int MaxTrust = 999999;   
     int MinRank = 0;         
     int MaxRank = 5;         
-    int Weight = 1;          // NEW: Weighted random distribution multiplier (Default = 1)
+    int SpawnWeight = 1;          
     std::optional<bool> IsRarePal; 
     std::optional<bool> IsWildPal; 
     std::vector<std::wstring> ReqTrait;
     std::vector<std::wstring> PrefTrait;
+    std::vector<std::wstring> SkipTrait;
     std::vector<MatReplace> MatReplaceList;
-    std::vector<MorphTarget> MorphTargetList;
+    std::vector<MorphTarget> MorphTargetList;\
+    std::wstring Extra = L"{}";  
 };
 
 struct SwapEvaluation {

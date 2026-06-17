@@ -59,6 +59,7 @@ namespace DynPals {
             sc.PackName = PackName; 
             sc.CharacterID = Utils::StringToWString(swapJson.at("CharacterID").get<std::string>());
             if (swapJson.contains("SkelMeshPath")) sc.SkelMeshPath = Utils::StringToWString(swapJson.at("SkelMeshPath").get<std::string>());
+            if (swapJson.contains("AnimTarget")) {sc.AnimTarget = Utils::StringToWString(swapJson.at("AnimTarget").get<std::string>());}
             if (swapJson.contains("Gender")) sc.Gender = Utils::StringToWString(swapJson.at("Gender").get<std::string>());
             if (swapJson.contains("SkinName")) sc.SkinName = Utils::StringToWString(swapJson.at("SkinName").get<std::string>());
             
@@ -68,17 +69,26 @@ namespace DynPals {
             if (swapJson.contains("MaxTrust")) sc.MaxTrust = swapJson.at("MaxTrust").get<int>();
             if (swapJson.contains("MinRank")) sc.MinRank = swapJson.at("MinRank").get<int>();
             if (swapJson.contains("MaxRank")) sc.MaxRank = swapJson.at("MaxRank").get<int>();
-            if (swapJson.contains("Weight")) {
-                int w = swapJson.at("Weight").get<int>();
-                sc.Weight = w > 0 ? w : 1;
+            if (swapJson.contains("SpawnWeight")) {
+                int w = swapJson.at("SpawnWeight").get<int>();
+                sc.SpawnWeight = w > 0 ? w : 1;
             }
+            if (swapJson.contains("SkipTrait")) {
+    for (auto& trait : swapJson.at("SkipTrait")) {
+        sc.SkipTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+    }
+}
+if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
+    // We dump the nested JSON object as a raw string so other mods can read and parse it!
+    sc.Extra = Utils::StringToWString(swapJson.at("Extra").dump());
+}
             
             if (swapJson.contains("IsRarePal")) {
                 if (swapJson.at("IsRarePal").is_boolean()) {
                     sc.IsRarePal = swapJson.at("IsRarePal").get<bool>();
                 } else if (swapJson.at("IsRarePal").is_string()) {
                     std::string s = swapJson.at("IsRarePal").get<std::string>();
-                    sc.IsRarePal = (s == "true");
+                    sc.IsRarePal = (s == "true" || s == "True");
                 }
             }
 
@@ -87,7 +97,7 @@ namespace DynPals {
                     sc.IsWildPal = swapJson.at("IsWildPal").get<bool>();
                 } else if (swapJson.at("IsWildPal").is_string()) {
                     std::string s = swapJson.at("IsWildPal").get<std::string>();
-                    sc.IsWildPal = (s == "true");
+                    sc.IsWildPal = (s == "true" || s == "True");
                 }
             }
 
@@ -200,6 +210,23 @@ namespace DynPals {
                     else eval.Score += 5; 
                 }
             }
+            if (eval.IsValid) {
+                for (const auto& skip : swap.SkipTrait) {
+                bool hasBlacklistedTrait = false;
+                for (const auto& t : Traits) {
+                    if (t == skip) {
+                    hasBlacklistedTrait = true;
+                break;
+            }
+        }
+        if (hasBlacklistedTrait) {
+            eval.IsValid = false; // Banned trait found, skip this swap!
+            break;
+        }
+                }
+            
+}
+
 
             results.push_back(eval);
         }
@@ -225,7 +252,7 @@ namespace DynPals {
             // NEW: Calculate the sum of weights among the tied configurations
             int totalWeight = 0;
             for (int idx : bestMatches) {
-                totalWeight += Configs[idx].Weight;
+                totalWeight += Configs[idx].SpawnWeight;
             }
 
             if (totalWeight > 0) {
@@ -237,7 +264,7 @@ namespace DynPals {
                 // Run a cumulative weight select to find the weighted winner
                 int cumulativeWeight = 0;
                 for (int idx : bestMatches) {
-                    cumulativeWeight += Configs[idx].Weight;
+                    cumulativeWeight += Configs[idx].SpawnWeight;
                     if (randomValue < cumulativeWeight) {
                         return idx;
                     }

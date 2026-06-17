@@ -429,7 +429,7 @@ namespace DynPals {
           int totalTiedWeight = 0;
         for (const auto& eval : evaluations) {
             if (eval.IsValid && eval.Score == bestScore) {
-                totalTiedWeight += ConfigManager::Get().GetConfigs()[eval.ConfigIndex].Weight;
+                totalTiedWeight += ConfigManager::Get().GetConfigs()[eval.ConfigIndex].SpawnWeight;
             }
         }
         std::map<std::wstring, std::vector<SwapEvaluation>> groupedPacks;
@@ -576,7 +576,7 @@ namespace DynPals {
                 // Calculate weighted percentage instead of uniform
                 int pct = 0;
                 if (eval.IsValid && eval.Score == bestScore && totalTiedWeight > 0) {
-                    pct = (cfg.Weight * 100) / totalTiedWeight;
+                    pct = (cfg.SpawnWeight * 100) / totalTiedWeight;
                 }
 
                 FLinearColor textColor;

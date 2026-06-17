@@ -57,6 +57,9 @@ if (\$file -match '(?s)struct\\s+SwapConfig\\s*\\{(.*?)\\};') {
             \$name = \$Matches[2].Trim()
             \$val = if (\$Matches[3]) { \$Matches[3].Trim() } else { \$null }
             
+            # Skip PackName inside the array, as it's parsed on the root level instead
+            if (\$name -eq 'PackName') { continue }
+            
             # Match schema constraints based on type aliases
             \$optionVal = if (\$aliases.ContainsKey(\$type)) { \$aliases[\$type] = \$aliases[\$type] } else { \$null }
             
@@ -90,11 +93,18 @@ if (\$file -match '(?s)struct\\s+SwapConfig\\s*\\{(.*?)\\};') {
             }
         }
     }
-    \$final = ,\$json | ConvertTo-Json -Depth 5
+    
+    # Wrap it nicely inside the root structure matching palbaker-Ronin.json
+    \$rootLayout = [ordered]@{
+        'PackName' = 'Your Replacer Pack Name'
+        'SkelMeshSwap' = ,\$json
+    }
+    \$final = \$rootLayout | ConvertTo-Json -Depth 5
     New-Item -ItemType Directory -Force -Path \"${CMAKE_CURRENT_SOURCE_DIR}/dlls\" | Out-Null
     Set-Content -Path \"${CMAKE_CURRENT_SOURCE_DIR}/dlls/_Template_SwapConfig.json\" -Value \$final
 }
 ")
+
 
 # Write the generator script out safely (CMake expands ${CMAKE_CURRENT_SOURCE_DIR})
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generate_template.ps1" "${PS_SCRIPT}")
