@@ -11,6 +11,7 @@
 #include <Unreal/FString.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp> 
 #include <DynamicOutput/DynamicOutput.hpp>
+#include <chrono>
 #include <cmath>
 #include <map>
 
@@ -69,16 +70,56 @@ namespace DynPals {
 
     void UIManager::LockInput(bool bLock) {
         UObject* PlayerController = GetLocalPlayerController();
-        if (PlayerController) {
+        if (!PlayerController) return;
+
+        UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
+        if (!WBL) return;
+
+        if (bLock) {
+            // Force cursor visibility via APlayerController
             auto* prop = Utils::GetProperty(PlayerController, STR("bShowMouseCursor"));
             if (prop) {
                 bool* pVal = prop->ContainerPtrToValuePtr<bool>(PlayerController);
-                if (pVal) *pVal = bLock;
+                if (pVal) *pVal = true;
             }
-            struct { bool bNewLookInput; } Params{ bLock };
-            Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"), &Params);
+
+            // APlayerController::SetIgnoreLookInput(true)
+            struct { bool bNewLookInput; } LookParams{ true };
+            Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"), &LookParams);
+
+            // UWidgetBlueprintLibrary::SetInputMode_UIOnlyEx
+            // Params: PlayerController, InWidgetToFocus, InMouseLockMode (EMouseLockMode::DoNotLock = 0), bFlushInput
+            struct {
+                UObject* PlayerController;
+                UObject* InWidgetToFocus;
+                uint8_t InMouseLockMode; 
+                bool bFlushInput;
+            } SetInputParams{ PlayerController, MyWidget, 0, false };
+
+            Utils::CallFunction(WBL, STR("SetInputMode_UIOnlyEx"), &SetInputParams);
+        } else {
+            // Restore standard cursor visibility
+            auto* prop = Utils::GetProperty(PlayerController, STR("bShowMouseCursor"));
+            if (prop) {
+                bool* pVal = prop->ContainerPtrToValuePtr<bool>(PlayerController);
+                if (pVal) *pVal = false;
+            }
+
+            // APlayerController::SetIgnoreLookInput(false)
+            struct { bool bNewLookInput; } LookParams{ false };
+            Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"), &LookParams);
+
+            // UWidgetBlueprintLibrary::SetInputMode_GameOnly
+            // Params: PlayerController, bFlushInput
+            struct {
+                UObject* PlayerController;
+                bool bFlushInput;
+            } SetInputParams{ PlayerController, false };
+
+            Utils::CallFunction(WBL, STR("SetInputMode_GameOnly"), &SetInputParams);
         }
     }
+
 
     void UIManager::UpdateTarget() {
         TargetPal = nullptr;
@@ -164,6 +205,14 @@ namespace DynPals {
         MyWidget = CreateParams.ReturnValue;
         if (!MyWidget) return;
 
+        // Force root widget to be focusable to prevent Slate input routing crashes in UI-Only mode
+        auto* FocusProp = Utils::GetProperty(MyWidget, STR("bIsFocusable"));
+        if (FocusProp) {
+            bool* pFocus = FocusProp->ContainerPtrToValuePtr<bool>(MyWidget);
+            if (pFocus) *pFocus = true;
+        }
+
+
         UObject* WidgetTree = nullptr;
         if (!Utils::GetPropertyValue(MyWidget, STR("WidgetTree"), WidgetTree) || !WidgetTree) return;
 
@@ -174,7 +223,6 @@ namespace DynPals {
             return UObjectGlobals::StaticConstructObject(Params);
         };
 
-        // Get UMG Native classes
         UClass* CanvasPanelClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.CanvasPanel"));
         UClass* BorderClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Border"));
         UClass* ScrollBoxClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.ScrollBox"));
@@ -199,7 +247,6 @@ namespace DynPals {
         Utils::CallFunction(Canvas, STR("AddChild"), &AddBorderParams);
         UObject* CanvasSlot = AddBorderParams.ReturnValue;
 
-        // Floating Middle-Left Panel 
         FAnchors Anchors{0.02, 0.15, 0.22, 0.85}; 
         struct { FAnchors InAnchors; } AnchorsParams{Anchors};
         Utils::CallFunction(CanvasSlot, STR("SetAnchors"), &AnchorsParams);
@@ -208,7 +255,6 @@ namespace DynPals {
         struct { FMargin InOffsets; } OffsetsParams{Offsets};
         Utils::CallFunction(CanvasSlot, STR("SetOffsets"), &OffsetsParams);
 
-        // PalBaker Theme: Deep Navy Background (#031427)
         struct { FLinearColor InBrushColor; } BrushColorParams{{0.012f, 0.078f, 0.153f, 0.96f}}; 
         Utils::CallFunction(BackgroundBorder, STR("SetBrushColor"), &BrushColorParams);
 
@@ -241,12 +287,10 @@ namespace DynPals {
             }
         };
 
-        // PalBaker Palette definitions
-        const FLinearColor PalBakerCyan    = {0.024f, 0.714f, 0.831f, 1.0f}; // Primary Cyan Accent (#06b6d4)
-        const FLinearColor PalBakerEmerald = {0.063f, 0.725f, 0.506f, 1.0f}; // Success Accent (#10b981)
-        const FLinearColor OffWhite        = {0.930f, 0.930f, 0.930f, 1.0f}; // High-Contrast Text
+        const FLinearColor PalBakerCyan    = {0.024f, 0.714f, 0.831f, 1.0f}; 
+        const FLinearColor PalBakerEmerald = {0.063f, 0.725f, 0.506f, 1.0f}; 
+        const FLinearColor OffWhite        = {0.930f, 0.930f, 0.930f, 1.0f}; 
 
-        // Custom High-Contrast Text Color Injector
         auto SetTextColor = [&](UObject* Widget, FLinearColor Color) {
             if (!Widget) return;
             struct { FSlateColor_UE5 InColorAndOpacity; } Params{ {Color, 0, {0,0,0}} };
@@ -259,21 +303,18 @@ namespace DynPals {
             }
         };
 
-        // Safe Reflection Styling: Injects Colors into the Dropdown Row Items Native Structs
         auto StyleComboBox = [&](UObject* Combo) {
             if (!Combo) return;
             
-            // Set the resting, collapsed text color
             auto* ForegroundProp = Utils::GetProperty(Combo, STR("ForegroundColor"));
             if (ForegroundProp) {
                 FSlateColor_UE5* pColor = ForegroundProp->ContainerPtrToValuePtr<FSlateColor_UE5>(Combo);
                 if (pColor) {
                     pColor->SpecifiedColor = OffWhite;
-                    pColor->ColorUseRule = 0; // UseColor_Specified
+                    pColor->ColorUseRule = 0; 
                 }
             }
 
-            // Reflect down into the expanded ItemStyle (FTableRowStyle) to change popup item text colors
             auto* ItemStyleProp = Utils::GetProperty(Combo, STR("ItemStyle"));
             if (ItemStyleProp) {
                 void* ItemStylePtr = ItemStyleProp->ContainerPtrToValuePtr<void>(Combo);
@@ -282,7 +323,6 @@ namespace DynPals {
                     UStruct* TableRowStyleStruct = StructProp->GetStruct();
                     if (TableRowStyleStruct) {
                         
-                        // Set standard text rows to Off-White
                         FProperty* TextColorProp = TableRowStyleStruct->GetPropertyByNameInChain(STR("TextColor"));
                         if (TextColorProp) {
                             FSlateColor_UE5* pColor = TextColorProp->ContainerPtrToValuePtr<FSlateColor_UE5>(ItemStylePtr);
@@ -292,7 +332,6 @@ namespace DynPals {
                             }
                         }
                         
-                        // Set highlighted/hovered rows to PalBaker Cyan
                         FProperty* SelectedTextColorProp = TableRowStyleStruct->GetPropertyByNameInChain(STR("SelectedTextColor"));
                         if (SelectedTextColorProp) {
                             FSlateColor_UE5* pColor = SelectedTextColorProp->ContainerPtrToValuePtr<FSlateColor_UE5>(ItemStylePtr);
@@ -301,7 +340,6 @@ namespace DynPals {
                                 pColor->ColorUseRule = 0;
                             }
                         }
-                        
                     }
                 }
             }
@@ -312,7 +350,7 @@ namespace DynPals {
             FText titleTextVal = ConvStringToText(L"DynPals Settings:\n" + TargetCharID);
             struct { FText InText; } SetTitleParams{titleTextVal};
             Utils::CallFunction(TitleText, STR("SetText"), &SetTitleParams);
-            SetTextColor(TitleText, PalBakerCyan); // PalBaker Cyan
+            SetTextColor(TitleText, PalBakerCyan); 
             
             struct { UObject* Content; UObject* ReturnValue; } AddTitleParams{TitleText, nullptr};
             Utils::CallFunction(VBox, STR("AddChild"), &AddTitleParams);
@@ -325,7 +363,7 @@ namespace DynPals {
             FText labelVal = ConvStringToText(L"Current Swap");
             struct { FText InText; } SetLabelParams{labelVal};
             Utils::CallFunction(SkinLabel, STR("SetText"), &SetLabelParams);
-            SetTextColor(SkinLabel, PalBakerEmerald); // PalBaker Emerald Green
+            SetTextColor(SkinLabel, PalBakerEmerald); 
 
             struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{SkinLabel, nullptr};
             Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
@@ -340,20 +378,18 @@ namespace DynPals {
 
             StyleComboBox(ComboBoxWidget);
 
-            // Group configs by PackName
             std::map<std::wstring, std::vector<int>> groupedPacks;
             auto validConfigs = ConfigManager::Get().GetConfigsForCharID(TargetCharID);
             for (int idx : validConfigs) {
                 groupedPacks[ConfigManager::Get().GetConfigs()[idx].PackName].push_back(idx);
             }
 
-            // Populate the Dropdown Hierarchically with un-selectable headers
             for (auto& [packName, indices] : groupedPacks) {
                 std::wstring headerStr = L"[ " + packName + L" ]";
                 
                 struct { FString Option; } AddHeaderP{ FString(headerStr.c_str()) };
                 Utils::CallFunction(ComboBoxWidget, STR("AddOption"), &AddHeaderP);
-                GDropdownMapping[headerStr] = -1; // -1 denotes a header
+                GDropdownMapping[headerStr] = -1; 
 
                 for (int idx : indices) {
                     auto& cfg = ConfigManager::Get().GetConfigs()[idx];
@@ -372,10 +408,8 @@ namespace DynPals {
                         }
                     }
 
-                    // Prepend spaces for visual indentation
                     std::wstring optName = L"   " + labelName; 
 
-                    // Guarantee uniqueness to prevent duplicate option mapping bugs across packs
                     while (GDropdownMapping.find(optName) != GDropdownMapping.end()) {
                         optName += L" "; 
                     }
@@ -391,13 +425,11 @@ namespace DynPals {
                 }
             }
 
-            // Sync visual state
             if (!LastSelectedOption.empty()) {
                 struct { FString Option; } SetSelParams{ FString(LastSelectedOption.c_str()) };
                 Utils::CallFunction(ComboBoxWidget, STR("SetSelectedOption"), &SetSelParams);
             }
 
-            // Force Slate to acknowledge and redraw the newly injected colored items
             Utils::CallFunction(ComboBoxWidget, STR("RefreshOptions"));
 
             struct { UObject* Content; UObject* ReturnValue; } AddComboParams{ComboBoxWidget, nullptr};
@@ -417,7 +449,7 @@ namespace DynPals {
                     FText labelVal = ConvStringToText(L"Morph Targets");
                     struct { FText InText; } SetLabelParams{labelVal};
                     Utils::CallFunction(MorphLabel, STR("SetText"), &SetLabelParams);
-                    SetTextColor(MorphLabel, PalBakerEmerald); // PalBaker Emerald Green
+                    SetTextColor(MorphLabel, PalBakerEmerald); 
 
                     struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{MorphLabel, nullptr};
                     Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
@@ -433,7 +465,7 @@ namespace DynPals {
                         FText labelVal = ConvStringToText(morph.target);
                         struct { FText InText; } SetLabelParams{labelVal};
                         Utils::CallFunction(Label, STR("SetText"), &SetLabelParams);
-                        SetTextColor(Label, OffWhite); // Off-White Text
+                        SetTextColor(Label, OffWhite); 
 
                         struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{Label, nullptr};
                         Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
@@ -477,9 +509,27 @@ namespace DynPals {
     void UIManager::TickUI() {
         if (!bIsMenuOpen || !MyWidget) return;
 
-        if (!TargetPal) {
-            ToggleMenu();
-            return;
+        // Throttled Safety Check: Validate TargetPal only once per second to save memory/CPU
+        static auto LastCheckTime = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        if (now - LastCheckTime > std::chrono::seconds(1)) {
+            LastCheckTime = now;
+            
+            std::vector<UObject*> AllPals;
+            UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+            
+            bool bIsTargetValid = false;
+            for (UObject* Pal : AllPals) {
+                if (Pal == TargetPal) {
+                    bIsTargetValid = true;
+                    break;
+                }
+            }
+
+            if (!bIsTargetValid) {
+                ToggleMenu(); // Safely closes the menu if the Pal dies/despawns
+                return;
+            }
         }
 
         if (ComboBoxWidget) {
@@ -493,19 +543,18 @@ namespace DynPals {
                 if (it != GDropdownMapping.end()) {
                     
                     if (it->second == -1) {
-                        // User clicked a Header -> Reject click and revert selection
                         if (!LastSelectedOption.empty()) {
                             struct { FString Option; } SetSelParams{ FString(LastSelectedOption.c_str()) };
                             Utils::CallFunction(ComboBoxWidget, STR("SetSelectedOption"), &SetSelParams);
                         }
                     } else {
-                        // Valid Skin Selected -> Apply changes
                         LastSelectedOption = selectedStr;
                         PalProcessor::Get().ForceSwap(TargetPal, it->second);
                         
                         DestroyWidget();
                         BuildWidget();
-                        return; // Halt tick iteration immediately to prevent parsing dead memory
+                        LockInput(true); // CRITICAL FIX: Re-tether Input Mode to the newly created Widget!
+                        return; // Halt Tick immediately to prevent accessing dead memory
                     }
                 }
             }
