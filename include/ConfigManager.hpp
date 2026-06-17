@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-#include "json.hpp" // Updated to look for json.hpp inside include/
+#include "json.hpp"
 #include "DataTypes.hpp"
 
 namespace DynPals {
@@ -12,13 +12,12 @@ namespace DynPals {
             return instance;
         }
 
-        // Add this inside the public block:
         std::vector<int> GetConfigsForCharID(const std::wstring& CharID) const;
         void ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray);
 
         void Initialize(const std::wstring& BasePath);
         void LoadConfigJSONs();
-        int FindBestSwap(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName);
+        int FindBestSwap(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust);
 
         const std::vector<SwapConfig>& GetConfigs() const { return Configs; }
 
@@ -26,8 +25,6 @@ namespace DynPals {
         ConfigManager() = default;
         ConfigManager(const ConfigManager&) = delete;
         ConfigManager& operator=(const ConfigManager&) = delete;
-
-        void ParseSwaps(const nlohmann::json& swapArray);
 
         std::wstring ConfigPath;
         std::vector<SwapConfig> Configs;

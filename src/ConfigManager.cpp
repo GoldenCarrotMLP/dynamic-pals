@@ -61,8 +61,14 @@ namespace DynPals {
             if (swapJson.contains("SkelMeshPath")) sc.SkelMeshPath = Utils::StringToWString(swapJson.at("SkelMeshPath").get<std::string>());
             if (swapJson.contains("Gender")) sc.Gender = Utils::StringToWString(swapJson.at("Gender").get<std::string>());
             if (swapJson.contains("SkinName")) sc.SkinName = Utils::StringToWString(swapJson.at("SkinName").get<std::string>());
+            
+            // New Matchmaking Properties
             if (swapJson.contains("MinLevel")) sc.MinLevel = swapJson.at("MinLevel").get<int>();
             if (swapJson.contains("MaxLevel")) sc.MaxLevel = swapJson.at("MaxLevel").get<int>();
+            if (swapJson.contains("MinTrust")) sc.MinTrust = swapJson.at("MinTrust").get<int>();
+            if (swapJson.contains("MaxTrust")) sc.MaxTrust = swapJson.at("MaxTrust").get<int>();
+            if (swapJson.contains("MinRank")) sc.MinRank = swapJson.at("MinRank").get<int>();
+            if (swapJson.contains("MaxRank")) sc.MaxRank = swapJson.at("MaxRank").get<int>();
             
             if (swapJson.contains("IsRarePal")) {
                 if (swapJson.at("IsRarePal").is_boolean()) {
@@ -103,7 +109,7 @@ namespace DynPals {
         }
     }
 
-    int ConfigManager::FindBestSwap(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName) {
+    int ConfigManager::FindBestSwap(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust) {
         int bestScore = 999999;
         std::vector<int> bestMatches;
 
@@ -114,12 +120,16 @@ namespace DynPals {
             int score = 0;
             bool isValid = true;
 
-            // 1. Level Check (Fail if out of bounds)
-            if (Level < swap.MinLevel || Level > swap.MaxLevel) {
-                isValid = false;
-            }
+            // 1. Level Check
+            if (Level < swap.MinLevel || Level > swap.MaxLevel) isValid = false;
 
-            // 2. Gender Match with fallbacks (SCake mappings support included)
+            // 2. Rank Check (Stars 0-4)
+            if (isValid && (Rank < swap.MinRank || Rank > swap.MaxRank)) isValid = false;
+
+            // 3. Trust Check (Friendship)
+            if (isValid && (Trust < swap.MinTrust || Trust > swap.MaxTrust)) isValid = false;
+
+            // 4. Gender Match with fallbacks
             if (isValid && swap.Gender != L"None") {
                 if (swap.Gender != GenderStr) {
                     bool fallbackMatched = false;
@@ -138,55 +148,47 @@ namespace DynPals {
                 score += 500000; // Genderless fallback degrade
             }
 
-            // 3. Skin Name Check (Fail on mismatch)
-            if (isValid) {
-                if (!swap.SkinName.empty() && SkinName != swap.SkinName) {
-                    isValid = false;
-                }
+            // 5. Skin Name Check
+            if (isValid && !swap.SkinName.empty() && SkinName != swap.SkinName) {
+                isValid = false;
             }
 
-            // 4. Rare Status Match
+            // 6. Rare Status Match
             if (isValid && !swap.IsRarePal.empty()) {
                 bool reqRare = (swap.IsRarePal == L"true");
-                if (reqRare && !IsRare) {
-                    isValid = false; // Required is true, pal is not -> Fail
-                } else if (!reqRare && IsRare) {
-                    score += 110; // Rule is normal, pal is rare -> Miss (+110)
-                }
+                if (reqRare && !IsRare) isValid = false; 
+                else if (!reqRare && IsRare) score += 110; 
             }
 
-            // 5. Required Traits (Fail on any missing)
+            // 7. Required Traits
             if (isValid) {
-                for (auto& req : swap.ReqTrait) {
+                for (const auto& req : swap.ReqTrait) {
                     bool hasTrait = false;
-                    for (auto& t : Traits) {
+                    for (const auto& t : Traits) {
                         if (t == req) { hasTrait = true; break; }
                     }
                     if (!hasTrait) {
                         isValid = false;
                         break;
                     } else {
-                        score -= 5; // Hit (-5)
+                        score -= 5; 
                     }
                 }
             }
 
-            // 6. Preferred Traits (degrade score on miss)
+            // 8. Preferred Traits
             if (isValid) {
-                for (auto& pref : swap.PrefTrait) {
+                for (const auto& pref : swap.PrefTrait) {
                     bool hasTrait = false;
-                    for (auto& t : Traits) {
+                    for (const auto& t : Traits) {
                         if (t == pref) { hasTrait = true; break; }
                     }
-                    if (hasTrait) {
-                        score -= 5; // Hit (-5)
-                    } else {
-                        score += 5; // Miss (+5)
-                    }
+                    if (hasTrait) score -= 5; 
+                    else score += 5; 
                 }
             }
 
-            // Matchmaking Evaluation
+            // Evaluation
             if (isValid) {
                 if (score < bestScore) {
                     bestScore = score;
@@ -205,6 +207,7 @@ namespace DynPals {
         }
         return -1;
     }
+
     std::vector<int> ConfigManager::GetConfigsForCharID(const std::wstring& CharID) const {
         std::vector<int> results;
         for (size_t i = 0; i < Configs.size(); ++i) {
@@ -214,5 +217,4 @@ namespace DynPals {
         }
         return results;
     }
-
 }

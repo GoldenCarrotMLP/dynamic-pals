@@ -27,6 +27,10 @@ struct SwapConfig {
     std::wstring SkinName = L"";
     int MinLevel = 1;
     int MaxLevel = 999;
+    int MinTrust = 0;        
+    int MaxTrust = 999999;   
+    int MinRank = 0;         
+    int MaxRank = 5;        
     std::wstring IsRarePal = L"";
     std::vector<std::wstring> ReqTrait;
     std::vector<std::wstring> PrefTrait;

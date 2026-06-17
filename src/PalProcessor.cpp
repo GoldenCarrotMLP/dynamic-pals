@@ -69,6 +69,16 @@ namespace DynPals {
             Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
             int LevelNum = LevelParams.RetVal;
 
+            // Fetch condensed star rank (0 to 4)
+            struct { int32_t RetVal; } RankParams{0};
+            Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
+            int RankNum = RankParams.RetVal;
+
+            // Fetch trust/friendship points
+            struct { int32_t RetVal; } FriendshipParams{0};
+            Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &FriendshipParams);
+            int FriendshipNum = FriendshipParams.RetVal;
+
             struct { FName RetVal; } SkinParams{FName()};
             Utils::CallFunction(IndivParam, STR("GetSkinName"), &SkinParams);
             std::wstring SkinName = SkinParams.RetVal.ToString();
@@ -81,7 +91,7 @@ namespace DynPals {
                 Traits.push_back(TraitsParams.RetVal[i].ToString());
             }
 
-            SwapIndex = ConfigManager::Get().FindBestSwap(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName);
+            SwapIndex = ConfigManager::Get().FindBestSwap(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum);
 
             if (SwapIndex != -1) {
                 PalPersistData newData = { InstanceID, SwapIndex, {} };
@@ -221,7 +231,7 @@ namespace DynPals {
 
         // Process any undocumented Pals that weren't caught via Hook
         for (UObject* Pal : AllPals) {
-            if (!Pal) continue; // Safe standard null-check (avoids non-exported IsUnreachable)
+            if (!Pal) continue; 
             
             // If the Pal hasn't successfully received its swap yet, trigger the pipeline
             if (ProcessedPals.find(Pal) == ProcessedPals.end()) {
@@ -235,7 +245,6 @@ namespace DynPals {
                 it = ProcessedPals.erase(it); // Safe iterator removal
             } else {
                 ++it;
-
             }
         }
     }
