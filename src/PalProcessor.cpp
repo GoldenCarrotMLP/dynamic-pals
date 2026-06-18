@@ -239,9 +239,15 @@ if (TargetMesh) {
         Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Malformed AnimTarget path (No dot found): {}\n"), AnimPath.c_str());
     }
 }
-Utils::CallFunction(MeshComp, STR("EmptyOverrideMaterials"));
+struct { int32_t RetVal; } NumMatParams{0};
+        Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
+        for (int32_t i = 0; i < NumMatParams.RetVal; ++i) {
+            struct { int32_t ElementIndex; UObject* Material; } ClearMatParams{i, nullptr};
+            Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
+        }
 
         for (auto& mat : swap.MatReplaceList) {
+
             UObject* NewMat = Utils::LoadAssetSafely(mat.matPath);
             if (NewMat) {
                 int idx = std::stoi(mat.index);
