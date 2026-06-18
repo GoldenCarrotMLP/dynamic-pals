@@ -24,7 +24,7 @@ namespace DynPals {
         void ProcessPal(RC::Unreal::UObject* Character, bool ForceReroll);
         
         // Updated signature to support custom delays
-        void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex, int DelayMs = 1500);
+        void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex, int DelayMs = 10);
         
         // The new Passive Scanner
         void ScanActivePals();

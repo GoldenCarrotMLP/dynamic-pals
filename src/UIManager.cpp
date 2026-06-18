@@ -737,7 +737,7 @@ namespace DynPals {
                         }
                     } else {
                         LastSelectedOption = selectedStr;
-                        PalProcessor::Get().ForceSwap(TargetPal, it->second);
+                        PalProcessor::Get().ForceSwap(TargetPal, it->second, 10);
                         
                         DestroyWidget();
                         BuildWidget();
