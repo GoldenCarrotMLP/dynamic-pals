@@ -14,6 +14,23 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
+    // Helper Lambda for Deep Animation State Diagnostics
+    auto DumpAnimState = [](UObject* MeshComp, const std::wstring& Stage) {
+        Output::send<LogLevel::Normal>(STR("[DynPals] ===== {} =====\n"), Stage);
+        if (!MeshComp) {
+            Output::send<LogLevel::Warning>(STR("  [!] Mesh Component is NULL\n"));
+            return;
+        }
+        
+        UClass* AC = nullptr;
+        Utils::GetPropertyValue<UClass*>(MeshComp, STR("AnimClass"), AC);
+        Output::send<LogLevel::Normal>(STR("  > AnimClass Property: {}\n"), AC ? AC->GetName() : L"NULL");
+        
+        UObject* AI = nullptr;
+        Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &AI);
+        Output::send<LogLevel::Normal>(STR("  > Active AnimInstance: {}\n"), AI ? AI->GetName() : L"NULL (Graph not running!)");
+    };
+
     std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
         if (InputID.rfind(L"BOSS_", 0) == 0) return InputID.substr(5);
         if (InputID.rfind(L"RAID_", 0) == 0) return InputID.substr(5);
@@ -110,88 +127,138 @@ namespace DynPals {
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp) return;
 
-        struct { bool bNewEnableAnimation; } DisableAnim{ false };
-        Utils::CallFunction(MeshComp, STR("SetEnableAnimation"), &DisableAnim);
+        DumpAnimState(MeshComp, L"1. INITIAL PRE-SWAP STATE");
+
+        // 1. SAFELY PAUSE ANIMATIONS TO PREVENT EVALUATION CRASHES DURING SWAP
+        struct { bool bPause; } PauseAnim{ true };
+        Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &PauseAnim);
 
         struct { bool bNewDisablePostProcessBlueprint; } DisablePP{ true };
         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP);
 
-        auto* AnimProp = Utils::GetProperty(MeshComp, STR("bEnableAnimation"));
-        if (AnimProp) {
-            if (bool* pAnim = AnimProp->ContainerPtrToValuePtr<bool>(MeshComp)) *pAnim = false;
-        }
-        auto* PPProp = Utils::GetProperty(MeshComp, STR("bDisablePostProcessBlueprint"));
-        if (PPProp) {
-            if (bool* pPP = PPProp->ContainerPtrToValuePtr<bool>(MeshComp)) *pPP = true;
+        // 2. RETRIEVE ORIGINAL CHARACTER ID
+        UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+        struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
+        if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
+        std::wstring CharID = StripCharacterPrefix(CharIDParams.RetVal.ToString());
+
+        // Resolve AnimTargetName: fallback to the original Pal ID if no custom target is defined!
+        std::wstring AnimTargetName = swap.AnimTarget;
+        if (AnimTargetName.empty()) {
+            AnimTargetName = CharID;
         }
 
+        UClass* TargetAnimClass = nullptr;
+        UObject* TargetSkeleton = nullptr;
+        UObject* TargetStaticParam = nullptr;
+
+        // 3. RESOLVE TARGET BLUEPRINT, SKELETON AND ANIM CLASS UNIFORMLY
+        std::wstring AnimPath = AnimTargetName;
+        if (AnimPath.find(L'/') == std::wstring::npos) {
+            AnimPath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
+        }
+
+        size_t dotPos = AnimPath.find(L'.');
+        if (dotPos != std::wstring::npos) {
+            std::wstring PackagePath = AnimPath.substr(0, dotPos);
+            std::wstring ClassName = AnimPath.substr(dotPos + 1);
+            std::wstring CDOPath = PackagePath + L".Default__" + ClassName;
+
+            UClass* TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
+            UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
+
+            if (TargetBPClass && TargetCDO) {
+                UObject* TargetMesh = nullptr;
+                Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
+                
+                if (TargetMesh) {
+                    // Extract target's Skeleton asset
+                    UObject* TargetSkelMesh = nullptr;
+                    Utils::GetPropertyValue<UObject*>(TargetMesh, STR("SkeletalMesh"), TargetSkelMesh);
+                    if (!TargetSkelMesh) {
+                        Utils::GetPropertyValue<UObject*>(TargetMesh, STR("SkinnedAsset"), TargetSkelMesh);
+                    }
+
+                    if (TargetSkelMesh) {
+                        Utils::GetPropertyValue<UObject*>(TargetSkelMesh, STR("Skeleton"), TargetSkeleton);
+                        if (TargetSkeleton) {
+                            Output::send<LogLevel::Normal>(STR("[DynPals] Extracted Target Skeleton asset: {}\n"), TargetSkeleton->GetName());
+                        }
+                    }
+
+                    // Extract target's AnimClass
+                    Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
+                }
+                Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+            }
+        }
+
+        // 4. CLEAR ACTIVE ANIM CLASS (Avoids interim Skeleton mismatches!)
+        UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
+        if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
+
+        if (SetAnimFunc) {
+            struct { UClass* NewClass; } ClearParams{ nullptr };
+            MeshComp->ProcessEvent(SetAnimFunc, &ClearParams);
+        }
+
+        // 5. LOAD, RE-TARGET AND APPLY NEW SKELETAL MESH
         UObject* NewMesh = nullptr;
         if (!swap.SkelMeshPath.empty()) {
             NewMesh = Utils::LoadAssetSafely(swap.SkelMeshPath);
             if (NewMesh) {
+                Output::send<LogLevel::Normal>(STR("[DynPals] Loaded New Skeletal Mesh: {}\n"), NewMesh->GetName());
+                
+                // Re-target the mesh to our resolved skeleton (custom target or original native skeleton)
+                if (TargetSkeleton) {
+                    struct { UObject* NewSkeleton; } SkelParams{ TargetSkeleton };
+                    Utils::CallFunction(NewMesh, STR("SetSkeleton"), &SkelParams);
+                    Output::send<LogLevel::Normal>(STR("[DynPals] Applied Skeleton asset to New Mesh: {}\n"), TargetSkeleton->GetName());
+                }
+
                 struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
+            } else {
+                Output::send<LogLevel::Error>(STR("[DynPals] FAILED to load Skeletal Mesh: {}\n"), swap.SkelMeshPath);
             }
         }
 
-        if (!swap.AnimTarget.empty()) {
-            std::wstring AnimPath = swap.AnimTarget;
-            if (AnimPath.find(L'/') == std::wstring::npos) {
-                AnimPath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
-            }
+        DumpAnimState(MeshComp, L"2. AFTER SKELETAL MESH LOAD");
 
-            size_t dotPos = AnimPath.find(L'.');
-            if (dotPos != std::wstring::npos) {
-                std::wstring PackagePath = AnimPath.substr(0, dotPos);
-                std::wstring ClassName = AnimPath.substr(dotPos + 1);
-                std::wstring CDOPath = PackagePath + L".Default__" + ClassName;
+        // 6. APPLY RESOLVED ANIMATION BLUEPRINT
+        if (TargetAnimClass && SetAnimFunc) {
+            Output::send<LogLevel::Normal>(STR("[DynPals] Injecting AnimClass: {}\n"), TargetAnimClass->GetName());
+            struct { UClass* NewClass; } Params{ TargetAnimClass };
+            MeshComp->ProcessEvent(SetAnimFunc, &Params);
+        }
 
-                UClass* TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
-                UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
+        // 7. COPY MONTAGE PARAMETERS
+        if (TargetStaticParam) {
+            UObject* CurrentStaticParam = nullptr;
+            Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), CurrentStaticParam);
 
-                if (TargetBPClass && TargetCDO) {
-                    UObject* TargetMesh = nullptr;
-                    Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
-                    if (TargetMesh) {
-                        UClass* TargetAnimClass = nullptr;
-                        Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
-                        if (TargetAnimClass) {
-                            UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
-                            if (SetAnimFunc) {
-                                struct { UClass* NewClass; } Params{ TargetAnimClass };
-                                MeshComp->ProcessEvent(SetAnimFunc, &Params);
-                            }
+            if (CurrentStaticParam) {
+                auto CopyProp = [](UObject* Src, UObject* Dest, const wchar_t* PropName) {
+                    FProperty* SrcProp = Utils::GetProperty(Src, PropName);
+                    FProperty* DestProp = Utils::GetProperty(Dest, PropName);
+                    if (SrcProp && DestProp) {
+                        void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(Src);
+                        void* DestPtr = DestProp->ContainerPtrToValuePtr<void>(Dest);
+                        if (SrcPtr && DestPtr) {
+                            DestProp->CopyCompleteValue(DestPtr, SrcPtr);
                         }
                     }
-
-                    UObject* TargetStaticParam = nullptr;
-                    Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
-
-                    UObject* CurrentStaticParam = nullptr;
-                    Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), CurrentStaticParam);
-
-                    if (TargetStaticParam && CurrentStaticParam) {
-                        auto CopyProp = [](UObject* Src, UObject* Dest, const wchar_t* PropName) {
-                            FProperty* SrcProp = Utils::GetProperty(Src, PropName);
-                            FProperty* DestProp = Utils::GetProperty(Dest, PropName);
-                            if (SrcProp && DestProp) {
-                                void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(Src);
-                                void* DestPtr = DestProp->ContainerPtrToValuePtr<void>(Dest);
-                                if (SrcPtr && DestPtr) {
-                                    DestProp->CopyCompleteValue(DestPtr, SrcPtr);
-                                }
-                            }
-                        };
-                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
-                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
-                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
-                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
-                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
-                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
-                    }
-                }
+                };
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
+                CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
             }
         }
+
+        DumpAnimState(MeshComp, L"3. AFTER ANIM CLASS INJECTION");
 
         struct { int32_t RetVal; } NumMatParams{0};
         Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
@@ -215,11 +282,11 @@ namespace DynPals {
 
             for (auto& morph : swap.MorphTargetList) {
                 double val = 0.0;
-                auto it = persist.MorphSet.find(morph.target);
+                auto iVal = persist.MorphSet.find(morph.target);
                 bool hasValidSavedVal = false;
                 double savedVal = -1000.0;
-                if (it != persist.MorphSet.end()) {
-                    savedVal = it->second;
+                if (iVal != persist.MorphSet.end()) {
+                    savedVal = iVal->second;
                     if (savedVal >= -900.0) hasValidSavedVal = true;
                 }
 
@@ -256,18 +323,40 @@ namespace DynPals {
             }
         }
 
+        // 8. RE-LINK THE DEFAULT PALWORLD ANIM LAYERS
+        UObject* NewAnimInst = nullptr;
+        Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
+        if (NewAnimInst) {
+            UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
+            if (LinkFunc) {
+                std::vector<std::wstring> StandardLayers = {
+                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterPhysics.ABP_MonsterPhysics_C",
+                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterUpper.ABP_MonsterUpper_C",
+                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLookAt.ABP_MonsterLookAt_C",
+                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLeaning.ABP_MonsterLeaning_C"
+                };
+
+                for (const auto& LayerPath : StandardLayers) {
+                    UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
+                    if (LayerClass) {
+                        struct { UClass* InClass; } LinkParams{ LayerClass };
+                        NewAnimInst->ProcessEvent(LinkFunc, &LinkParams);
+                        Output::send<LogLevel::Normal>(STR("[DynPals] Linked Animation Layer: {}\n"), LayerPath);
+                    }
+                }
+            } else {
+                Output::send<LogLevel::Warning>(STR("[DynPals] Could not find LinkAnimClassLayers function on AnimInstance!\n"));
+            }
+        }
+
+        // 9. UNPAUSE ANIMATIONS SO THE NEW GRAPH CAN EVALUATE
         struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ false };
         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &EnablePP);
 
-        struct { bool bNewEnableAnimation; } EnableAnim{ true };
-        Utils::CallFunction(MeshComp, STR("SetEnableAnimation"), &EnableAnim);
+        struct { bool bPause; } UnpauseAnim{ false };
+        Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &UnpauseAnim);
 
-        if (AnimProp) {
-            if (bool* pAnim = AnimProp->ContainerPtrToValuePtr<bool>(MeshComp)) *pAnim = true;
-        }
-        if (PPProp) {
-            if (bool* pPP = PPProp->ContainerPtrToValuePtr<bool>(MeshComp)) *pPP = false;
-        }
+        DumpAnimState(MeshComp, L"4. FINAL COMPLETION STATE");
     }
 
     void PalProcessor::ForceSwap(UObject* Character, int SwapIndex, int DelayMs) {

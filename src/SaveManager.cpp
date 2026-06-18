@@ -13,8 +13,21 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
+    // Helper to strip the Unreal Engine `/Script/Engine.SkeletalMesh'Path'` wrapper
+    static std::wstring CleanAltermaticPath(const std::wstring& path) {
+        size_t firstQuote = path.find(L'\'');
+        if (firstQuote != std::wstring::npos) {
+            size_t lastQuote = path.find(L'\'', firstQuote + 1);
+            if (lastQuote != std::wstring::npos) {
+                return path.substr(firstQuote + 1, lastQuote - firstQuote - 1);
+            }
+        }
+        return path;
+    }
+
     void SaveManager::Initialize(const std::wstring& BasePath) {
-        ConfigPath = BasePath + L"Paks/~mods/SwapJSON/";
+        // Point directly to ~Mods/ to share the exact same physical file with Altermatic
+        ConfigPath = BasePath + L"Paks/~mods/"; 
     }
 
     void SaveManager::LoadWorldData(UObject* World) {
@@ -39,9 +52,17 @@ namespace DynPals {
 
         try {
             nlohmann::json data = nlohmann::json::parse(content);
+            
+            // Map to store AltermaticID -> Cleaned SkeletalMeshPath
+            std::map<std::wstring, std::wstring> altrMeshPaths;
+            if (data.contains("SkelMeshPath") && data.at("SkelMeshPath").is_object()) {
+                for (auto& [idStr, pathNode] : data.at("SkelMeshPath").items()) {
+                    std::wstring rawPath = Utils::StringToWString(pathNode.get<std::string>());
+                    altrMeshPaths[Utils::StringToWString(idStr)] = CleanAltermaticPath(rawPath);
+                }
+            }
+
             if (data.contains("PalSwap") && data.at("PalSwap").is_object()) {
-                
-                // 1:1 ALTERMATIC TRANSLATION (String Unpacking)
                 for (auto& [instanceIdStr, valueStrNode] : data.at("PalSwap").items()) {
                     std::wstring instanceId = Utils::StringToWString(instanceIdStr);
                     std::wstring valueStr = Utils::StringToWString(valueStrNode.get<std::string>());
@@ -49,19 +70,31 @@ namespace DynPals {
                     PalPersistData pd;
                     pd.InstanceID = instanceId;
 
-                    // Parse "0/<SwapIndex>"
+                    // Parse "0/<AltermaticID>"
                     size_t p0 = valueStr.find(L"0/");
                     if (p0 != std::wstring::npos) {
                         size_t pNext = valueStr.find(L'/', p0 + 2);
-                        std::wstring sIdxStr = (pNext == std::wstring::npos) ? valueStr.substr(p0 + 2) : valueStr.substr(p0 + 2, pNext - (p0 + 2));
+                        std::wstring altrId = (pNext == std::wstring::npos) ? valueStr.substr(p0 + 2) : valueStr.substr(p0 + 2, pNext - (p0 + 2));
                         
-                        try { pd.SwapIndex = std::stoi(sIdxStr); } catch (...) { pd.SwapIndex = -1; }
+                        // Map AltermaticID back to our C++ ConfigIndex via path matching
+                        pd.SwapIndex = -1;
+                        auto itPath = altrMeshPaths.find(altrId);
+                        if (itPath != altrMeshPaths.end()) {
+                            std::wstring matchPath = itPath->second;
+                            auto& configs = ConfigManager::Get().GetConfigs();
+                            for (size_t i = 0; i < configs.size(); ++i) {
+                                if (Utils::FormatAssetPath(configs[i].SkelMeshPath) == Utils::FormatAssetPath(matchPath)) {
+                                    pd.SwapIndex = (int)i;
+                                    break;
+                                }
+                            }
+                        }
 
-                        // Parse "/1/<MorphIndex>_<MorphVal>:"
+                        // Parse morph targets
                         size_t p1 = valueStr.find(L"/1/");
                         if (p1 != std::wstring::npos) {
                             std::wstring mBlock = valueStr.substr(p1 + 3);
-                            size_t p2 = mBlock.find(L'/'); // Cull trailing legacy blocks if they exist
+                            size_t p2 = mBlock.find(L'/');
                             if (p2 != std::wstring::npos) mBlock = mBlock.substr(0, p2);
 
                             size_t pos = 0;
@@ -76,14 +109,13 @@ namespace DynPals {
                                         int mIdx = std::stoi(pair.substr(0, uscore));
                                         double mVal = std::stod(pair.substr(uscore + 1));
 
-                                        // Map the integer MorphIndex back to the actual Morph Name from the Config
                                         if (pd.SwapIndex >= 0 && pd.SwapIndex < (int)ConfigManager::Get().GetConfigs().size()) {
                                             auto& swapCfg = ConfigManager::Get().GetConfigs()[pd.SwapIndex];
                                             if (mIdx >= 0 && mIdx < (int)swapCfg.MorphTargetList.size()) {
                                                 pd.MorphSet[swapCfg.MorphTargetList[mIdx].target] = mVal;
                                             }
                                         }
-                                    } catch (...) {} // Ignore malformed morph segments
+                                    } catch (...) {}
                                 }
                                 pos = colon + 1;
                             }
@@ -101,45 +133,62 @@ namespace DynPals {
         if (CurrentWorldSaveID.empty()) return;
         
         std::wstring persistPath = ConfigPath + PersistFileName + CurrentWorldSaveID + L".json";
+        
         nlohmann::json out = nlohmann::json::object();
+        nlohmann::json systemObj = nlohmann::json::object();
+        nlohmann::json skelMeshPathObj = nlohmann::json::object();
+        nlohmann::json skelMeshSwapObj = nlohmann::json::object();
         nlohmann::json palSwaps = nlohmann::json::object();
         
-        // 1:1 ALTERMATIC TRANSLATION (String Packing)
-        for (auto& [id, data] : PersistedSwaps) {
-            std::wstring entryStr = L"0/" + std::to_wstring(data.SwapIndex);
-            
-            if (!data.MorphSet.empty() && data.SwapIndex >= 0 && data.SwapIndex < (int)ConfigManager::Get().GetConfigs().size()) {
-                entryStr += L"/1/";
-                auto& swapCfg = ConfigManager::Get().GetConfigs()[data.SwapIndex];
-                
-                for (auto& [morphName, morphVal] : data.MorphSet) {
-                    int mIdx = -1;
-                    // Translate Morph Name back into the integer index Altermatic expects
-                    for (int i = 0; i < (int)swapCfg.MorphTargetList.size(); ++i) {
-                        if (swapCfg.MorphTargetList[i].target == morphName) { mIdx = i; break; }
-                    }
+        systemObj["ALTR_MODversion"] = "4000";
+        systemObj["WorldName"] = "Solo save";
+        systemObj["WorldID"] = Utils::WStringToString(CurrentWorldSaveID);
 
-                    if (mIdx != -1) {
-                        // Format the double cleanly (e.g. "0.50" instead of "0.500000") to mimic UE Blueprint behavior
-                        std::wstring valStr = std::to_wstring(morphVal);
-                        valStr.erase(valStr.find_last_not_of(L'0') + 1, std::wstring::npos);
-                        if (valStr.back() == L'.') valStr += L"0"; 
-                        
-                        entryStr += std::to_wstring(mIdx) + L"_" + valStr + L":";
+        // Populate Altermatic-compliant dictionaries
+        for (auto& [id, data] : PersistedSwaps) {
+            if (data.SwapIndex >= 0 && data.SwapIndex < (int)ConfigManager::Get().GetConfigs().size()) {
+                auto& swapCfg = ConfigManager::Get().GetConfigs()[data.SwapIndex];
+                std::string idxStr = std::to_string(data.SwapIndex);
+
+                // Format: "153": "/Script/Engine.SkeletalMesh'/Game/Path'"
+                std::wstring formattedPath = L"/Script/Engine.SkeletalMesh'" + Utils::FormatAssetPath(swapCfg.SkelMeshPath) + L"'";
+                skelMeshPathObj[idxStr] = Utils::WStringToString(formattedPath);
+
+                // Format: "153": "0/153/6/1"
+                skelMeshSwapObj[idxStr] = "0/" + idxStr + "/6/1";
+
+                // Format: "0/153"
+                std::wstring entryStr = L"0/" + Utils::StringToWString(idxStr);
+                
+                if (!data.MorphSet.empty()) {
+                    entryStr += L"/1/";
+                    for (auto& [morphName, morphVal] : data.MorphSet) {
+                        int mIdx = -1;
+                        for (int i = 0; i < (int)swapCfg.MorphTargetList.size(); ++i) {
+                            if (swapCfg.MorphTargetList[i].target == morphName) { mIdx = i; break; }
+                        }
+
+                        if (mIdx != -1) {
+                            std::wstring valStr = std::to_wstring(morphVal);
+                            valStr.erase(valStr.find_last_not_of(L'0') + 1, std::wstring::npos);
+                            if (valStr.back() == L'.') valStr += L"0"; 
+                            
+                            entryStr += std::to_wstring(mIdx) + L"_" + valStr + L":";
+                        }
                     }
                 }
+                palSwaps[Utils::WStringToString(data.InstanceID)] = Utils::WStringToString(entryStr);
             }
-            
-            palSwaps[Utils::WStringToString(data.InstanceID)] = Utils::WStringToString(entryStr);
         }
         
-        out["PalSwap"] = palSwaps;
-
-        // Preserve Altermatic's "System" config block so the original mod doesn't throw a fit if it loads this file
-        nlohmann::json systemObj = nlohmann::json::object();
-        systemObj["InvalidIDAttempts"] = "4";
-        systemObj["FallbackFrequency"] = "1.000000";
         out["System"] = systemObj;
+        out["SkelMeshPath"] = skelMeshPathObj;
+        out["MatPath"] = nlohmann::json::object();
+        out["SkinName"] = nlohmann::json::object();
+        out["Trait"] = nlohmann::json::object();
+        out["Morph"] = nlohmann::json::object();
+        out["SkelMeshSwap"] = skelMeshSwapObj;
+        out["PalSwap"] = palSwaps;
 
         std::ofstream file(persistPath);
         if (file.is_open()) {
