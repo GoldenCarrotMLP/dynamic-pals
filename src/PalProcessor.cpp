@@ -40,10 +40,8 @@ namespace DynPals {
         
         std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
         
-        // Wait until Pal is fully initialized with a valid InstanceID before tracking/processing it.
         if (InstanceID == L"00000000000000000000000000000000") return;
 
-        // Register the Pal as initialized so the scanner leaves it alone
         ProcessedPals.insert(Character);
 
         PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
@@ -58,7 +56,6 @@ namespace DynPals {
             if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
             std::wstring CharID = StripCharacterPrefix(CharIDParams.RetVal.ToString());
 
-            // NEW: Fetch Wild status via UPalUtility
             struct { UObject* Actor; bool RetVal; } WildParams{Character, false};
             if (PalUtil) Utils::CallFunction(PalUtil, STR("IsWildNPC"), &WildParams);
             bool IsWild = WildParams.RetVal;
@@ -75,12 +72,10 @@ namespace DynPals {
             Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
             int LevelNum = LevelParams.RetVal;
 
-            // Fetch condensed star rank (0 to 4)
             struct { int32_t RetVal; } RankParams{0};
             Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
             int RankNum = RankParams.RetVal;
 
-            // Fetch trust/friendship points
             struct { int32_t RetVal; } FriendshipParams{0};
             Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &FriendshipParams);
             int FriendshipNum = FriendshipParams.RetVal;
@@ -97,7 +92,6 @@ namespace DynPals {
                 Traits.push_back(TraitsParams.RetVal[i].ToString());
             }
 
-            // Execute Matchmaker Pipeline
             auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
             SwapIndex = ConfigManager::Get().PickBestSwap(evaluations);
             if (SwapIndex != -1) {
@@ -116,6 +110,21 @@ namespace DynPals {
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp) return;
 
+        struct { bool bNewEnableAnimation; } DisableAnim{ false };
+        Utils::CallFunction(MeshComp, STR("SetEnableAnimation"), &DisableAnim);
+
+        struct { bool bNewDisablePostProcessBlueprint; } DisablePP{ true };
+        Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP);
+
+        auto* AnimProp = Utils::GetProperty(MeshComp, STR("bEnableAnimation"));
+        if (AnimProp) {
+            if (bool* pAnim = AnimProp->ContainerPtrToValuePtr<bool>(MeshComp)) *pAnim = false;
+        }
+        auto* PPProp = Utils::GetProperty(MeshComp, STR("bDisablePostProcessBlueprint"));
+        if (PPProp) {
+            if (bool* pPP = PPProp->ContainerPtrToValuePtr<bool>(MeshComp)) *pPP = true;
+        }
+
         UObject* NewMesh = nullptr;
         if (!swap.SkelMeshPath.empty()) {
             NewMesh = Utils::LoadAssetSafely(swap.SkelMeshPath);
@@ -124,122 +133,67 @@ namespace DynPals {
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
             }
         }
-// NEW: Animation Bridging System with Deep Diagnostic Logging
-if (!swap.AnimTarget.empty()) {
-    std::wstring AnimPath = swap.AnimTarget;
-    
-    // Quality of Life: Auto-format simple IDs (like "WeaselDragon") into full Blueprint paths
-    if (AnimPath.find(L'/') == std::wstring::npos) {
-        AnimPath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
-    }
 
-    Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Initiating swap to target: {}\n"), AnimPath.c_str());
-
-    // Split the package path and class name to construct the Class Default Object (CDO) path
-    size_t dotPos = AnimPath.find(L'.');
-    if (dotPos != std::wstring::npos) {
-        std::wstring PackagePath = AnimPath.substr(0, dotPos);
-        std::wstring ClassName = AnimPath.substr(dotPos + 1);
-        
-        // Construct the CDO path: e.g. "/Game/.../BP_WeaselDragon.Default__BP_WeaselDragon_C"
-        std::wstring CDOPath = PackagePath + L".Default__" + ClassName;
-        Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Calculated CDO Path: {}\n"), CDOPath.c_str());
-
-        // Load both the Class and the CDO safely as standard asset paths
-        UClass* TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
-        UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
-        
-        if (!TargetBPClass) {
-            Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to load target Blueprint Class at: {}\n"), AnimPath.c_str());
-        }
-        if (!TargetCDO) {
-            Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to load target CDO at: {}\n"), CDOPath.c_str());
-        }
-
-        if (TargetBPClass && TargetCDO) {
-            Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Successfully loaded Class and CDO. Processing subcomponents...\n"));
-            
-            // 1. Swap the Base AnimBlueprint on the Skeletal Mesh
-            UObject* TargetMesh = nullptr;
-Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
-if (TargetMesh) {
-    UClass* TargetAnimClass = nullptr;
-    Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
-    
-    if (TargetAnimClass) {
-        std::wstring AnimClassName = TargetAnimClass->GetName();
-        Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Found Target AnimClass: {}\n"), AnimClassName.c_str());
-        
-        // FIX: Changed "SetAnimInstanceClass" to "SetAnimClass" for UE5 compatibility
-        UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
-        if (SetAnimFunc) {
-            struct { UClass* NewClass; } Params{ TargetAnimClass };
-            MeshComp->ProcessEvent(SetAnimFunc, &Params);
-            Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Successfully called SetAnimClass on MeshComp.\n"));
-        } else {
-            Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: MeshComp does not have 'SetAnimClass' function!\n"));
-        }
-    } else {
-        Output::send<LogLevel::Warning>(STR("[DynPals] Animation Bridge Warning: Target mesh does not have an AnimClass defined.\n"));
-    }
-} else {
-    Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to find 'Mesh' property on Target CDO.\n"));
-
+        if (!swap.AnimTarget.empty()) {
+            std::wstring AnimPath = swap.AnimTarget;
+            if (AnimPath.find(L'/') == std::wstring::npos) {
+                AnimPath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
             }
 
-            // 2. Clone the Animation Montages from the Target's Static Parameter Component
-            UObject* TargetStaticParam = nullptr;
-            Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+            size_t dotPos = AnimPath.find(L'.');
+            if (dotPos != std::wstring::npos) {
+                std::wstring PackagePath = AnimPath.substr(0, dotPos);
+                std::wstring ClassName = AnimPath.substr(dotPos + 1);
+                std::wstring CDOPath = PackagePath + L".Default__" + ClassName;
 
-            UObject* CurrentStaticParam = nullptr;
-            Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), CurrentStaticParam);
+                UClass* TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
+                UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
 
-            if (!TargetStaticParam) {
-                Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to find StaticCharacterParameterComponent on Target CDO.\n"));
-            }
-            if (!CurrentStaticParam) {
-                Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Failed to find StaticCharacterParameterComponent on Current Character.\n"));
-            }
-
-            if (TargetStaticParam && CurrentStaticParam) {
-                Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Found both parameter components. Copying properties...\n"));
-                
-                // Helper lambda to safely copy memory values between FProperties with strict logging
-                auto CopyProp = [](UObject* Src, UObject* Dest, const wchar_t* PropName) {
-                    FProperty* SrcProp = Utils::GetProperty(Src, PropName);
-                    FProperty* DestProp = Utils::GetProperty(Dest, PropName);
-                    if (!SrcProp) {
-                        Output::send<LogLevel::Warning>(STR("[DynPals] Animation Bridge: Property '{}' missing on SOURCE.\n"), PropName);
-                    }
-                    if (!DestProp) {
-                        Output::send<LogLevel::Warning>(STR("[DynPals] Animation Bridge: Property '{}' missing on DESTINATION.\n"), PropName);
-                    }
-                    
-                    if (SrcProp && DestProp) {
-                        void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(Src);
-                        void* DestPtr = DestProp->ContainerPtrToValuePtr<void>(Dest);
-                        if (SrcPtr && DestPtr) {
-                            DestProp->CopyCompleteValue(DestPtr, SrcPtr);
-                            Output::send<LogLevel::Normal>(STR("[DynPals] Animation Bridge: Copied '{}' successfully.\n"), PropName);
-                            return;
+                if (TargetBPClass && TargetCDO) {
+                    UObject* TargetMesh = nullptr;
+                    Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
+                    if (TargetMesh) {
+                        UClass* TargetAnimClass = nullptr;
+                        Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
+                        if (TargetAnimClass) {
+                            UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
+                            if (SetAnimFunc) {
+                                struct { UClass* NewClass; } Params{ TargetAnimClass };
+                                MeshComp->ProcessEvent(SetAnimFunc, &Params);
+                            }
                         }
                     }
-                };
 
-                // Copy all fundamental Animation Maps/Arrays
-                CopyProp(TargetStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
-                CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
-                CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
-                CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
-                CopyProp(TargetStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
-                CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
+                    UObject* TargetStaticParam = nullptr;
+                    Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+
+                    UObject* CurrentStaticParam = nullptr;
+                    Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), CurrentStaticParam);
+
+                    if (TargetStaticParam && CurrentStaticParam) {
+                        auto CopyProp = [](UObject* Src, UObject* Dest, const wchar_t* PropName) {
+                            FProperty* SrcProp = Utils::GetProperty(Src, PropName);
+                            FProperty* DestProp = Utils::GetProperty(Dest, PropName);
+                            if (SrcProp && DestProp) {
+                                void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(Src);
+                                void* DestPtr = DestProp->ContainerPtrToValuePtr<void>(Dest);
+                                if (SrcPtr && DestPtr) {
+                                    DestProp->CopyCompleteValue(DestPtr, SrcPtr);
+                                }
+                            }
+                        };
+                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
+                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
+                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
+                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
+                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
+                        CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
+                    }
+                }
             }
         }
-    } else {
-        Output::send<LogLevel::Error>(STR("[DynPals] Animation Bridge Error: Malformed AnimTarget path (No dot found): {}\n"), AnimPath.c_str());
-    }
-}
-struct { int32_t RetVal; } NumMatParams{0};
+
+        struct { int32_t RetVal; } NumMatParams{0};
         Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
         for (int32_t i = 0; i < NumMatParams.RetVal; ++i) {
             struct { int32_t ElementIndex; UObject* Material; } ClearMatParams{i, nullptr};
@@ -247,7 +201,6 @@ struct { int32_t RetVal; } NumMatParams{0};
         }
 
         for (auto& mat : swap.MatReplaceList) {
-
             UObject* NewMat = Utils::LoadAssetSafely(mat.matPath);
             if (NewMat) {
                 int idx = std::stoi(mat.index);
@@ -263,21 +216,16 @@ struct { int32_t RetVal; } NumMatParams{0};
             for (auto& morph : swap.MorphTargetList) {
                 double val = 0.0;
                 auto it = persist.MorphSet.find(morph.target);
-                
                 bool hasValidSavedVal = false;
                 double savedVal = -1000.0;
-                
                 if (it != persist.MorphSet.end()) {
                     savedVal = it->second;
-                    if (savedVal >= -900.0) {
-                        hasValidSavedVal = true;
-                    }
+                    if (savedVal >= -900.0) hasValidSavedVal = true;
                 }
 
                 if (morph.setVal != -1000.0) {
                     val = morph.setVal;
-                } 
-                else if (hasValidSavedVal) {
+                } else if (hasValidSavedVal) {
                     if (morph.type == L"Restrict") {
                         double midpoint = ((morph.maxVal - morph.minVal) / 2.0) + morph.minVal;
                         val = (savedVal >= midpoint) ? morph.maxVal : morph.minVal;
@@ -289,8 +237,7 @@ struct { int32_t RetVal; } NumMatParams{0};
                             val = dis(gen);
                         }
                     }
-                } 
-                else {
+                } else {
                     if (morph.type == L"Restrict") {
                         std::uniform_int_distribution<> dis(0, 1);
                         val = dis(gen) ? morph.maxVal : morph.minVal;
@@ -308,9 +255,22 @@ struct { int32_t RetVal; } NumMatParams{0};
                 Utils::CallFunction(MeshComp, STR("SetMorphTarget"), &MorphParams);
             }
         }
+
+        struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ false };
+        Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &EnablePP);
+
+        struct { bool bNewEnableAnimation; } EnableAnim{ true };
+        Utils::CallFunction(MeshComp, STR("SetEnableAnimation"), &EnableAnim);
+
+        if (AnimProp) {
+            if (bool* pAnim = AnimProp->ContainerPtrToValuePtr<bool>(MeshComp)) *pAnim = true;
+        }
+        if (PPProp) {
+            if (bool* pPP = PPProp->ContainerPtrToValuePtr<bool>(MeshComp)) *pPP = false;
+        }
     }
 
-    void PalProcessor::ForceSwap(UObject* Character, int SwapIndex) {
+    void PalProcessor::ForceSwap(UObject* Character, int SwapIndex, int DelayMs) {
         if (!Character || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
 
         ProcessedPals.insert(Character);
@@ -332,13 +292,66 @@ struct { int32_t RetVal; } NumMatParams{0};
         if (!ExistingData) {
             PalPersistData newData = { InstanceID, SwapIndex, {} };
             SaveManager::Get().SetPersistData(InstanceID, newData);
-            ExistingData = SaveManager::Get().GetPersistData(InstanceID);
         } else {
             ExistingData->SwapIndex = SwapIndex;
             SaveManager::Get().SetPersistData(InstanceID, *ExistingData); 
         }
 
-        ApplySwap(Character, ConfigManager::Get().GetConfigs()[SwapIndex], *ExistingData);
+        PendingSwap ps;
+        ps.Character = Character;
+        ps.SwapIndex = SwapIndex;
+        ps.ScheduledTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(DelayMs);
+
+        for (auto It = PendingSwaps.begin(); It != PendingSwaps.end(); ) {
+            if (It->Character == Character) {
+                It = PendingSwaps.erase(It);
+            } else {
+                ++It;
+            }
+        }
+
+        PendingSwaps.push_back(ps);
+    }
+
+    void PalProcessor::TickDeferredSwaps() {
+        auto Now = std::chrono::steady_clock::now();
+        for (auto It = PendingSwaps.begin(); It != PendingSwaps.end(); ) {
+            if (Now >= It->ScheduledTime) {
+                if (It->Character) {
+                    std::vector<UObject*> AllPals;
+                    UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+                    bool bIsValid = false;
+                    for (UObject* Pal : AllPals) {
+                        if (Pal == It->Character) {
+                            bIsValid = true;
+                            break;
+                        }
+                    }
+
+                    if (bIsValid) {
+                        UObject* ParamComp = nullptr;
+                        Utils::GetPropertyValue<UObject*>(It->Character, STR("CharacterParameterComponent"), ParamComp);
+                        if (ParamComp) {
+                            UObject* IndivParam = nullptr;
+                            Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
+                            if (IndivParam) {
+                                struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } InstanceIDStruct;
+                                if (Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct)) {
+                                    std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
+                                    PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
+                                    if (ExistingData) {
+                                        ApplySwap(It->Character, ConfigManager::Get().GetConfigs()[It->SwapIndex], *ExistingData);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                It = PendingSwaps.erase(It);
+            } else {
+                ++It;
+            }
+        }
     }
 
     void PalProcessor::ScanActivePals() {

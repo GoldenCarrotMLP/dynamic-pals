@@ -4,8 +4,7 @@
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp> 
 #include <Unreal/FString.hpp>
-#include <Unreal/UClass.hpp>
-#include <Unreal/UFunction.hpp>
+#include <Unreal/CoreUObject/UObject/Class.hpp> // Replaced legacy forwarding includes
 #include <Unreal/Core/Containers/Array.hpp>
 #include <Unreal/FText.hpp> 
 #include "DataTypes.hpp"

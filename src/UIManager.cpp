@@ -47,16 +47,22 @@ namespace DynPals {
     void UIManager::ToggleMenu() {
         bIsMenuOpen = !bIsMenuOpen;
         if (bIsMenuOpen) {
+            Output::send<LogLevel::Normal>(STR("[DynPals] Alt+N pressed. Scanning for closest Pal...\n"));
             UpdateTarget();
+            
             if (TargetPal) {
+                Output::send<LogLevel::Normal>(STR("[DynPals] Found valid target. Building UI.\n"));
                 BuildWidget();
                 LockInput(true);
             } else {
+                Output::send<LogLevel::Warning>(STR("[DynPals] No valid Pal found within 3000 units! Menu cancelled.\n"));
                 bIsMenuOpen = false;
             }
         } else {
+            Output::send<LogLevel::Normal>(STR("[DynPals] Closing Menu.\n"));
             DestroyWidget();
             LockInput(false);
+
         }
     }
 
@@ -674,7 +680,14 @@ namespace DynPals {
     }
 
     void UIManager::TickUI() {
+        // Process cross-thread toggle requests safely
+        if (bToggleRequested) {
+            bToggleRequested = false;
+            ToggleMenu();
+        }
+
         if (!bIsMenuOpen || !MyWidget) return;
+
 
         static auto LastCheckTime = std::chrono::steady_clock::now();
         auto now = std::chrono::steady_clock::now();

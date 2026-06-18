@@ -7,6 +7,12 @@
 #include "DataTypes.hpp"
 
 namespace DynPals {
+    struct PendingSwap {
+        RC::Unreal::UObject* Character;
+        int SwapIndex;
+        std::chrono::steady_clock::time_point ScheduledTime;
+    };
+
     class PalProcessor {
     public:
         static PalProcessor& Get() {
@@ -16,10 +22,15 @@ namespace DynPals {
 
         std::wstring StripCharacterPrefix(const std::wstring& InputID);
         void ProcessPal(RC::Unreal::UObject* Character, bool ForceReroll);
-        void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex);
+        
+        // Updated signature to support custom delays
+        void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex, int DelayMs = 1500);
         
         // The new Passive Scanner
         void ScanActivePals();
+        
+        // Added declaration to resolve C2039
+        void TickDeferredSwaps();
 
     private:
         PalProcessor() = default;
@@ -30,6 +41,10 @@ namespace DynPals {
 
         // Memory tracking to prevent reapplying meshes to the same Pal infinitely
         std::set<RC::Unreal::UObject*> ProcessedPals;
+        
+        // Added queue to hold deferred model swaps
+        std::vector<PendingSwap> PendingSwaps;
+        
         std::chrono::steady_clock::time_point LastScanTime = std::chrono::steady_clock::now();
     };
 }

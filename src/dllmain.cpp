@@ -29,18 +29,13 @@ public:
 
     auto on_update() -> void override
     {
-        DynPals::SaveManager::Get().TickSave();
-        DynPals::UIManager::Get().TickUI(); 
-        
-        // Passive Scanner runs in the background
-        DynPals::PalProcessor::Get().ScanActivePals(); 
-
-        // Listen for Alt + N (VK_MENU = Alt Key)
+        // Listen for Alt + N on the background thread safely
         static bool bMenuKeyPressed = false;
         if ((GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(0x4E) & 0x8000)) {
             if (!bMenuKeyPressed) {
                 bMenuKeyPressed = true;
-                DynPals::UIManager::Get().ToggleMenu();
+                // Signal the Game Thread to open the menu
+                DynPals::UIManager::Get().RequestMenuToggle();
             }
         } else {
             bMenuKeyPressed = false;

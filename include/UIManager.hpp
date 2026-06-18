@@ -2,6 +2,7 @@
 #include <Unreal/UObjectGlobals.hpp>
 #include <string>
 #include <vector>
+#include <atomic> // NEW: For thread-safe flags
 
 namespace DynPals {
 
@@ -20,6 +21,9 @@ namespace DynPals {
 
         void ToggleMenu();
         void TickUI();
+        
+        // NEW: Safe cross-thread toggle request
+        void RequestMenuToggle() { bToggleRequested = true; }
 
     private:
         UIManager() = default;
@@ -32,12 +36,13 @@ namespace DynPals {
         void UpdateTarget();
         void LockInput(bool bLock);
 
+        std::atomic<bool> bToggleRequested{false}; // NEW: Atomic flag
         bool bIsMenuOpen = false;
-        bool bHideInvalidSwaps = true; // NEW: Defaults to TRUE to hide failed swaps
+        bool bHideInvalidSwaps = true; 
         
         RC::Unreal::UObject* MyWidget = nullptr;
         RC::Unreal::UObject* ComboBoxWidget = nullptr;
-        RC::Unreal::UObject* CheckBoxWidget = nullptr; // NEW: The CheckBox reference
+        RC::Unreal::UObject* CheckBoxWidget = nullptr; 
         RC::Unreal::UObject* TargetPal = nullptr;
 
         std::wstring TargetInstanceID = L"";
