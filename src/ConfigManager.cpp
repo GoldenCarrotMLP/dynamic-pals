@@ -3,11 +3,108 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 #include "json.hpp"
 #include <random>
+#include <algorithm> // For std::transform
 
 using namespace RC;
 using namespace RC::Unreal;
 
 namespace DynPals {
+
+    namespace {
+        // String lowercase normalizers
+        std::string ToLower(std::string str) {
+            std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+            return str;
+        }
+
+        std::wstring ToLower(std::wstring str) {
+            std::transform(str.begin(), str.end(), str.begin(), ::towlower);
+            return str;
+        }
+
+        // Case-Insensitive JSON key checker
+        bool ContainsKey(const nlohmann::json& parent, const std::string& key) {
+            if (!parent.is_object()) return false;
+            std::string target = ToLower(key);
+            for (auto it = parent.begin(); it != parent.end(); ++it) {
+                if (ToLower(it.key()) == target) return true;
+            }
+            return false;
+        }
+
+        // Case-Insensitive JSON key retriever
+        const nlohmann::json& GetValue(const nlohmann::json& parent, const std::string& key) {
+            if (!parent.is_object()) {
+                static const nlohmann::json empty;
+                return empty;
+            }
+            std::string target = ToLower(key);
+            for (auto it = parent.begin(); it != parent.end(); ++it) {
+                if (ToLower(it.key()) == target) return *it;
+            }
+            static const nlohmann::json empty;
+            return empty;
+        }
+
+        // Safe numeric parser helper for Doubles / Floats
+        double SafeGetDouble(const nlohmann::json& parent, const std::string& key, double defaultValue = 0.0) {
+            if (!ContainsKey(parent, key)) return defaultValue;
+            const auto& node = GetValue(parent, key);
+            if (node.is_number()) {
+                return node.get<double>();
+            } else if (node.is_string()) {
+                try {
+                    return std::stod(node.get<std::string>());
+                } catch (...) {
+                    return defaultValue;
+                }
+            }
+            return defaultValue;
+        }
+
+        // Safe numeric parser helper for Integers
+        int32_t SafeGetInt(const nlohmann::json& parent, const std::string& key, int32_t defaultValue = 0) {
+            if (!ContainsKey(parent, key)) return defaultValue;
+            const auto& node = GetValue(parent, key);
+            if (node.is_number()) {
+                return node.get<int32_t>();
+            } else if (node.is_string()) {
+                try {
+                    return std::stoi(node.get<std::string>());
+                } catch (...) {
+                    return defaultValue;
+                }
+            }
+            return defaultValue;
+        }
+
+        // Safe parser helper for Booleans (Handles booleans, numeric flags, and string representations)
+        std::optional<bool> SafeGetOptionalBool(const nlohmann::json& parent, const std::string& key) {
+            if (!ContainsKey(parent, key)) return std::nullopt;
+            const auto& node = GetValue(parent, key);
+            if (node.is_boolean()) {
+                return node.get<bool>();
+            } else if (node.is_string()) {
+                std::string s = ToLower(node.get<std::string>());
+                return (s == "true" || s == "1");
+            } else if (node.is_number()) {
+                return node.get<int>() != 0;
+            }
+            return std::nullopt;
+        }
+
+        // Safe parser helper for Material Index strings
+        std::string SafeGetIndexString(const nlohmann::json& node, const std::string& key) {
+            if (!ContainsKey(node, key)) return "0";
+            const auto& val = GetValue(node, key);
+            if (val.is_string()) {
+                return val.get<std::string>();
+            } else if (val.is_number()) {
+                return std::to_string(val.get<int>());
+            }
+            return "0";
+        }
+    }
 
     void ConfigManager::Initialize(const std::wstring& BasePath) {
         ConfigPath = BasePath + L"Paks/~mods/SwapJSON/";
@@ -45,7 +142,6 @@ namespace DynPals {
                 if (configData.contains("SkelMeshSwap")) {
                     ParseSwaps(packName, configData.at("SkelMeshSwap"));
                 }
-
             }
             Output::send<LogLevel::Normal>(STR("[DynPals] Complete matchmaking table compiled with {} swaps.\n"), Configs.size());
         } catch (const std::exception& e) {
@@ -57,75 +153,66 @@ namespace DynPals {
         for (auto& swapJson : swapArray) {
             SwapConfig sc;
             sc.PackName = PackName; 
-            sc.CharacterID = Utils::StringToWString(swapJson.at("CharacterID").get<std::string>());
-            if (swapJson.contains("SkelMeshPath")) sc.SkelMeshPath = Utils::StringToWString(swapJson.at("SkelMeshPath").get<std::string>());
-            if (swapJson.contains("AnimTarget")) {sc.AnimTarget = Utils::StringToWString(swapJson.at("AnimTarget").get<std::string>());}
-            if (swapJson.contains("Gender")) sc.Gender = Utils::StringToWString(swapJson.at("Gender").get<std::string>());
-            if (swapJson.contains("SkinName")) sc.SkinName = Utils::StringToWString(swapJson.at("SkinName").get<std::string>());
             
-            if (swapJson.contains("MinLevel")) sc.MinLevel = swapJson.at("MinLevel").get<int>();
-            if (swapJson.contains("MaxLevel")) sc.MaxLevel = swapJson.at("MaxLevel").get<int>();
-            if (swapJson.contains("MinTrust")) sc.MinTrust = swapJson.at("MinTrust").get<int>();
-            if (swapJson.contains("MaxTrust")) sc.MaxTrust = swapJson.at("MaxTrust").get<int>();
-            if (swapJson.contains("MinRank")) sc.MinRank = swapJson.at("MinRank").get<int>();
-            if (swapJson.contains("MaxRank")) sc.MaxRank = swapJson.at("MaxRank").get<int>();
-            if (swapJson.contains("SpawnWeight")) {
-                int w = swapJson.at("SpawnWeight").get<int>();
+            sc.CharacterID = Utils::StringToWString(GetValue(swapJson, "CharacterID").get<std::string>());
+            if (ContainsKey(swapJson, "SkelMeshPath")) sc.SkelMeshPath = Utils::StringToWString(GetValue(swapJson, "SkelMeshPath").get<std::string>());
+            if (ContainsKey(swapJson, "AnimTarget")) { sc.AnimTarget = Utils::StringToWString(GetValue(swapJson, "AnimTarget").get<std::string>()); }
+            if (ContainsKey(swapJson, "Gender")) sc.Gender = Utils::StringToWString(GetValue(swapJson, "Gender").get<std::string>());
+            if (ContainsKey(swapJson, "SkinName")) sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());
+            
+            // Safe Parsing of Integer values (Allows strings or floats inside the JSON configuration)
+            sc.MinLevel = SafeGetInt(swapJson, "MinLevel", 1);
+            sc.MaxLevel = SafeGetInt(swapJson, "MaxLevel", 999);
+            sc.MinTrust = SafeGetInt(swapJson, "MinTrust", 0);
+            sc.MaxTrust = SafeGetInt(swapJson, "MaxTrust", 999999);
+            sc.MinRank = SafeGetInt(swapJson, "MinRank", 0);
+            sc.MaxRank = SafeGetInt(swapJson, "MaxRank", 5);
+            
+            if (ContainsKey(swapJson, "SpawnWeight")) {
+                int w = SafeGetInt(swapJson, "SpawnWeight", 1);
                 sc.SpawnWeight = w > 0 ? w : 1;
             }
-            if (swapJson.contains("SkipTrait")) {
-    for (auto& trait : swapJson.at("SkipTrait")) {
-        sc.SkipTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
-    }
-}
-if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
-    // We dump the nested JSON object as a raw string so other mods can read and parse it!
-    sc.Extra = Utils::StringToWString(swapJson.at("Extra").dump());
-}
             
-            if (swapJson.contains("IsRarePal")) {
-                if (swapJson.at("IsRarePal").is_boolean()) {
-                    sc.IsRarePal = swapJson.at("IsRarePal").get<bool>();
-                } else if (swapJson.at("IsRarePal").is_string()) {
-                    std::string s = swapJson.at("IsRarePal").get<std::string>();
-                    sc.IsRarePal = (s == "true" || s == "True");
+            if (ContainsKey(swapJson, "SkipTrait")) {
+                for (auto& trait : GetValue(swapJson, "SkipTrait")) {
+                    sc.SkipTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
                 }
             }
-
-            if (swapJson.contains("IsWildPal")) {
-                if (swapJson.at("IsWildPal").is_boolean()) {
-                    sc.IsWildPal = swapJson.at("IsWildPal").get<bool>();
-                } else if (swapJson.at("IsWildPal").is_string()) {
-                    std::string s = swapJson.at("IsWildPal").get<std::string>();
-                    sc.IsWildPal = (s == "true" || s == "True");
-                }
-            }
-
-
-            if (swapJson.contains("ReqTrait")) {
-                for (auto& trait : swapJson.at("ReqTrait")) sc.ReqTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
-            }
-            if (swapJson.contains("PrefTrait")) {
-                for (auto& trait : swapJson.at("PrefTrait")) sc.PrefTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+            if (ContainsKey(swapJson, "Extra") && GetValue(swapJson, "Extra").is_object()) {
+                sc.Extra = Utils::StringToWString(GetValue(swapJson, "Extra").dump());
             }
             
-            if (swapJson.contains("MatReplace")) {
-                for (auto& mat : swapJson.at("MatReplace")) {
+            // Safe Parsing of Optional Booleans
+            sc.IsRarePal = SafeGetOptionalBool(swapJson, "IsRarePal");
+            sc.IsWildPal = SafeGetOptionalBool(swapJson, "IsWildPal");
+
+            if (ContainsKey(swapJson, "ReqTrait")) {
+                for (auto& trait : GetValue(swapJson, "ReqTrait")) sc.ReqTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+            }
+            if (ContainsKey(swapJson, "PrefTrait")) {
+                for (auto& trait : GetValue(swapJson, "PrefTrait")) sc.PrefTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+            }
+            
+            if (ContainsKey(swapJson, "MatReplace")) {
+                for (auto& mat : GetValue(swapJson, "MatReplace")) {
                     MatReplace mr;
-                    mr.index = mat.at("Index").is_string() ? mat.at("Index").get<std::string>() : std::to_string(mat.at("Index").get<int>());
-                    mr.matPath = Utils::StringToWString(mat.at("MatPath").get<std::string>());
+                    mr.index = SafeGetIndexString(mat, "Index");
+                    mr.matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
                     sc.MatReplaceList.push_back(mr);
                 }
             }
 
-            if (swapJson.contains("MorphTarget")) {
-                for (auto& morph : swapJson.at("MorphTarget")) {
+            if (ContainsKey(swapJson, "MorphTarget")) {
+                for (auto& morph : GetValue(swapJson, "MorphTarget")) {
                     MorphTarget mt;
-                    mt.target = Utils::StringToWString(morph.at("Target").get<std::string>());
-                    if (morph.contains("Set")) mt.setVal = morph.at("Set").get<double>();
-                    if (morph.contains("Min")) mt.minVal = morph.at("Min").get<double>();
-                    if (morph.contains("Max")) mt.maxVal = morph.at("Max").get<double>();
-                    if (morph.contains("Type")) mt.type = Utils::StringToWString(morph.at("Type").get<std::string>());
+                    mt.target = Utils::StringToWString(GetValue(morph, "Target").get<std::string>());
+                    
+                    // Safe Parsing of Double values (Allows strings or ints inside the JSON configuration)
+                    mt.setVal = SafeGetDouble(morph, "Set", -1000.0);
+                    mt.minVal = SafeGetDouble(morph, "Min", 0.0);
+                    mt.maxVal = SafeGetDouble(morph, "Max", 1.0);
+                    
+                    if (ContainsKey(morph, "Type")) mt.type = Utils::StringToWString(GetValue(morph, "Type").get<std::string>());
                     sc.MorphTargetList.push_back(mt);
                 }
             }
@@ -133,12 +220,12 @@ if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
         }
     }
 
-  std::vector<SwapEvaluation> ConfigManager::EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild) const {
+    std::vector<SwapEvaluation> ConfigManager::EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild) const {
         std::vector<SwapEvaluation> results;
 
         for (size_t i = 0; i < Configs.size(); i++) {
             auto& swap = Configs[i];
-            if (swap.CharacterID != CharID) continue;
+            if (ToLower(swap.CharacterID) != ToLower(CharID)) continue;
 
             SwapEvaluation eval;
             eval.ConfigIndex = (int)i;
@@ -150,25 +237,27 @@ if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
             if (eval.IsValid && (Rank < swap.MinRank || Rank > swap.MaxRank)) eval.IsValid = false;
             if (eval.IsValid && (Trust < swap.MinTrust || Trust > swap.MaxTrust)) eval.IsValid = false;
 
-            // 2. Gender Match with fallbacks
-            if (eval.IsValid && swap.Gender != L"None") {
-                if (swap.Gender != GenderStr) {
+            // 2. Gender Match with fallbacks (Normalizes values to lowercase before evaluation)
+            if (eval.IsValid && ToLower(swap.Gender) != L"none") {
+                std::wstring swapGender = ToLower(swap.Gender);
+                std::wstring charGender = ToLower(GenderStr);
+                if (swapGender != charGender) {
                     bool fallbackMatched = false;
-                    if (swap.Gender == L"Male" && (GenderStr == L"Futa" || GenderStr == L"FullFuta")) {
+                    if (swapGender == L"male" && (charGender == L"futa" || charGender == L"fullfuta")) {
                         eval.Score += 50000;
                         fallbackMatched = true;
-                    } else if (swap.Gender == L"Female" && (GenderStr == L"Andro" || GenderStr == L"Neutered" || GenderStr == L"FullNeutered")) {
+                    } else if (swapGender == L"female" && (charGender == L"andro" || charGender == L"neutered" || charGender == L"fullneutered")) {
                         eval.Score += 50000;
                         fallbackMatched = true;
                     }
                     if (!fallbackMatched) eval.IsValid = false;
                 }
-            } else if (eval.IsValid && swap.Gender == L"None" && GenderStr != L"None") {
+            } else if (eval.IsValid && ToLower(swap.Gender) == L"none" && ToLower(GenderStr) != L"none") {
                 eval.Score += 500000; 
             }
 
             // 3. Exact String Matches
-            if (eval.IsValid && !swap.SkinName.empty() && SkinName != swap.SkinName) {
+            if (eval.IsValid && !swap.SkinName.empty() && ToLower(SkinName) != ToLower(swap.SkinName)) {
                 eval.IsValid = false;
             }
 
@@ -184,12 +273,12 @@ if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
                 if (reqWild != IsWild) eval.IsValid = false;
             }
 
-            // 5. Traits
+            // 5. Traits (Evaluated in Case-Insensitive Lowercase)
             if (eval.IsValid) {
                 for (const auto& req : swap.ReqTrait) {
                     bool hasTrait = false;
                     for (const auto& t : Traits) {
-                        if (t == req) { hasTrait = true; break; }
+                        if (ToLower(t) == ToLower(req)) { hasTrait = true; break; }
                     }
                     if (!hasTrait) {
                         eval.IsValid = false;
@@ -204,7 +293,7 @@ if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
                 for (const auto& pref : swap.PrefTrait) {
                     bool hasTrait = false;
                     for (const auto& t : Traits) {
-                        if (t == pref) { hasTrait = true; break; }
+                        if (ToLower(t) == ToLower(pref)) { hasTrait = true; break; }
                     }
                     if (hasTrait) eval.Score -= 5; 
                     else eval.Score += 5; 
@@ -212,22 +301,19 @@ if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
             }
             if (eval.IsValid) {
                 for (const auto& skip : swap.SkipTrait) {
-                bool hasBlacklistedTrait = false;
-                for (const auto& t : Traits) {
-                    if (t == skip) {
-                    hasBlacklistedTrait = true;
-                break;
-            }
-        }
-        if (hasBlacklistedTrait) {
-            eval.IsValid = false; // Banned trait found, skip this swap!
-            break;
-        }
+                    bool hasBlacklistedTrait = false;
+                    for (const auto& t : Traits) {
+                        if (ToLower(t) == ToLower(skip)) {
+                            hasBlacklistedTrait = true;
+                            break;
+                        }
+                    }
+                    if (hasBlacklistedTrait) {
+                        eval.IsValid = false; // Banned trait found, skip this swap!
+                        break;
+                    }
                 }
-            
-}
-
-
+            }
             results.push_back(eval);
         }
         return results;
@@ -249,7 +335,6 @@ if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
         }
 
         if (!bestMatches.empty()) {
-            // NEW: Calculate the sum of weights among the tied configurations
             int totalWeight = 0;
             for (int idx : bestMatches) {
                 totalWeight += Configs[idx].SpawnWeight;
@@ -261,7 +346,6 @@ if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
                 std::uniform_int_distribution<> dis(0, totalWeight - 1);
                 int randomValue = dis(gen);
 
-                // Run a cumulative weight select to find the weighted winner
                 int cumulativeWeight = 0;
                 for (int idx : bestMatches) {
                     cumulativeWeight += Configs[idx].SpawnWeight;
@@ -278,7 +362,7 @@ if (swapJson.contains("Extra") && swapJson.at("Extra").is_object()) {
     std::vector<int> ConfigManager::GetConfigsForCharID(const std::wstring& CharID) const {
         std::vector<int> results;
         for (size_t i = 0; i < Configs.size(); ++i) {
-            if (Configs[i].CharacterID == CharID) {
+            if (ToLower(Configs[i].CharacterID) == ToLower(CharID)) {
                 results.push_back((int)i);
             }
         }
