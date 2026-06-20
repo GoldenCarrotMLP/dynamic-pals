@@ -17,19 +17,61 @@ namespace DynPals {
     // Helper Lambda for Deep Animation State Diagnostics
     auto DumpAnimState = [](UObject* MeshComp, const std::wstring& Stage) {
         Output::send<LogLevel::Normal>(STR("[DynPals] ===== {} =====\n"), Stage);
-        if (!MeshComp) {
-            Output::send<LogLevel::Warning>(STR("  [!] Mesh Component is NULL\n"));
-            return;
-        }
-        
+        if (!MeshComp) return;
         UClass* AC = nullptr;
         Utils::GetPropertyValue<UClass*>(MeshComp, STR("AnimClass"), AC);
         Output::send<LogLevel::Normal>(STR("  > AnimClass Property: {}\n"), AC ? AC->GetName() : L"NULL");
-        
         UObject* AI = nullptr;
         Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &AI);
         Output::send<LogLevel::Normal>(STR("  > Active AnimInstance: {}\n"), AI ? AI->GetName() : L"NULL (Graph not running!)");
     };
+
+    // Safely validates if a character UObject pointer is still spawned in memory
+    static bool IsCharacterValid(UObject* Character) {
+        if (!Character) return false;
+        std::vector<UObject*> AllPals;
+        UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+        for (UObject* Pal : AllPals) {
+            if (Pal == Character) return true;
+        }
+        return false;
+    }
+
+    // THE GATE: Determines if a Pal is actively walking around in the world.
+    static bool IsPalVisibleAndActive(UObject* Pal) {
+        if (!Pal) return false;
+
+        // 1. CDO CHECK: NEVER process Class Default Objects (the templates)!
+        std::wstring PalName = Pal->GetName();
+        if (PalName.find(L"Default__") != std::wstring::npos) return false;
+
+        // 2. ORIGIN POOL CHECK: Skip background ghosts stored near exact 0,0,0
+        struct { FVector_UE5 ReturnValue; } LocParams;
+        Utils::CallFunction(Pal, STR("K2_GetActorLocation"), &LocParams);
+        double distSq = (LocParams.ReturnValue.X * LocParams.ReturnValue.X) + 
+                        (LocParams.ReturnValue.Y * LocParams.ReturnValue.Y) + 
+                        (LocParams.ReturnValue.Z * LocParams.ReturnValue.Z);
+        if (distSq < 100.0) return false;
+
+        // 3. PALWORLD ACTIVE FLAG
+        bool bIsActive = true;
+        if (Utils::GetPropertyValue<bool>(Pal, STR("bIsPalActiveActor"), bIsActive)) {
+            if (!bIsActive) return false;
+        }
+
+        // 4. COLLISION CHECK (Palbox / Unsummoned pals have collision disabled)
+        struct { bool ReturnValue; } ColParams{true};
+        Utils::CallFunction(Pal, STR("GetActorEnableCollision"), &ColParams);
+        if (!ColParams.ReturnValue) return false;
+
+        // 5. HIDDEN POOL CHECK
+        bool bHidden = false;
+        if (Utils::GetPropertyValue<bool>(Pal, STR("bHidden"), bHidden)) {
+            if (bHidden) return false;
+        }
+
+        return true;
+    }
 
     std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
         if (InputID.rfind(L"BOSS_", 0) == 0) return InputID.substr(5);
@@ -40,7 +82,31 @@ namespace DynPals {
 
     void PalProcessor::ProcessPal(UObject* Character, bool ForceReroll) {
         if (!Character) return;
+        if (Character->GetName().find(L"Default__") != std::wstring::npos) return;
 
+        // If we force a reroll (e.g. from UI), erase them from memory so they can be processed anew
+        if (ForceReroll) {
+            ProcessedPals.erase(Character);
+        }
+
+        // Don't re-add if already processed or already in the pipeline
+        if (ProcessedPals.find(Character) != ProcessedPals.end()) return;
+        for (auto& q : ProcessingQueue) {
+            if (q.Character == Character) {
+                if (ForceReroll) q.ForceReroll = true;
+                return;
+            }
+        }
+
+        // Drop them into State 0: The waiting room.
+        QueuedPal qp;
+        qp.Character = Character;
+        qp.ForceReroll = ForceReroll;
+        qp.State = 0; 
+        ProcessingQueue.push_back(qp);
+    }
+
+    void PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll) {
         UObject* ParamComp = nullptr;
         Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp);
         if (!ParamComp) return;
@@ -404,20 +470,16 @@ namespace DynPals {
 
     void PalProcessor::TickDeferredSwaps() {
         auto Now = std::chrono::steady_clock::now();
-        for (auto It = PendingSwaps.begin(); It != PendingSwaps.end(); ) {
-            if (Now >= It->ScheduledTime) {
-                if (It->Character) {
-                    std::vector<UObject*> AllPals;
-                    UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
-                    bool bIsValid = false;
-                    for (UObject* Pal : AllPals) {
-                        if (Pal == It->Character) {
-                            bIsValid = true;
-                            break;
-                        }
-                    }
+        
+        // 1. UI Manual Overrides (Immediate injection)
+        if (!PendingSwaps.empty()) {
+            std::vector<UObject*> AllPals;
+            UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+            std::set<UObject*> ValidPals(AllPals.begin(), AllPals.end());
 
-                    if (bIsValid) {
+            for (auto It = PendingSwaps.begin(); It != PendingSwaps.end(); ) {
+                if (Now >= It->ScheduledTime) {
+                    if (It->Character && ValidPals.find(It->Character) != ValidPals.end()) {
                         UObject* ParamComp = nullptr;
                         Utils::GetPropertyValue<UObject*>(It->Character, STR("CharacterParameterComponent"), ParamComp);
                         if (ParamComp) {
@@ -435,10 +497,56 @@ namespace DynPals {
                             }
                         }
                     }
+                    It = PendingSwaps.erase(It);
+                } else {
+                    ++It;
                 }
-                It = PendingSwaps.erase(It);
-            } else {
-                ++It;
+            }
+        }
+
+        // 2. Background Pipeline (Throttled to 500ms + Cached single-pass lookup)
+        static auto LastPipelineTick = Now;
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastPipelineTick).count() >= 500) {
+            LastPipelineTick = Now;
+
+            if (!ProcessingQueue.empty()) {
+                std::vector<UObject*> AllPals;
+                UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+                std::set<UObject*> ValidPals(AllPals.begin(), AllPals.end());
+
+                for (auto It = ProcessingQueue.begin(); It != ProcessingQueue.end(); ) {
+                    // Safety check: Erase dead pointers
+                    if (ValidPals.find(It->Character) == ValidPals.end()) {
+                        It = ProcessingQueue.erase(It);
+                        continue;
+                    }
+
+                    if (It->State == 0) {
+                        // STATE 0: Waiting in 0,0,0 Pool
+                        if (IsPalVisibleAndActive(It->Character)) {
+                            Output::send<LogLevel::Normal>(STR("[DynPals] [Pipeline] Pal entered world! Transitioning to Assembly State: {}\n"), It->Character->GetName());
+                            It->State = 1;
+                            It->AssemblyEndTime = Now + std::chrono::milliseconds(1000);
+                        }
+                        ++It;
+                    } 
+                    else if (It->State == 1) {
+                        // STATE 1: Assembling Weapons
+                        if (Now >= It->AssemblyEndTime) {
+                            if (IsPalVisibleAndActive(It->Character)) {
+                                Output::send<LogLevel::Normal>(STR("[DynPals] [Pipeline] Assembly complete. Firing ExecuteSwap for: {}\n"), It->Character->GetName());
+                                ExecuteSwap(It->Character, It->ForceReroll);
+                                It = ProcessingQueue.erase(It); // Done!
+                            } else {
+                                Output::send<LogLevel::Warning>(STR("[DynPals] [Pipeline] Pal returned to pool during assembly. Demoting to State 0: {}\n"), It->Character->GetName());
+                                It->State = 0;
+                                ++It;
+                            }
+                        } else {
+                            ++It;
+                        }
+                    }
+                }
             }
         }
     }
@@ -451,21 +559,50 @@ namespace DynPals {
         std::vector<UObject*> AllPals;
         UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
 
-        std::set<UObject*> CurrentActivePals(AllPals.begin(), AllPals.end());
+        std::set<UObject*> ValidPointers;
+        std::set<UObject*> ActivePals;
 
         for (UObject* Pal : AllPals) {
-            if (!Pal) continue; 
+            if (!Pal || Pal->GetName().find(L"Default__") != std::wstring::npos) continue;
+            ValidPointers.insert(Pal);
             
-            if (ProcessedPals.find(Pal) == ProcessedPals.end()) {
-                ProcessPal(Pal, false);
+            if (IsPalVisibleAndActive(Pal)) {
+                ActivePals.insert(Pal);
             }
         }
 
+        // 1. Clean Processed Memory
+        // If a Pal is deleted OR no longer active (e.g., returned to pool), FORGET IT so it can be swapped again later!
         for (auto it = ProcessedPals.begin(); it != ProcessedPals.end(); ) {
-            if (CurrentActivePals.find(*it) == CurrentActivePals.end()) {
+            if (ActivePals.find(*it) == ActivePals.end()) {
                 it = ProcessedPals.erase(it); 
             } else {
                 ++it;
+            }
+        }
+
+        // 2. Clean Pipeline Memory
+        // Only erase from the pipeline if the pointer was completely deleted from memory
+        for (auto it = ProcessingQueue.begin(); it != ProcessingQueue.end(); ) {
+            if (ValidPointers.find(it->Character) == ValidPointers.end()) {
+                it = ProcessingQueue.erase(it); 
+            } else {
+                ++it;
+            }
+        }
+
+        // 3. Inject any un-tracked Pals into the start of the Pipeline (State 0)
+        for (UObject* Pal : ValidPointers) {
+            if (ProcessedPals.find(Pal) != ProcessedPals.end()) continue;
+            
+            bool bInQueue = false;
+            for (const auto& qp : ProcessingQueue) {
+                if (qp.Character == Pal) {
+                    bInQueue = true; break;
+                }
+            }
+            if (!bInQueue) {
+                ProcessPal(Pal, false);
             }
         }
     }

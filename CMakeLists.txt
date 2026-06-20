@@ -30,7 +30,9 @@ target_link_libraries(DynamicPals PUBLIC UE4SS)
 # FORCE SYNCHRONOUS PDB WRITES (Fixes C1041 Compiler Locks)
 if(MSVC)
     target_compile_options(DynamicPals PRIVATE /FS)
+    target_link_options(DynamicPals PRIVATE "/FORCE:MULTIPLE")
 endif()
+
 
 # =========================================================================
 # DYNAMIC TEMPLATE GENERATOR: Extracts C++ struct members dynamically

@@ -4,7 +4,7 @@
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp> 
 #include <Unreal/FString.hpp>
-#include <Unreal/CoreUObject/UObject/Class.hpp> // Replaced legacy forwarding includes
+#include <Unreal/CoreUObject/UObject/Class.hpp> 
 #include <Unreal/Core/Containers/Array.hpp>
 #include <Unreal/FText.hpp> 
 #include "DataTypes.hpp"
@@ -66,6 +66,53 @@ namespace DynPals::Utils {
         return false;
     }
 
+    // SAFE TEMPLATE SPECIALIZATION: Resolves Unreal bitmasks for correct boolean evaluations
+    template<>
+    inline bool GetPropertyValue<bool>(UObject* Object, const wchar_t* PropertyName, bool& OutValue) {
+        auto* Property = GetProperty(Object, PropertyName);
+        if (Property) {
+            if (Property->GetClass().GetName() == L"BoolProperty") {
+                FBoolProperty* BoolProp = static_cast<FBoolProperty*>(Property);
+                void* Ptr = BoolProp->ContainerPtrToValuePtr<void>(Object);
+                if (Ptr) {
+                    OutValue = BoolProp->GetPropertyValue(Ptr);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    template<typename T>
+    inline bool SetPropertyValue(UObject* Object, const wchar_t* PropertyName, const T& Value) {
+        auto* Property = GetProperty(Object, PropertyName);
+        if (Property) {
+            T* Ptr = Property->ContainerPtrToValuePtr<T>(Object);
+            if (Ptr) {
+                *Ptr = Value;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // SAFE TEMPLATE SPECIALIZATION: Prevents setting values from corrupting adjacent bitfields
+    template<>
+    inline bool SetPropertyValue<bool>(UObject* Object, const wchar_t* PropertyName, const bool& Value) {
+        auto* Property = GetProperty(Object, PropertyName);
+        if (Property) {
+            if (Property->GetClass().GetName() == L"BoolProperty") {
+                FBoolProperty* BoolProp = static_cast<FBoolProperty*>(Property);
+                void* Ptr = BoolProp->ContainerPtrToValuePtr<void>(Object);
+                if (Ptr) {
+                    BoolProp->SetPropertyValue(Ptr, Value);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     inline void CallFunction(UObject* Object, const wchar_t* FunctionName, void* Params = nullptr) {
         if (!Object) return;
         auto* Function = Object->GetFunctionByNameInChain(FunctionName);
@@ -88,7 +135,7 @@ namespace DynPals::Utils {
     }
 
     inline UObject* LoadAssetSafely(const std::wstring& AssetPath) {
-        std::wstring formatted = FormatAssetPath(AssetPath); // Fixed: Changed 'Path' to 'AssetPath'
+        std::wstring formatted = FormatAssetPath(AssetPath); 
         std::wstring package, asset;
         
         size_t dot = formatted.find(L'.');

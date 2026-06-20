@@ -62,7 +62,6 @@ namespace DynPals {
             Output::send<LogLevel::Normal>(STR("[DynPals] Closing Menu.\n"));
             DestroyWidget();
             LockInput(false);
-
         }
     }
 
@@ -218,6 +217,7 @@ namespace DynPals {
         UClass* SliderClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Slider"));
         UClass* TextBlockClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.TextBlock"));
         UClass* SpacerClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Spacer"));
+        UClass* ButtonClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Button"));
 
         UObject* Canvas = ConstructElement(CanvasPanelClass, STR("Canvas"));
         UObject* BackgroundBorder = ConstructElement(BorderClass, STR("BackgroundBorder"));
@@ -234,7 +234,6 @@ namespace DynPals {
         Utils::CallFunction(Canvas, STR("AddChild"), &AddBorderParams);
         UObject* CanvasSlot = AddBorderParams.ReturnValue;
 
-        // Expanded to 32% width to accommodate long Word-Wrapped names
         FAnchors Anchors{0.02, 0.10, 0.32, 0.90}; 
         struct { FAnchors InAnchors; } AnchorsParams{Anchors};
         Utils::CallFunction(CanvasSlot, STR("SetAnchors"), &AnchorsParams);
@@ -432,7 +431,7 @@ namespace DynPals {
             }
         }
 
-          int totalTiedWeight = 0;
+        int totalTiedWeight = 0;
         for (const auto& eval : evaluations) {
             if (eval.IsValid && eval.Score == bestScore) {
                 totalTiedWeight += ConfigManager::Get().GetConfigs()[eval.ConfigIndex].SpawnWeight;
@@ -519,12 +518,36 @@ namespace DynPals {
                 Utils::CallFunction(CheckLabel, STR("SetText"), &SetLabelParams);
                 SetTextColor(CheckLabel, OffWhite);
                 
-                struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{CheckLabel, nullptr};
+                struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{FilterHBox, nullptr};
                 Utils::CallFunction(FilterHBox, STR("AddChild"), &AddLabelParams);
             }
 
             struct { UObject* Content; UObject* ReturnValue; } AddHBoxParams{FilterHBox, nullptr};
             Utils::CallFunction(VBox, STR("AddChild"), &AddHBoxParams);
+            AddSpacer(15.0);
+        }
+
+        // --- RANDOMIZE BUTTON ---
+        RandomizeButtonWidget = ConstructElement(ButtonClass, STR("RandomizeButton"));
+        if (RandomizeButtonWidget && TextBlockClass) {
+            UObject* ButtonText = ConstructElement(TextBlockClass, STR("ButtonText"));
+            if (ButtonText) {
+                FText btnTextVal = ConvStringToText(L"Reroll");
+                struct { FText InText; } SetTextParams{btnTextVal};
+                Utils::CallFunction(ButtonText, STR("SetText"), &SetTextParams);
+                SetTextColor(ButtonText, {0.012f, 0.078f, 0.153f, 1.0f}); // Dark blue text
+                
+                struct { UObject* Content; UObject* ReturnValue; } AddTextParams{ButtonText, nullptr};
+                Utils::CallFunction(RandomizeButtonWidget, STR("AddChild"), &AddTextParams);
+            }
+
+            // Style with cyan theme
+            struct { FLinearColor InColor; } ColorParams{PalBakerCyan};
+            Utils::CallFunction(RandomizeButtonWidget, STR("SetBackgroundColor"), &ColorParams);
+
+            struct { UObject* Content; UObject* ReturnValue; } AddBtnParams{RandomizeButtonWidget, nullptr};
+            Utils::CallFunction(VBox, STR("AddChild"), &AddBtnParams);
+            
             AddSpacer(15.0);
         }
 
@@ -551,13 +574,11 @@ namespace DynPals {
                 Utils::CallFunction(VBox, STR("AddChild"), &AddParams);
             }
         } else {
-            // Re-loop purely for the flat Evaluation Log
             for (const auto& eval : evaluations) {
                 if (bHideInvalidSwaps && !eval.IsValid) continue;
 
                 auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
                 
-                // 1. Render Pack Name on its own line
                 UObject* PackText = ConstructElement(TextBlockClass, STR("PackText"));
                 if (PackText) {
                     FText pTextVal = ConvStringToText(cfg.PackName);
@@ -568,7 +589,6 @@ namespace DynPals {
                     Utils::CallFunction(VBox, STR("AddChild"), &AddParams);
                 }
 
-                // 2. Format Skin Name & Extract percentages
                 std::wstring processedFilename = cfg.SkelMeshPath;
                 size_t lastSlash = processedFilename.find_last_of(L'/');
                 if (lastSlash != std::wstring::npos) processedFilename = processedFilename.substr(lastSlash + 1);
@@ -579,7 +599,6 @@ namespace DynPals {
                 if (processedFilename.rfind(L"SK_", 0) == 0 || processedFilename.rfind(L"sk_", 0) == 0) processedFilename = processedFilename.substr(3);
                 for (wchar_t& c : processedFilename) { if (c == L'_') c = L' '; }
 
-                // Calculate weighted percentage instead of uniform
                 int pct = 0;
                 if (eval.IsValid && eval.Score == bestScore && totalTiedWeight > 0) {
                     pct = (cfg.SpawnWeight * 100) / totalTiedWeight;
@@ -593,20 +612,18 @@ namespace DynPals {
 
                 std::wstring logStr = L"    " + std::to_wstring(pct) + L"% : " + processedFilename;
 
-                
-                // 3. Render Skin Name on the next line (with Word Wrap)
                 UObject* LogText = ConstructElement(TextBlockClass, STR("LogText"));
                 if (LogText) {
                     FText textVal = ConvStringToText(logStr);
                     struct { FText InText; } SetTextParams{textVal};
                     Utils::CallFunction(LogText, STR("SetText"), &SetTextParams);
                     SetTextColor(LogText, textColor);
-                    SetAutoWrap(LogText, true); // Safely wrap massive names!
+                    SetAutoWrap(LogText, true);
                     struct { UObject* Content; UObject* ReturnValue; } AddParams{LogText, nullptr};
                     Utils::CallFunction(VBox, STR("AddChild"), &AddParams);
                 }
                 
-                AddSpacer(8.0); // Breathing room between entries
+                AddSpacer(8.0);
             }
         }
         
@@ -680,7 +697,7 @@ namespace DynPals {
     }
 
     void UIManager::TickUI() {
-        // Process cross-thread toggle requests safely
+        // Process cross-thread toggle requests safely (such as Alt+N)
         if (bToggleRequested) {
             bToggleRequested = false;
             ToggleMenu();
@@ -688,7 +705,19 @@ namespace DynPals {
 
         if (!bIsMenuOpen || !MyWidget) return;
 
+        // --- NEW: Close the menu when Escape is pressed ---
+        static bool bWasEscapeDown = false;
+        if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+            if (!bWasEscapeDown) {
+                bWasEscapeDown = true;
+                ToggleMenu(); 
+                return; // Exit early since MyWidget is now destroyed/null
+            }
+        } else {
+            bWasEscapeDown = false;
+        }
 
+        // --- Existing tracking and validation checks continue here ---
         static auto LastCheckTime = std::chrono::steady_clock::now();
         auto now = std::chrono::steady_clock::now();
         if (now - LastCheckTime > std::chrono::seconds(1)) {
@@ -709,6 +738,7 @@ namespace DynPals {
                 return;
             }
         }
+
 
         if (CheckBoxWidget) {
             struct { bool ReturnValue; } IsCheckedParams{false};
@@ -748,6 +778,28 @@ namespace DynPals {
             }
         }
 
+        // --- BUTTON POLLING FOR RANDOMIZE ---
+        if (RandomizeButtonWidget) {
+            struct { bool ReturnValue; } IsPressedParams{false};
+            Utils::CallFunction(RandomizeButtonWidget, STR("IsPressed"), &IsPressedParams);
+            
+            if (IsPressedParams.ReturnValue) {
+                if (!bWasRandomizePressed) {
+                    bWasRandomizePressed = true;
+                    
+                    Output::send<LogLevel::Normal>(STR("[DynPals] Randomize button clicked. Rerolling swap and morphs...\n"));
+                    PalProcessor::Get().ProcessPal(TargetPal, true);
+                    
+                    DestroyWidget();
+                    BuildWidget();
+                    LockInput(true);
+                    return; 
+                }
+            } else {
+                bWasRandomizePressed = false;
+            }
+        }
+
         PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
         if (persist) {
             bool bChanged = false;
@@ -784,6 +836,8 @@ namespace DynPals {
         }
         ComboBoxWidget = nullptr;
         CheckBoxWidget = nullptr;
+        RandomizeButtonWidget = nullptr;
+        bWasRandomizePressed = false;
         ActiveSliders.clear();
     }
 }
