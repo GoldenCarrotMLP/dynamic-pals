@@ -14,18 +14,6 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
-    // Helper Lambda for Deep Animation State Diagnostics
-    auto DumpAnimState = [](UObject* MeshComp, const std::wstring& Stage) {
-        Output::send<LogLevel::Normal>(STR("[DynPals] ===== {} =====\n"), Stage);
-        if (!MeshComp) return;
-        UClass* AC = nullptr;
-        Utils::GetPropertyValue<UClass*>(MeshComp, STR("AnimClass"), AC);
-        Output::send<LogLevel::Normal>(STR("  > AnimClass Property: {}\n"), AC ? AC->GetName() : L"NULL");
-        UObject* AI = nullptr;
-        Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &AI);
-        Output::send<LogLevel::Normal>(STR("  > Active AnimInstance: {}\n"), AI ? AI->GetName() : L"NULL (Graph not running!)");
-    };
-
     // Safely validates if a character UObject pointer is still spawned in memory
     static bool IsCharacterValid(UObject* Character) {
         if (!Character) return false;
@@ -37,7 +25,7 @@ namespace DynPals {
         return false;
     }
 
-    // THE GATE: Determines if a Pal is actively walking around in the world.
+    // GATE: Determines if a Pal is actively walking around in the world.
     static bool IsPalVisibleAndActive(UObject* Pal) {
         if (!Pal) return false;
 
@@ -193,8 +181,6 @@ namespace DynPals {
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp) return;
 
-        DumpAnimState(MeshComp, L"1. INITIAL PRE-SWAP STATE");
-
         // 1. SAFELY PAUSE ANIMATIONS TO PREVENT EVALUATION CRASHES DURING SWAP
         struct { bool bPause; } PauseAnim{ true };
         Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &PauseAnim);
@@ -231,14 +217,35 @@ namespace DynPals {
             std::wstring CDOPath = PackagePath + L".Default__" + ClassName;
 
             UClass* TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
+            if (!TargetBPClass) {
+                Output::send<LogLevel::Error>(STR("[DynPals] [Loader] FAILED to load BP Class at path: {}\n"), AnimPath);
+            }
+
             UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
+            if (!TargetCDO) {
+                // Fallback search inside the Package
+                if (TargetBPClass) {
+                    std::wstring CDOName = L"Default__" + ClassName;
+                    TargetCDO = UObjectGlobals::StaticFindObject<UObject*>(nullptr, TargetBPClass->GetOuterPrivate(), CDOName.c_str());
+                    if (!TargetCDO) {
+                        Output::send<LogLevel::Error>(STR("[DynPals] [Loader] FAILED to find TargetCDO inside package.\n"));
+                    }
+                }
+            }
 
             if (TargetBPClass && TargetCDO) {
                 UObject* TargetMesh = nullptr;
                 Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
                 
                 if (TargetMesh) {
-                    // Extract target's Skeleton asset
+                    // Extract target's AnimClass
+                    Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
+                    if (TargetAnimClass) {
+                        // Extract target's Skeleton asset from the AnimClass (Primary check)
+                        Utils::GetPropertyValue<UObject*>(TargetAnimClass, STR("TargetSkeleton"), TargetSkeleton);
+                    }
+
+                    // Fallback: Extract from Skeletal Mesh of CDO if AnimClass didn't have it
                     UObject* TargetSkelMesh = nullptr;
                     Utils::GetPropertyValue<UObject*>(TargetMesh, STR("SkeletalMesh"), TargetSkelMesh);
                     if (!TargetSkelMesh) {
@@ -246,14 +253,10 @@ namespace DynPals {
                     }
 
                     if (TargetSkelMesh) {
-                        Utils::GetPropertyValue<UObject*>(TargetSkelMesh, STR("Skeleton"), TargetSkeleton);
-                        if (TargetSkeleton) {
-                            Output::send<LogLevel::Normal>(STR("[DynPals] Extracted Target Skeleton asset: {}\n"), TargetSkeleton->GetName());
+                        if (!TargetSkeleton) {
+                            Utils::GetPropertyValue<UObject*>(TargetSkelMesh, STR("Skeleton"), TargetSkeleton);
                         }
                     }
-
-                    // Extract target's AnimClass
-                    Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
                 }
                 Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
             }
@@ -273,27 +276,21 @@ namespace DynPals {
         if (!swap.SkelMeshPath.empty()) {
             NewMesh = Utils::LoadAssetSafely(swap.SkelMeshPath);
             if (NewMesh) {
-                Output::send<LogLevel::Normal>(STR("[DynPals] Loaded New Skeletal Mesh: {}\n"), NewMesh->GetName());
-                
                 // Re-target the mesh to our resolved skeleton (custom target or original native skeleton)
                 if (TargetSkeleton) {
                     struct { UObject* NewSkeleton; } SkelParams{ TargetSkeleton };
                     Utils::CallFunction(NewMesh, STR("SetSkeleton"), &SkelParams);
-                    Output::send<LogLevel::Normal>(STR("[DynPals] Applied Skeleton asset to New Mesh: {}\n"), TargetSkeleton->GetName());
                 }
 
                 struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
             } else {
-                Output::send<LogLevel::Error>(STR("[DynPals] FAILED to load Skeletal Mesh: {}\n"), swap.SkelMeshPath);
+                Output::send<LogLevel::Error>(STR("[DynPals] [ApplySwap] FAILED to load Skeletal Mesh: {}\n"), swap.SkelMeshPath);
             }
         }
 
-        DumpAnimState(MeshComp, L"2. AFTER SKELETAL MESH LOAD");
-
         // 6. APPLY RESOLVED ANIMATION BLUEPRINT
         if (TargetAnimClass && SetAnimFunc) {
-            Output::send<LogLevel::Normal>(STR("[DynPals] Injecting AnimClass: {}\n"), TargetAnimClass->GetName());
             struct { UClass* NewClass; } Params{ TargetAnimClass };
             MeshComp->ProcessEvent(SetAnimFunc, &Params);
         }
@@ -323,8 +320,6 @@ namespace DynPals {
                 CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
             }
         }
-
-        DumpAnimState(MeshComp, L"3. AFTER ANIM CLASS INJECTION");
 
         struct { int32_t RetVal; } NumMatParams{0};
         Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
@@ -407,11 +402,8 @@ namespace DynPals {
                     if (LayerClass) {
                         struct { UClass* InClass; } LinkParams{ LayerClass };
                         NewAnimInst->ProcessEvent(LinkFunc, &LinkParams);
-                        Output::send<LogLevel::Normal>(STR("[DynPals] Linked Animation Layer: {}\n"), LayerPath);
                     }
                 }
-            } else {
-                Output::send<LogLevel::Warning>(STR("[DynPals] Could not find LinkAnimClassLayers function on AnimInstance!\n"));
             }
         }
 
@@ -421,8 +413,6 @@ namespace DynPals {
 
         struct { bool bPause; } UnpauseAnim{ false };
         Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &UnpauseAnim);
-
-        DumpAnimState(MeshComp, L"4. FINAL COMPLETION STATE");
     }
 
     void PalProcessor::ForceSwap(UObject* Character, int SwapIndex, int DelayMs) {
@@ -524,7 +514,6 @@ namespace DynPals {
                     if (It->State == 0) {
                         // STATE 0: Waiting in 0,0,0 Pool
                         if (IsPalVisibleAndActive(It->Character)) {
-                            Output::send<LogLevel::Normal>(STR("[DynPals] [Pipeline] Pal entered world! Transitioning to Assembly State: {}\n"), It->Character->GetName());
                             It->State = 1;
                             It->AssemblyEndTime = Now + std::chrono::milliseconds(1000);
                         }
@@ -534,11 +523,9 @@ namespace DynPals {
                         // STATE 1: Assembling Weapons
                         if (Now >= It->AssemblyEndTime) {
                             if (IsPalVisibleAndActive(It->Character)) {
-                                Output::send<LogLevel::Normal>(STR("[DynPals] [Pipeline] Assembly complete. Firing ExecuteSwap for: {}\n"), It->Character->GetName());
                                 ExecuteSwap(It->Character, It->ForceReroll);
                                 It = ProcessingQueue.erase(It); // Done!
                             } else {
-                                Output::send<LogLevel::Warning>(STR("[DynPals] [Pipeline] Pal returned to pool during assembly. Demoting to State 0: {}\n"), It->Character->GetName());
                                 It->State = 0;
                                 ++It;
                             }
