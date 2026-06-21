@@ -172,27 +172,40 @@ namespace DynPals::Utils {
         return LoadedObj;
     }
 
-    // High-level asset loader with automatic "SK_" prefix fallbacks
+    // High-level asset loader with standard, clean execution (no fallbacks or logs spam)
     inline UObject* LoadAssetSafely(const std::wstring& AssetPath) {
+        return LoadAssetInternal(AssetPath);
+    }
+
+    // Specialized mod skeletal mesh loader with safe "SK_" / "sk_" prefix fallbacks [2]
+    inline UObject* LoadSkeletalMeshSafely(const std::wstring& AssetPath) {
         UObject* Loaded = LoadAssetInternal(AssetPath);
         if (Loaded) return Loaded;
 
-        // Fallback: Check if the file is missing its standard "SK_" or "sk_" prefix [2]
-        size_t lastSlash = AssetPath.find_last_of(L'/');
-        if (lastSlash != std::wstring::npos) {
-            std::wstring directory = AssetPath.substr(0, lastSlash + 1);
-            std::wstring filename = AssetPath.substr(lastSlash + 1);
+        // Fallback: Check if a mod-specific swapped mesh is missing its standard prefix [2]
+        if (AssetPath.find(L"/Mods/") != std::wstring::npos) {
+            size_t lastSlash = AssetPath.find_last_of(L'/');
+            if (lastSlash != std::wstring::npos) {
+                std::wstring directory = AssetPath.substr(0, lastSlash + 1);
+                std::wstring filename = AssetPath.substr(lastSlash + 1);
 
-            if (filename.rfind(L"SK_", 0) != 0 && filename.rfind(L"sk_", 0) != 0) {
-                // Try upper-case SK_ [2]
-                std::wstring fallback = directory + L"SK_" + filename;
-                Loaded = LoadAssetInternal(fallback);
-                if (Loaded) return Loaded;
+                if (filename.rfind(L"SK_", 0) != 0 && filename.rfind(L"sk_", 0) != 0) {
+                    // Try upper-case SK_ [2]
+                    std::wstring fallback = directory + L"SK_" + filename;
+                    Loaded = LoadAssetInternal(fallback);
+                    if (Loaded) {
+                        DP_LOG(Normal, "[DynPals] Found skeletal mesh with 'SK_' fallback path: {}\n", fallback);
+                        return Loaded;
+                    }
 
-                // Try lower-case sk_ [2]
-                fallback = directory + L"sk_" + filename;
-                Loaded = LoadAssetInternal(fallback);
-                if (Loaded) return Loaded;
+                    // Try lower-case sk_ [2]
+                    fallback = directory + L"sk_" + filename;
+                    Loaded = LoadAssetInternal(fallback);
+                    if (Loaded) {
+                        DP_LOG(Normal, "[DynPals] Found skeletal mesh with 'sk_' fallback path: {}\n", fallback);
+                        return Loaded;
+                    }
+                }
             }
         }
         return nullptr;
