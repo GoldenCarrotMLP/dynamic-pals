@@ -3,7 +3,7 @@
 #include <DynamicOutput/DynamicOutput.hpp>
 #include "json.hpp"
 #include <random>
-#include <algorithm> // For std::transform
+#include <algorithm>
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -11,7 +11,6 @@ using namespace RC::Unreal;
 namespace DynPals {
 
     namespace {
-        // String lowercase normalizers
         std::string ToLower(std::string str) {
             std::transform(str.begin(), str.end(), str.begin(), ::tolower);
             return str;
@@ -22,7 +21,6 @@ namespace DynPals {
             return str;
         }
 
-        // Case-Insensitive JSON key checker
         bool ContainsKey(const nlohmann::json& parent, const std::string& key) {
             if (!parent.is_object()) return false;
             std::string target = ToLower(key);
@@ -32,7 +30,6 @@ namespace DynPals {
             return false;
         }
 
-        // Case-Insensitive JSON key retriever
         const nlohmann::json& GetValue(const nlohmann::json& parent, const std::string& key) {
             if (!parent.is_object()) {
                 static const nlohmann::json empty;
@@ -46,45 +43,31 @@ namespace DynPals {
             return empty;
         }
 
-        // Safe numeric parser helper for Doubles / Floats
         double SafeGetDouble(const nlohmann::json& parent, const std::string& key, double defaultValue = 0.0) {
             if (!ContainsKey(parent, key)) return defaultValue;
             const auto& node = GetValue(parent, key);
-            if (node.is_number()) {
-                return node.get<double>();
-            } else if (node.is_string()) {
-                try {
-                    return std::stod(node.get<std::string>());
-                } catch (...) {
-                    return defaultValue;
-                }
+            if (node.is_number()) return node.get<double>();
+            else if (node.is_string()) {
+                try { return std::stod(node.get<std::string>()); } catch (...) { return defaultValue; }
             }
             return defaultValue;
         }
 
-        // Safe numeric parser helper for Integers
         int32_t SafeGetInt(const nlohmann::json& parent, const std::string& key, int32_t defaultValue = 0) {
             if (!ContainsKey(parent, key)) return defaultValue;
             const auto& node = GetValue(parent, key);
-            if (node.is_number()) {
-                return node.get<int32_t>();
-            } else if (node.is_string()) {
-                try {
-                    return std::stoi(node.get<std::string>());
-                } catch (...) {
-                    return defaultValue;
-                }
+            if (node.is_number()) return node.get<int32_t>();
+            else if (node.is_string()) {
+                try { return std::stoi(node.get<std::string>()); } catch (...) { return defaultValue; }
             }
             return defaultValue;
         }
 
-        // Safe parser helper for Booleans (Handles booleans, numeric flags, and string representations)
         std::optional<bool> SafeGetOptionalBool(const nlohmann::json& parent, const std::string& key) {
             if (!ContainsKey(parent, key)) return std::nullopt;
             const auto& node = GetValue(parent, key);
-            if (node.is_boolean()) {
-                return node.get<bool>();
-            } else if (node.is_string()) {
+            if (node.is_boolean()) return node.get<bool>();
+            else if (node.is_string()) {
                 std::string s = ToLower(node.get<std::string>());
                 return (s == "true" || s == "1");
             } else if (node.is_number()) {
@@ -93,15 +76,11 @@ namespace DynPals {
             return std::nullopt;
         }
 
-        // Safe parser helper for Material Index strings
         std::string SafeGetIndexString(const nlohmann::json& node, const std::string& key) {
             if (!ContainsKey(node, key)) return "0";
             const auto& val = GetValue(node, key);
-            if (val.is_string()) {
-                return val.get<std::string>();
-            } else if (val.is_number()) {
-                return std::to_string(val.get<int>());
-            }
+            if (val.is_string()) return val.get<std::string>();
+            else if (val.is_number()) return std::to_string(val.get<int>());
             return "0";
         }
     }
@@ -160,7 +139,6 @@ namespace DynPals {
             if (ContainsKey(swapJson, "Gender")) sc.Gender = Utils::StringToWString(GetValue(swapJson, "Gender").get<std::string>());
             if (ContainsKey(swapJson, "SkinName")) sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());
             
-            // Safe Parsing of Integer values (Allows strings or floats inside the JSON configuration)
             sc.MinLevel = SafeGetInt(swapJson, "MinLevel", 1);
             sc.MaxLevel = SafeGetInt(swapJson, "MaxLevel", 999);
             sc.MinTrust = SafeGetInt(swapJson, "MinTrust", 0);
@@ -182,7 +160,6 @@ namespace DynPals {
                 sc.Extra = Utils::StringToWString(GetValue(swapJson, "Extra").dump());
             }
             
-            // Safe Parsing of Optional Booleans
             sc.IsRarePal = SafeGetOptionalBool(swapJson, "IsRarePal");
             sc.IsWildPal = SafeGetOptionalBool(swapJson, "IsWildPal");
 
@@ -207,7 +184,6 @@ namespace DynPals {
                     MorphTarget mt;
                     mt.target = Utils::StringToWString(GetValue(morph, "Target").get<std::string>());
                     
-                    // Safe Parsing of Double values (Allows strings or ints inside the JSON configuration)
                     mt.setVal = SafeGetDouble(morph, "Set", -1000.0);
                     mt.minVal = SafeGetDouble(morph, "Min", 0.0);
                     mt.maxVal = SafeGetDouble(morph, "Max", 1.0);
@@ -229,51 +205,60 @@ namespace DynPals {
 
             SwapEvaluation eval;
             eval.ConfigIndex = (int)i;
-            eval.Score = 0;
+            eval.Score = 0; // In DynPals, a LOWER SCORE is fundamentally better (0 is base, negatives are highly specific overrides)
             eval.IsValid = true;
 
-            // 1. Hard Limits
+            // 1. Hard Limits & Range Specificity Bonuses
             if (Level < swap.MinLevel || Level > swap.MaxLevel) eval.IsValid = false;
-            if (eval.IsValid && (Rank < swap.MinRank || Rank > swap.MaxRank)) eval.IsValid = false;
-            if (eval.IsValid && (Trust < swap.MinTrust || Trust > swap.MaxTrust)) eval.IsValid = false;
+            else if (swap.MinLevel > 1 || swap.MaxLevel < 999) eval.Score -= 10; // Specificity Bonus
 
-            // 2. Gender Match with fallbacks (Normalizes values to lowercase before evaluation)
+            if (eval.IsValid && (Rank < swap.MinRank || Rank > swap.MaxRank)) eval.IsValid = false;
+            else if (swap.MinRank > 0 || swap.MaxRank < 5) eval.Score -= 10; // Specificity Bonus
+
+            if (eval.IsValid && (Trust < swap.MinTrust || Trust > swap.MaxTrust)) eval.IsValid = false;
+            else if (swap.MinTrust > 0 || swap.MaxTrust < 999999) eval.Score -= 10; // Specificity Bonus
+
+            // 2. Gender Match
             if (eval.IsValid && ToLower(swap.Gender) != L"none") {
                 std::wstring swapGender = ToLower(swap.Gender);
                 std::wstring charGender = ToLower(GenderStr);
                 if (swapGender != charGender) {
                     bool fallbackMatched = false;
                     if (swapGender == L"male" && (charGender == L"futa" || charGender == L"fullfuta")) {
-                        eval.Score += 50000;
+                        eval.Score += 50000; // Penalize fallback so direct Futa skins win if available
                         fallbackMatched = true;
                     } else if (swapGender == L"female" && (charGender == L"andro" || charGender == L"neutered" || charGender == L"fullneutered")) {
                         eval.Score += 50000;
                         fallbackMatched = true;
                     }
                     if (!fallbackMatched) eval.IsValid = false;
+                } else {
+                    eval.Score -= 100; // HUGE bonus for matching explicitly defined genders
                 }
             } else if (eval.IsValid && ToLower(swap.Gender) == L"none" && ToLower(GenderStr) != L"none") {
-                eval.Score += 500000; 
+                eval.Score += 500000; // Massive penalty if skin is generic "None" but Pal has an actual gender
             }
 
             // 3. Exact String Matches
-            if (eval.IsValid && !swap.SkinName.empty() && ToLower(SkinName) != ToLower(swap.SkinName)) {
-                eval.IsValid = false;
+            if (eval.IsValid && !swap.SkinName.empty()) {
+                if (ToLower(SkinName) != ToLower(swap.SkinName)) eval.IsValid = false;
+                else eval.Score -= 50; // Explicit skin name match bonus
             }
 
             // 4. Boolean Flags
             if (eval.IsValid && swap.IsRarePal.has_value()) {
                 bool reqRare = swap.IsRarePal.value();
-                if (reqRare && !IsRare) eval.IsValid = false; 
-                else if (!reqRare && IsRare) eval.Score += 110; 
+                if (reqRare != IsRare) eval.IsValid = false; 
+                else eval.Score -= 50; // Skin explicitly asked for Rare status, beat generic skins!
             }
 
             if (eval.IsValid && swap.IsWildPal.has_value()) {
                 bool reqWild = swap.IsWildPal.value();
                 if (reqWild != IsWild) eval.IsValid = false;
+                else eval.Score -= 50; // Skin explicitly asked for Wild status, beat generic skins!
             }
 
-            // 5. Traits (Evaluated in Case-Insensitive Lowercase)
+            // 5. Traits
             if (eval.IsValid) {
                 for (const auto& req : swap.ReqTrait) {
                     bool hasTrait = false;
@@ -284,7 +269,7 @@ namespace DynPals {
                         eval.IsValid = false;
                         break;
                     } else {
-                        eval.Score -= 5; 
+                        eval.Score -= 20; // Specificity Bonus per matched required trait!
                     }
                 }
             }
@@ -295,8 +280,8 @@ namespace DynPals {
                     for (const auto& t : Traits) {
                         if (ToLower(t) == ToLower(pref)) { hasTrait = true; break; }
                     }
-                    if (hasTrait) eval.Score -= 5; 
-                    else eval.Score += 5; 
+                    if (hasTrait) eval.Score -= 10; // Bonus if preferred trait is matched
+                    else eval.Score += 10;          // Minor penalty if missing
                 }
             }
             if (eval.IsValid) {
@@ -326,10 +311,12 @@ namespace DynPals {
         for (const auto& eval : evaluations) {
             if (!eval.IsValid) continue;
             
+            // Find the absolute lowest (most specific) score
             if (eval.Score < bestScore) {
                 bestScore = eval.Score;
                 bestMatches = { eval.ConfigIndex };
             } else if (eval.Score == bestScore) {
+                // Ties go into a pool to be decided by SpawnWeight
                 bestMatches.push_back(eval.ConfigIndex);
             }
         }
