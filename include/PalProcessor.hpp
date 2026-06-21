@@ -1,10 +1,32 @@
 #pragma once
 #include <string>
+#include <vector>
 #include <set>
+#include <map>
+#include <chrono>
 #include <Unreal/UObjectGlobals.hpp>
 #include "DataTypes.hpp"
 
 namespace DynPals {
+    struct PendingSwap {
+        RC::Unreal::UObject* Character;
+        int SwapIndex;
+        std::chrono::steady_clock::time_point ScheduledTime;
+    };
+
+    struct QueuedPal {
+        RC::Unreal::UObject* Character;
+        bool ForceReroll;
+        int State; 
+        std::chrono::steady_clock::time_point AssemblyEndTime;
+    };
+
+    struct PalRuntimeStats {
+        int Level = -1;
+        int Rank = -1;
+        int Friendship = -1;
+    };
+
     class PalProcessor {
     public:
         static PalProcessor& Get() {
@@ -13,25 +35,34 @@ namespace DynPals {
         }
 
         std::wstring StripCharacterPrefix(const std::wstring& InputID);
-        
         void ProcessPal(RC::Unreal::UObject* Character, bool ForceReroll);
-        void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex);
+        bool HasPendingSwaps() const { return !PendingSwaps.empty(); }
+        void CheckAndTriggerUpdate(RC::Unreal::UObject* Character);
+        void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex, int DelayMs = 10);
         
-        void ClearAllSwappedStatus() {
-            SwappedInstances.clear();
-        }
+        void ScanActivePals();
+        void TickDeferredSwaps();
 
-        void ClearSwappedStatus(const std::wstring& InstanceID) {
-            SwappedInstances.erase(InstanceID);
-        }
+        void ClearAllSwappedStatus();
+        void ClearSwappedStatus(const std::wstring& InstanceID);
 
     private:
         PalProcessor() = default;
         PalProcessor(const PalProcessor&) = delete;
         PalProcessor& operator=(const PalProcessor&) = delete;
 
+        int EvaluateIdealSwapIndex(RC::Unreal::UObject* Character, std::wstring& OutInstanceID);
         void ApplySwap(RC::Unreal::UObject* Character, const SwapConfig& swap, PalPersistData& persist);
+        
+        // NEW: Accepts ExplicitSwapIndex to bypass evaluation
+        void ExecuteSwap(RC::Unreal::UObject* Character, bool ForceReroll, int ExplicitSwapIndex = -1);
 
         std::set<std::wstring> SwappedInstances;
+        std::map<std::wstring, PalRuntimeStats> RuntimeStatsCache;
+
+        std::set<RC::Unreal::UObject*> ProcessedPals; 
+        std::vector<PendingSwap> PendingSwaps; 
+        std::vector<QueuedPal> ProcessingQueue; 
+        std::chrono::steady_clock::time_point LastScanTime = std::chrono::steady_clock::now();
     };
 }

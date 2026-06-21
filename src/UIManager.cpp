@@ -93,9 +93,11 @@ namespace DynPals {
             } SetInputParams{ CurrentPlayerController, false };
 
             Utils::CallFunction(WBL, STR("SetInputMode_GameOnly"), &SetInputParams);
+            
+            // Force Slate to focus back to the game viewport so you regain full mouse look control instantly
+            Utils::CallFunction(WBL, STR("SetFocusToGameViewport"));
         }
     }
-
     void UIManager::UpdateTarget() {
         TargetPal = nullptr;
         TargetInstanceID = L"";

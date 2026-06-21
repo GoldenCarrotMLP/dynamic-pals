@@ -13,7 +13,19 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
-    // Validates the Blueprint and checks if the actor is safely spawned
+    void PalProcessor::ClearAllSwappedStatus() {
+        SwappedInstances.clear();
+        RuntimeStatsCache.clear();
+        ProcessedPals.clear();
+        PendingSwaps.clear();
+        ProcessingQueue.clear();
+    }
+
+    void PalProcessor::ClearSwappedStatus(const std::wstring& InstanceID) {
+        SwappedInstances.erase(InstanceID);
+        RuntimeStatsCache.erase(InstanceID);
+    }
+
     static bool IsPalBlueprintValid(UObject* Pal, std::wstring& OutBlueprintName) {
         if (!Pal) return false;
 
@@ -26,55 +38,43 @@ namespace DynPals {
         OutBlueprintName = PalClass->GetName();
         if (OutBlueprintName.empty() || OutBlueprintName.find(L"Default__") != std::wstring::npos) return false;
 
-        // DUAL-LAYERED GYM PROTECTION: Ignore composite Gym Leader blueprints
         if (OutBlueprintName.find(L"_Gym") != std::wstring::npos) {
             return false;
         }
 
-        // 1. Guard against actors currently undergoing engine destruction
         bool bBeingDestroyed = false;
         if (Utils::GetPropertyValue<bool>(Pal, STR("bActorIsBeingDestroyed"), bBeingDestroyed) && bBeingDestroyed) {
-            DP_LOG(Warning, "WARNING: Blueprint '{}' is pending kill / being destroyed! Aborting.", OutBlueprintName);
             return false;
         }
 
-        // 2. Guard against half-spawned actors that haven't finished BeginPlay
         bool bBegunPlay = false;
         if (Utils::GetPropertyValue<bool>(Pal, STR("bHasBegunPlay"), bBegunPlay)) {
             if (!bBegunPlay) return false;
         }
 
-        // 3. Active overworld Pal check
         bool bIsActive = true;
         if (Utils::GetPropertyValue<bool>(Pal, STR("bIsPalActiveActor"), bIsActive)) {
-            // Disabled cuz prevents pals in your inventory from being replaced
             //if (!bIsActive) return false;
         }
 
         UObject* MeshComp = nullptr;
         Utils::CallFunction(Pal, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp) {
-            DP_LOG(Warning, "WARNING: Blueprint '{}' has no valid Mesh Component! Aborting.", OutBlueprintName);
             return false;
         }
 
-        // 4. Ensure the mesh component is registered with the rendering and physics scene
         bool bRegistered = false;
         if (Utils::GetPropertyValue<bool>(MeshComp, STR("bRegistered"), bRegistered)) {
             if (!bRegistered) return false;
         }
 
-        // 5. Ghost/UI/Box Pals have collision disabled. 
         struct { bool ReturnValue; } ColParams{true};
-       Utils::CallFunction(Pal, STR("GetActorEnableCollision"), &ColParams);
-       // Disabled cuz prevents pals in your inventory from being replaced
+        Utils::CallFunction(Pal, STR("GetActorEnableCollision"), &ColParams);
         //if (!ColParams.ReturnValue) return false;
 
         bool bHidden = false;
         if (Utils::GetPropertyValue<bool>(Pal, STR("bHidden"), bHidden)) {
-            // Disabled cuz prevents pals in your inventory from being replaced
             //if (bHidden) return false;
-
         }
 
         return true;
@@ -87,7 +87,87 @@ namespace DynPals {
         return InputID;
     }
 
+    void PalProcessor::ScanActivePals() {
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - LastScanTime).count() < 1000) return;
+        LastScanTime = now;
+
+        std::vector<UObject*> AllPals;
+        UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+
+        for (UObject* Pal : AllPals) {
+            if (Pal && ProcessedPals.find(Pal) == ProcessedPals.end()) {
+                ProcessedPals.insert(Pal);
+                ProcessPal(Pal, false);
+            }
+        }
+    }
+
+    void PalProcessor::TickDeferredSwaps() {
+        auto now = std::chrono::steady_clock::now();
+        
+        for (auto it = PendingSwaps.begin(); it != PendingSwaps.end();) {
+            if (now >= it->ScheduledTime) {
+                if (it->Character) {
+                    // FIX: Pass explicit UI selection index instead of destroying it!
+                    ExecuteSwap(it->Character, false, it->SwapIndex);
+                }
+                it = PendingSwaps.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    void PalProcessor::ForceSwap(UObject* Character, int SwapIndex, int DelayMs) {
+        if (!Character || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
+
+        UObject* ParamComp = nullptr;
+        Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp);
+        if (!ParamComp) return;
+
+        UObject* IndivParam = nullptr;
+        Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
+        if (!IndivParam) return;
+
+        struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } InstanceIDStruct;
+        if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct)) return;
+        
+        std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
+
+        ClearSwappedStatus(InstanceID);
+
+        PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
+        if (!ExistingData) {
+            PalPersistData newData = { InstanceID, SwapIndex, {} };
+            SaveManager::Get().SetPersistData(InstanceID, newData);
+        } else {
+            ExistingData->SwapIndex = SwapIndex;
+            SaveManager::Get().SetPersistData(InstanceID, *ExistingData); 
+        }
+
+        PendingSwap ps;
+        ps.Character = Character;
+        ps.SwapIndex = SwapIndex;
+        ps.ScheduledTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(DelayMs);
+        PendingSwaps.push_back(ps);
+    }
+
+    int PalProcessor::EvaluateIdealSwapIndex(UObject* Character, std::wstring& OutInstanceID) {
+        return -1; 
+    }
+
     void PalProcessor::ProcessPal(UObject* Character, bool ForceReroll) {
+        ExecuteSwap(Character, ForceReroll, -1);
+    }
+
+    void PalProcessor::CheckAndTriggerUpdate(UObject* Character) {
+        ExecuteSwap(Character, false, -1);
+    }
+
+    void PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int ExplicitSwapIndex) {
+        if (!Character) return;
+        
         std::wstring BlueprintName = L"";
         if (!IsPalBlueprintValid(Character, BlueprintName)) {
             return;
@@ -95,10 +175,7 @@ namespace DynPals {
 
         UObject* ParamComp = nullptr;
         Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp);
-        if (!ParamComp) {
-            DP_LOG(Warning, "WARNING: Blueprint '{}' is missing a CharacterParameterComponent! Aborting.", BlueprintName);
-            return;
-        }
+        if (!ParamComp) return;
 
         UObject* IndivParam = nullptr;
         Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
@@ -110,11 +187,6 @@ namespace DynPals {
 
         std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
 
-        // Prevent repeating expensive swaps if we've already completed them
-        if (SwappedInstances.find(InstanceID) != SwappedInstances.end() && !ForceReroll) {
-            return;
-        }
-
         UObject* Level = Character->GetOuterPrivate();
         if (!Level) return;
         UObject* World = Level->GetOuterPrivate();
@@ -125,72 +197,123 @@ namespace DynPals {
         if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
         std::wstring RawCharID = CharIDParams.RetVal.ToString();
 
-        // DUAL-LAYERED GYM PROTECTION: Intercept Gym composite bosses safely before evaluation
-        if (RawCharID.rfind(L"GYM_", 0) == 0 || RawCharID.find(L"_Gym_") != std::wstring::npos) {
-            DP_LOG(Normal, "[DynPals] Skipping swap for Gym Leader Pal (Raw ID: {}). Swapping composite Gym characters is disabled for safety.\n", RawCharID);
-            return;
+        if (RawCharID.rfind(L"GYM_", 0) == 0 || RawCharID.find(L"_Gym_") != std::wstring::npos) return;
+
+        SaveManager::Get().LoadWorldData(World);
+        PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
+
+        std::wstring CharID = StripCharacterPrefix(RawCharID);
+
+        struct { UObject* Actor; bool RetVal; } WildParams{Character, false};
+        if (PalUtil) Utils::CallFunction(PalUtil, STR("IsWildNPC"), &WildParams);
+        bool IsWild = WildParams.RetVal;
+
+        struct { bool ReturnValue; } RareParams{false};
+        Utils::CallFunction(IndivParam, STR("IsRarePal"), &RareParams);
+        bool IsRare = RareParams.ReturnValue;
+
+        struct { uint8_t RetVal; } GenderParams{0};
+        Utils::CallFunction(IndivParam, STR("GetGenderType"), &GenderParams);
+        std::wstring GenderStr = (GenderParams.RetVal == 1) ? L"Male" : (GenderParams.RetVal == 2) ? L"Female" : L"None";
+
+        struct { int32_t RetVal; } LevelParams{1};
+        Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
+        int LevelNum = LevelParams.RetVal;
+
+        struct { int32_t RetVal; } RankParams{0};
+        Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
+        int RankNum = RankParams.RetVal;
+
+        struct { int32_t RetVal; } FriendshipParams{0};
+        Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &FriendshipParams);
+        int FriendshipNum = FriendshipParams.RetVal;
+
+        struct { FName RetVal; } SkinParams{FName()};
+        Utils::CallFunction(IndivParam, STR("GetSkinName"), &SkinParams);
+        std::wstring SkinName = SkinParams.RetVal.ToString();
+        if (SkinName == L"None") SkinName = L"";
+
+        std::vector<std::wstring> Traits;
+        struct { TArray<FName> RetVal; } TraitsParams;
+        Utils::CallFunction(IndivParam, STR("GetPassiveSkillList"), &TraitsParams);
+        for (int32_t i = 0; i < TraitsParams.RetVal.Num(); ++i) {
+            Traits.push_back(TraitsParams.RetVal[i].ToString());
         }
 
-        DP_LOG(Normal, "Processing valid overworld Blueprint: {}\n", BlueprintName);
+        PalRuntimeStats& CachedStats = RuntimeStatsCache[InstanceID];
+        bool bBucketChanged = false;
 
-        // Load world data
-        SaveManager::Get().LoadWorldData(World);
+        if (CachedStats.Level != -1) {
+            auto oldEvaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, CachedStats.Level, SkinName, CachedStats.Rank, CachedStats.Friendship, IsWild);
+            auto newEvaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
 
-        PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
-        int SwapIndex = -1;
+            std::vector<int> oldValidSkins;
+            std::vector<int> newValidSkins;
 
-        if (ExistingData && !ForceReroll) {
-            SwapIndex = ExistingData->SwapIndex;
+            for (const auto& ev : oldEvaluations) { if (ev.IsValid) oldValidSkins.push_back(ev.ConfigIndex); }
+            for (const auto& ev : newEvaluations) { if (ev.IsValid) newValidSkins.push_back(ev.ConfigIndex); }
+
+            if (oldValidSkins != newValidSkins) {
+                bBucketChanged = true;
+            }
         } else {
-            std::wstring CharID = StripCharacterPrefix(RawCharID);
+            bBucketChanged = true;
+        }
 
-            struct { UObject* Actor; bool RetVal; } WildParams{Character, false};
-            if (PalUtil) Utils::CallFunction(PalUtil, STR("IsWildNPC"), &WildParams);
-            bool IsWild = WildParams.RetVal;
+        CachedStats.Level = LevelNum;
+        CachedStats.Rank = RankNum;
+        CachedStats.Friendship = FriendshipNum;
 
-            struct { bool ReturnValue; } RareParams{false};
-            Utils::CallFunction(IndivParam, STR("IsRarePal"), &RareParams);
-            bool IsRare = RareParams.ReturnValue;
+        int finalSwap = -1;
 
-            struct { uint8_t RetVal; } GenderParams{0};
-            Utils::CallFunction(IndivParam, STR("GetGenderType"), &GenderParams);
-            std::wstring GenderStr = (GenderParams.RetVal == 1) ? L"Male" : (GenderParams.RetVal == 2) ? L"Female" : L"None";
-
-            struct { int32_t RetVal; } LevelParams{1};
-            Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
-            int LevelNum = LevelParams.RetVal;
-
-            struct { int32_t RetVal; } RankParams{0};
-            Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
-            int RankNum = RankParams.RetVal;
-
-            struct { int32_t RetVal; } FriendshipParams{0};
-            Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &FriendshipParams);
-            int FriendshipNum = FriendshipParams.RetVal;
-
-            struct { FName RetVal; } SkinParams{FName()};
-            Utils::CallFunction(IndivParam, STR("GetSkinName"), &SkinParams);
-            std::wstring SkinName = SkinParams.RetVal.ToString();
-            if (SkinName == L"None") SkinName = L"";
-
-            std::vector<std::wstring> Traits;
-            struct { TArray<FName> RetVal; } TraitsParams;
-            Utils::CallFunction(IndivParam, STR("GetPassiveSkillList"), &TraitsParams);
-            for (int32_t i = 0; i < TraitsParams.RetVal.Num(); ++i) {
-                Traits.push_back(TraitsParams.RetVal[i].ToString());
+        // NEW: Strict manual override logic
+        if (ExplicitSwapIndex != -1) {
+            finalSwap = ExplicitSwapIndex;
+        } 
+        else {
+            if (!ForceReroll && !bBucketChanged && SwappedInstances.find(InstanceID) != SwappedInstances.end()) {
+                return; 
             }
 
             auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
-            SwapIndex = ConfigManager::Get().PickBestSwap(evaluations);
-            if (SwapIndex != -1) {
-                PalPersistData newData = { InstanceID, SwapIndex, {} };
-                SaveManager::Get().SetPersistData(InstanceID, newData);
+            int newBestSwap = ConfigManager::Get().PickBestSwap(evaluations);
+            int currentSwap = ExistingData ? ExistingData->SwapIndex : -1;
+            
+            finalSwap = currentSwap;
+
+            if (ForceReroll) {
+                finalSwap = newBestSwap;
+            } else if (currentSwap >= 0 && currentSwap < (int)evaluations.size()) {
+                auto& currentEval = evaluations[currentSwap];
+                if (bBucketChanged) {
+                    int absoluteBestScore = 999999;
+                    for (const auto& ev : evaluations) {
+                        if (ev.IsValid && ev.Score < absoluteBestScore) {
+                            absoluteBestScore = ev.Score;
+                        }
+                    }
+
+                    if (!currentEval.IsValid || currentEval.Score > absoluteBestScore) {
+                        DP_LOG(Normal, "Bucket shifted! Upgrading Pal skin to newly unlocked tier.\n");
+                        finalSwap = newBestSwap;
+                    }
+                }
+            } else {
+                finalSwap = newBestSwap;
             }
         }
 
-        if (SwapIndex >= 0 && SwapIndex < (int)ConfigManager::Get().GetConfigs().size()) {
-            ApplySwap(Character, ConfigManager::Get().GetConfigs()[SwapIndex], *SaveManager::Get().GetPersistData(InstanceID));
-            SwappedInstances.insert(InstanceID);
+        if (finalSwap != -1) {
+            bool bNeedsApply = (ExplicitSwapIndex != -1) || ForceReroll || (finalSwap != (ExistingData ? ExistingData->SwapIndex : -1)) || (SwappedInstances.find(InstanceID) == SwappedInstances.end());
+            
+            if (bNeedsApply) {
+                PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ InstanceID, finalSwap, {} };
+                newData.SwapIndex = finalSwap;
+                SaveManager::Get().SetPersistData(InstanceID, newData);
+
+                ApplySwap(Character, ConfigManager::Get().GetConfigs()[finalSwap], newData);
+                SwappedInstances.insert(InstanceID);
+            }
         }
     }
 
@@ -215,7 +338,6 @@ namespace DynPals {
         UObject* TargetSkeleton = nullptr;
         UObject* TargetStaticParam = nullptr;
 
-        // Fetch CharID first so it is fully declared and safe to use for fallbacks!
         UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
         struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
         if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
@@ -231,7 +353,6 @@ namespace DynPals {
         std::wstring TargetClassName = L"";
 
         if (AnimPath.find(L'/') == std::wstring::npos) {
-            // First, try loading the path exactly as provided (e.g. GuardianDog_Override)
             std::wstring TryPath1 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
             TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath1));
 
@@ -239,7 +360,6 @@ namespace DynPals {
                 TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath;
                 TargetClassName = L"BP_" + AnimPath + L"_C";
             } else {
-                // Fallback: Truncate at the underscore if the user provided a variant name (e.g. Boss_Override -> Boss)
                 std::wstring FolderName = AnimPath;
                 size_t uscorePos = FolderName.find(L'_');
                 if (uscorePos != std::wstring::npos) {
@@ -254,7 +374,6 @@ namespace DynPals {
                 }
             }
         } else {
-            // A full explicit path was provided
             TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
             size_t dotPos = AnimPath.find(L'.');
             if (dotPos != std::wstring::npos) {
@@ -263,15 +382,11 @@ namespace DynPals {
             }
         }
 
-        // Post-Load Safety Gate 1
         if (!IsPalBlueprintValid(Character, BPName)) return;
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp) return;
 
-        // SAFELY GET CDO USING THE NATIVE ENGINE LOADER (Prevents UE5 CDO instantiation crashes!)
         if (TargetBPClass && !TargetPackagePath.empty() && !TargetClassName.empty()) {
-            DP_LOG(Normal, "[DEBUG] Successfully loaded Target Blueprint: {}\n", TargetBPClass->GetName());
-            
             std::wstring CDOPath = TargetPackagePath + L".Default__" + TargetClassName;
             UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
             
@@ -296,13 +411,9 @@ namespace DynPals {
                     }
                 }
                 Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
-            } else {
-                DP_LOG(Warning, "WARNING: TargetBPClass loaded, but failed to extract CDO via LoadAssetSafely!\n");
             }
         }
 
-        // --- SMART ANIM SWAP LOGIC ---
-        // If we don't have a target, fallback to the natural default of the class
         if (!TargetAnimClass) {
             UClass* PalClass = Character->GetClassPrivate();
             if (PalClass) {
@@ -332,10 +443,8 @@ namespace DynPals {
             }
         }
 
-        // Absolute fallback if everything fails
         if (!TargetAnimClass) { TargetAnimClass = CurrentAnimClass; }
 
-        // Only tear down and rebuild the animation pipeline if the classes are actually different!
         bool bNeedsAnimRebuild = (TargetAnimClass != CurrentAnimClass);
 
         if (bNeedsAnimRebuild) {
@@ -352,29 +461,18 @@ namespace DynPals {
         if (!swap.SkelMeshPath.empty()) {
             NewMesh = Utils::LoadSkeletalMeshSafely(swap.SkelMeshPath);
             
-            // Post-Load Safety Gate 3
             if (!IsPalBlueprintValid(Character, BPName)) return;
             Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
             if (!MeshComp) return;
 
             if (NewMesh) {
-                std::wstring MeshClass = NewMesh->GetClassPrivate()->GetName();
-                if (MeshClass != L"SkeletalMesh" && MeshClass != L"SkeletalMeshSR" && MeshClass != L"SkinnedAsset") {
-                    DP_LOG(Warning, "WARNING: Loaded asset class '{}' is not a valid SkeletalMesh type! Skipping swap.\n", MeshClass);
-                    return;
-                }
-
                 if (TargetSkeleton) {
                     struct { UObject* NewSkeleton; } SkelParams{ TargetSkeleton };
                     Utils::CallFunction(NewMesh, STR("SetSkeleton"), &SkelParams);
                 }
 
-                // ALWAYS set bReinitPose to true, so new modded skeletons map correctly!
                 struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
-                DP_LOG(Normal, "\nGonna try to swap skeleton: {}\n", swap.SkelMeshPath);
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
-            } else {
-                DP_LOG(Warning, "WARNING: Failed to load Skeletal Mesh asset at path: '{}'\n", swap.SkelMeshPath);
             }
         }
 
@@ -423,7 +521,6 @@ namespace DynPals {
         for (auto& mat : swap.MatReplaceList) {
             UObject* NewMat = Utils::LoadAssetSafely(mat.matPath);
             
-            // Post-Load Safety Gate 4
             if (!IsPalBlueprintValid(Character, BPName)) return;
             Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
             if (!MeshComp) return;
@@ -482,8 +579,6 @@ namespace DynPals {
             }
         }
 
-        // ALWAYS re-link physics layers regardless of bNeedsAnimRebuild, 
-        // to ensure the new custom mod bones properly receive physics calculations!
         UObject* NewAnimInst = nullptr;
         Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
         if (NewAnimInst) {
@@ -499,7 +594,6 @@ namespace DynPals {
                 for (const auto& LayerPath : StandardLayers) {
                     UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
                     
-                    // Post-Load Safety Gate 5
                     if (!IsPalBlueprintValid(Character, BPName)) return;
                     Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
                     if (!MeshComp) return;
@@ -519,35 +613,5 @@ namespace DynPals {
         Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &UnpauseAnim);
 
         DP_LOG(Normal, "Successfully applied swap and morph targets to Pal!\n");
-    }
-
-    void PalProcessor::ForceSwap(UObject* Character, int SwapIndex) {
-        if (!Character || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
-
-        UObject* ParamComp = nullptr;
-        Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp);
-        if (!ParamComp) return;
-
-        UObject* IndivParam = nullptr;
-        Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
-        if (!IndivParam) return;
-
-        struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } InstanceIDStruct;
-        if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct)) return;
-        
-        std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
-
-        ClearSwappedStatus(InstanceID);
-
-        PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
-        if (!ExistingData) {
-            PalPersistData newData = { InstanceID, SwapIndex, {} };
-            SaveManager::Get().SetPersistData(InstanceID, newData);
-        } else {
-            ExistingData->SwapIndex = SwapIndex;
-            SaveManager::Get().SetPersistData(InstanceID, *ExistingData); 
-        }
-
-        ProcessPal(Character, false);
     }
 }

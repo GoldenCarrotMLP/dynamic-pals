@@ -14,21 +14,16 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
-    // Quarantine & Performance State Machine Globals
     static bool bCompletedInitReady = false;
     static std::chrono::steady_clock::time_point WorldStartTime;
     static bool bTimerStarted = false;
-    static bool bTickProcessingEnabled = false; // Starts asleep until we enter a game map
+    static bool bTickProcessingEnabled = false; 
     
-    // Pointer trackers to reliably detect new sessions vs fast travels
     static UObject* LastPlayerController = nullptr;
     static UObject* LastWorld = nullptr;
 
     void HooksManager::OnPalSpawnedReady(UnrealScriptFunctionCallableContext& Context, void*) {
-        // If the spawning-surge quarantine is still active, ignore the spawn safely
-        if (!bCompletedInitReady) {
-            return;
-        }
+        if (!bCompletedInitReady) return;
 
         UObject* PalNPC = Context.Context;
         if (PalNPC) {
@@ -36,7 +31,32 @@ namespace DynPals {
         }
     }
 
-    // Called natively by the game whenever a world auto-save is triggered
+    // --- LIVE STAT CHANGE DETECTOR ---
+    // Fires automatically when a Pal levels up, changes rank, traits, or friendship.
+    static void OnPalStatChanged(UnrealScriptFunctionCallableContext& Context, void*) {
+        if (!bCompletedInitReady) return; 
+
+        UObject* IndivParam = Context.Context;
+        if (!IndivParam) return;
+
+        UObject* PalActor = nullptr;
+        
+        // Extract the actor this parameter component belongs to
+        struct { UObject* ReturnValue; } GetActorParams{nullptr};
+        Utils::CallFunction(IndivParam, STR("GetIndividualActor"), &GetActorParams);
+        PalActor = GetActorParams.ReturnValue;
+
+        // Fallback to reading the property directly if the getter fails
+        if (!PalActor) {
+            Utils::GetPropertyValue<UObject*>(IndivParam, STR("IndividualActor"), PalActor);
+        }
+
+        if (PalActor) {
+            // ProcessPal will intelligently check if the new stats unlocked a better tier skin!
+            PalProcessor::Get().ProcessPal(PalActor, false);
+        }
+    }
+
     static void OnStartedWorldAutoSave(UnrealScriptFunctionCallableContext&, void*) {
         DP_LOG(Normal, "Auto-Save triggered! Synchronizing world persistence...\n");
         SaveManager::Get().SaveWorldData();
@@ -48,85 +68,82 @@ namespace DynPals {
         if (bIsReentrant) return;
         bIsReentrant = true;
 
-        // ZERO-OVERHEAD BYPASS: Suspends the tick hook completely during normal gameplay and menus.
-        // It only wakes up during the first 5 seconds of loading, or if you press Alt+N / have the menu open.
-        if (!bTickProcessingEnabled && !UIManager::Get().IsMenuOpen() && !UIManager::Get().IsToggleRequested()) {
+        // ZERO-OVERHEAD BYPASS: Suspends the tick hook completely during normal gameplay.
+        // It only wakes up during level loading, when the menu is open, if a toggle is requested, or if a deferred swap is executing.
+        if (!bTickProcessingEnabled && 
+            !UIManager::Get().IsMenuOpen() && 
+            !UIManager::Get().IsToggleRequested() && 
+            !PalProcessor::Get().HasPendingSwaps()) 
+        {
             bIsReentrant = false;
             return;
         }
 
-        UObject* ActorContext = Context.Context;
-        if (ActorContext) {
-            UObject* PlayerController = nullptr;
-
-            // Resolve the PlayerController using the ticking Actor as WorldContext
-            UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
-            if (GameplayStatics) {
-                struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{ActorContext, 0, nullptr};
-                Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
-                PlayerController = GSParams.ReturnValue;
+        // Throttle heavy execution to 60 FPS (16ms) to prevent performance stutters
+        static auto LastTickTime = std::chrono::steady_clock::now();
+        auto Now = std::chrono::steady_clock::now();
+        
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastTickTime).count() >= 16) {
+            LastTickTime = Now;
+            
+            // FIX: Process UI inputs if the menu is active OR if the user is attempting to toggle it (Alt+N)
+            if (UIManager::Get().IsMenuOpen() || UIManager::Get().IsToggleRequested()) {
+                UObject* ActorContext = Context.Context;
+                if (ActorContext) {
+                    UObject* PlayerController = nullptr;
+                    UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+                    if (GameplayStatics) {
+                        struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{ActorContext, 0, nullptr};
+                        Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
+                        PlayerController = GSParams.ReturnValue;
+                    }
+                    if (PlayerController) {
+                        UIManager::Get().TickUI(PlayerController);
+                    }
+                }
             }
 
-            if (PlayerController) {
-                struct { bool ReturnValue; } IsLocalParams{false};
-                Utils::CallFunction(PlayerController, STR("IsLocalPlayerController"), &IsLocalParams);
+            // Process deferred swaps
+            PalProcessor::Get().TickDeferredSwaps();
 
-                if (IsLocalParams.ReturnValue) {
-                    static auto LastTickTime = std::chrono::steady_clock::now();
-                    auto Now = std::chrono::steady_clock::now();
+            // Handle the 5-second level load reconciliation countdown
+            if (bTimerStarted && !bCompletedInitReady) {
+                auto Elapsed = std::chrono::duration_cast<std::chrono::seconds>(Now - WorldStartTime).count();
+                
+                if (Elapsed >= 5) {
+                    DP_LOG(Normal, "Settle period complete. Running overworld Pal reconciliation...\n");
                     
-                    // Throttle execution to ~60 FPS (16ms)
-                    if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastTickTime).count() >= 16) {
-                        LastTickTime = Now;
-                        
-                        UIManager::Get().TickUI(PlayerController);
-
-                        // If quarantine is active, update timer and run the reconcile after 5 seconds
-                        if (bTimerStarted && !bCompletedInitReady) {
-                            auto Elapsed = std::chrono::duration_cast<std::chrono::seconds>(Now - WorldStartTime).count();
-                            
-                            if (Elapsed >= 5) {
-                                DP_LOG(Normal, "Settle period complete. Running one-time overworld Pal reconciliation...\n");
-                                
-                                std::vector<UObject*> AllPals;
-                                UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
-                                for (UObject* Pal : AllPals) {
-                                    if (Pal) {
-                                        PalProcessor::Get().ProcessPal(Pal, false);
-                                    }
-                                }
-
-                                bCompletedInitReady = true;
-                                bTimerStarted = false;
-                                bTickProcessingEnabled = false; // Disable the tick hook for zero overhead during gameplay!
-                                DP_LOG(Normal, "Reconciliation complete. Native spawn pipeline is now active!\n");
-                            }
+                    std::vector<UObject*> AllPals;
+                    UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+                    for (UObject* Pal : AllPals) {
+                        if (Pal) {
+                            PalProcessor::Get().ProcessPal(Pal, false);
                         }
                     }
+
+                    bCompletedInitReady = true;
+                    bTimerStarted = false;
+                    bTickProcessingEnabled = false; // Goes back to sleep!
+                    DP_LOG(Normal, "Reconciliation complete. Mod entering zero-overhead standby.\n");
                 }
             }
         }
 
         bIsReentrant = false;
     }
-
-    // Triggers safely when the player finishes loading and possesses their character
     static void OnClientRestart(UnrealScriptFunctionCallableContext& Context, void*) {
         UObject* PlayerController = Context.Context;
         if (!PlayerController) return;
 
-        // Traverse the Outer chain to find the current UWorld pointer
         UObject* Level = PlayerController->GetOuterPrivate();
         UObject* CurrentWorld = Level ? Level->GetOuterPrivate() : nullptr;
 
-        // Check if the memory pointers have changed (indicating a new session / hard map load)
         if (PlayerController != LastPlayerController || CurrentWorld != LastWorld) {
             LastPlayerController = PlayerController;
             LastWorld = CurrentWorld;
 
             UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
             if (GameplayStatics) {
-                // Fetch the current level name safely
                 struct { UObject* WorldContextObject; bool bRemovePrefixString; FString ReturnValue; } Params{PlayerController, true, FString()};
                 Utils::CallFunction(GameplayStatics, STR("GetCurrentLevelName"), &Params);
                 std::wstring MapName = Utils::FStringToWString(Params.ReturnValue);
@@ -136,7 +153,6 @@ namespace DynPals {
                                 MapName.empty());
 
                 if (bIsMenu) {
-                    // Transition: Game -> Menu
                     bTimerStarted = false;
                     bTickProcessingEnabled = false; 
                     
@@ -145,10 +161,9 @@ namespace DynPals {
                     
                     DP_LOG(Normal, "Transitioned to Main Menu. Mod entering standby mode...\n");
                 } else {
-                    // Transition: Menu -> Game (New Session)
                     bCompletedInitReady = false;
                     bTimerStarted = true;
-                    bTickProcessingEnabled = true; // Wake up the tick hook for the countdown
+                    bTickProcessingEnabled = true; 
                     WorldStartTime = std::chrono::steady_clock::now();
                     
                     SaveManager::Get().Reset();
@@ -158,8 +173,6 @@ namespace DynPals {
                 }
             }
         }
-        // If PlayerController == LastPlayerController AND CurrentWorld == LastWorld, 
-        // it's just a fast travel or respawn! We do absolutely nothing, preserving your swaps.
     }
 
     void HooksManager::RegisterHooks() {
@@ -181,7 +194,7 @@ namespace DynPals {
             DP_LOG(Error, "CRITICAL: Failed to hook ClientRestart!\n");
         }
 
-        // 3. Primary Game Thread Tick Hook: K2_GetActorRotation (Wakes up only for countdown/menu actions)
+        // 3. Primary Game Thread Tick Hook
         UFunction* ActorRotFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Engine.Actor:K2_GetActorRotation"));
         if (ActorRotFunc) {
             ActorRotFunc->RegisterPreHook(OnGameThreadTick, nullptr);
@@ -190,13 +203,31 @@ namespace DynPals {
             DP_LOG(Error, "CRITICAL: Failed to hook K2_GetActorRotation!\n");
         }
 
-        // 4. Auto-Save Hook: StartWorldDataAutoSave (Syncs our persistence on native auto-saves)
+        // 4. Auto-Save Hook
         UFunction* SaveFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Pal.PalSaveGameManager:StartWorldDataAutoSave"));
         if (SaveFunc) {
             SaveFunc->RegisterPostHook(OnStartedWorldAutoSave, nullptr);
             DP_LOG(Normal, "Successfully hooked StartWorldDataAutoSave for auto-saving.\n");
         } else {
             DP_LOG(Warning, "WARNING: Failed to hook StartWorldDataAutoSave. Auto-saves may not trigger.\n");
+        }
+
+        // 5. LIVE STAT UPDATE HOOKS (Trigger Morph Engine on Level Up / Trust Up / Trait Updates)
+        const wchar_t* StatHooks[] = {
+            STR("/Script/Pal.PalIndividualCharacterParameter:UpdateLevelDelegate"),
+            STR("/Script/Pal.PalIndividualCharacterParameter:UpdateRankDelegate"),
+            STR("/Script/Pal.PalIndividualCharacterParameter:UpdateFriendshipPointDelegate"),
+            STR("/Script/Pal.PalIndividualCharacterParameter:OnPassiveSkillUpdateDelegate"),
+            STR("/Script/Pal.PalIndividualCharacterParameter:AddPassiveSkill"),
+            STR("/Script/Pal.PalIndividualCharacterParameter:RemovePassiveSkill")
+        };
+
+        for (const wchar_t* HookTarget : StatHooks) {
+            UFunction* Func = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, HookTarget);
+            if (Func) {
+                Func->RegisterPostHook(OnPalStatChanged, nullptr);
+                DP_LOG(Normal, "Live Stat Hook Registered: {}\n", HookTarget);
+            }
         }
     }
 }
