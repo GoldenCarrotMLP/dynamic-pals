@@ -6,6 +6,21 @@
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/FString.hpp> 
 #include <Unreal/NameTypes.hpp> 
+#include <DynamicOutput/DynamicOutput.hpp>
+
+// OKAETSU FIX: Safely handles empty arguments using __VA_OPT__
+#define DP_LOG(Level, Format, ...) RC::Output::send<RC::LogLevel::Level>(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__)
+
+namespace DynPals {
+    struct DynPalsGuid {
+        uint32_t A, B, C, D;
+        
+        // INSTANT ZERO-CHECK (No String Conversion Needed!)
+        bool IsValid() const {
+            return A != 0 || B != 0 || C != 0 || D != 0;
+        }
+    };
+}
 
 using GenderType = std::wstring; // OPTIONS: Male, Female, None, Futa, FullFuta, Andro, Neutered, FullNeutered
 using MorphType = std::wstring;  // OPTIONS: Restrict, Free, None
@@ -43,7 +58,7 @@ struct SwapConfig {
     std::vector<std::wstring> PrefTrait;
     std::vector<std::wstring> SkipTrait;
     std::vector<MatReplace> MatReplaceList;
-    std::vector<MorphTarget> MorphTargetList;\
+    std::vector<MorphTarget> MorphTargetList;
     std::wstring Extra = L"{}";  
 };
 
@@ -70,12 +85,15 @@ struct AltrWeakObjectPtr {
     int32_t ObjectSerialNumber = 0;
 };
 
+// Alignment and packing safety 
+#pragma pack(push, 1)
 struct AltrSoftObjectPtr {
     AltrWeakObjectPtr WeakPtr;
     int32_t TagAtLastTest = 0;
     int32_t Padding = 0;
     AltrSoftObjectPath ObjectID;
 };
+#pragma pack(pop)
 
 struct FVector_UE5 {
     double X, Y, Z;

@@ -9,12 +9,6 @@
 #include <Unreal/FText.hpp> 
 #include "DataTypes.hpp"
 
-namespace DynPals {
-    struct DynPalsGuid {
-        uint32_t A, B, C, D;
-    };
-}
-
 namespace DynPals::Utils {
     using namespace RC::Unreal;
 
@@ -134,7 +128,8 @@ namespace DynPals::Utils {
         return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
 
-    inline UObject* LoadAssetSafely(const std::wstring& AssetPath) {
+    // Internal raw load routine
+    inline UObject* LoadAssetInternal(const std::wstring& AssetPath) {
         std::wstring formatted = FormatAssetPath(AssetPath); 
         std::wstring package, asset;
         
@@ -142,7 +137,12 @@ namespace DynPals::Utils {
         if (dot != std::wstring::npos) {
             package = formatted.substr(0, dot);
             asset = formatted.substr(dot + 1);
+        } else {
+            return nullptr;
         }
+
+        // USER LOG REQUEST: Real-time debug logging of FName paths passed to the engine loader
+        DP_LOG(Normal, "[DEBUG] Attempting to load Package: '{}' | Asset: '{}'\n", package, asset);
 
         AltrSoftObjectPtr SoftPtr;
         SoftPtr.ObjectID.PackageName = FName(package.c_str(), FNAME_Add);
@@ -157,6 +157,44 @@ namespace DynPals::Utils {
 
         struct { AltrSoftObjectPtr Asset; UObject* ReturnValue; } LoadParams{SoftPtr, nullptr};
         KismetLib->ProcessEvent(LoadFunc, &LoadParams);
-        return LoadParams.ReturnValue;
+        
+        UObject* LoadedObj = LoadParams.ReturnValue;
+        if (LoadedObj) {
+            std::wstring ClassName = LoadedObj->GetClassPrivate()->GetName();
+            if (ClassName == L"ObjectRedirector") {
+                UObject* Destination = nullptr;
+                if (GetPropertyValue<UObject*>(LoadedObj, STR("DestinationObject"), Destination)) {
+                    DP_LOG(Normal, "[DEBUG] Resolved Redirector to target: '{}'\n", Destination->GetName());
+                    return Destination;
+                }
+            }
+        }
+        return LoadedObj;
+    }
+
+    // High-level asset loader with automatic "SK_" prefix fallbacks
+    inline UObject* LoadAssetSafely(const std::wstring& AssetPath) {
+        UObject* Loaded = LoadAssetInternal(AssetPath);
+        if (Loaded) return Loaded;
+
+        // Fallback: Check if the file is missing its standard "SK_" or "sk_" prefix [2]
+        size_t lastSlash = AssetPath.find_last_of(L'/');
+        if (lastSlash != std::wstring::npos) {
+            std::wstring directory = AssetPath.substr(0, lastSlash + 1);
+            std::wstring filename = AssetPath.substr(lastSlash + 1);
+
+            if (filename.rfind(L"SK_", 0) != 0 && filename.rfind(L"sk_", 0) != 0) {
+                // Try upper-case SK_ [2]
+                std::wstring fallback = directory + L"SK_" + filename;
+                Loaded = LoadAssetInternal(fallback);
+                if (Loaded) return Loaded;
+
+                // Try lower-case sk_ [2]
+                fallback = directory + L"sk_" + filename;
+                Loaded = LoadAssetInternal(fallback);
+                if (Loaded) return Loaded;
+            }
+        }
+        return nullptr;
     }
 }

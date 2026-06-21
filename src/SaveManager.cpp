@@ -1,5 +1,6 @@
 #include "SaveManager.hpp"
 #include "ConfigManager.hpp"
+#include "PalProcessor.hpp"
 #include "Utils.hpp"
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <fstream>
@@ -26,8 +27,12 @@ namespace DynPals {
     }
 
     void SaveManager::Initialize(const std::wstring& BasePath) {
-        // Point directly to ~Mods/ to share the exact same physical file with Altermatic
         ConfigPath = BasePath + L"Paks/~mods/"; 
+    }
+
+    void SaveManager::Reset() {
+        CurrentWorldSaveID = L"";
+        PersistedSwaps.clear();
     }
 
     void SaveManager::LoadWorldData(UObject* World) {
@@ -45,6 +50,7 @@ namespace DynPals {
 
         CurrentWorldSaveID = WorldSaveID;
         PersistedSwaps.clear();
+        PalProcessor::Get().ClearAllSwappedStatus(); // Clear on world load!
 
         std::wstring persistPath = ConfigPath + PersistFileName + CurrentWorldSaveID + L".json";
         std::string content = Utils::ReadFileToString(persistPath);
@@ -53,7 +59,6 @@ namespace DynPals {
         try {
             nlohmann::json data = nlohmann::json::parse(content);
             
-            // Map to store AltermaticID -> Cleaned SkeletalMeshPath
             std::map<std::wstring, std::wstring> altrMeshPaths;
             if (data.contains("SkelMeshPath") && data.at("SkelMeshPath").is_object()) {
                 for (auto& [idStr, pathNode] : data.at("SkelMeshPath").items()) {
@@ -70,27 +75,24 @@ namespace DynPals {
                     PalPersistData pd;
                     pd.InstanceID = instanceId;
 
-                    // Parse "0/<AltermaticID>"
                     size_t p0 = valueStr.find(L"0/");
                     if (p0 != std::wstring::npos) {
                         size_t pNext = valueStr.find(L'/', p0 + 2);
                         std::wstring altrId = (pNext == std::wstring::npos) ? valueStr.substr(p0 + 2) : valueStr.substr(p0 + 2, pNext - (p0 + 2));
                         
-                        // Map AltermaticID back to our C++ ConfigIndex via path matching
                         pd.SwapIndex = -1;
-                        auto itPath = altrMeshPaths.find(altrId);
-                        if (itPath != altrMeshPaths.end()) {
-                            std::wstring matchPath = itPath->second;
+                        auto ItPath = altrMeshPaths.find(altrId);
+                        if (ItPath != altrMeshPaths.end()) {
+                            std::wstring MatchPath = ItPath->second;
                             auto& configs = ConfigManager::Get().GetConfigs();
                             for (size_t i = 0; i < configs.size(); ++i) {
-                                if (Utils::FormatAssetPath(configs[i].SkelMeshPath) == Utils::FormatAssetPath(matchPath)) {
+                                if (Utils::FormatAssetPath(configs[i].SkelMeshPath) == Utils::FormatAssetPath(MatchPath)) {
                                     pd.SwapIndex = (int)i;
                                     break;
                                 }
                             }
                         }
 
-                        // Parse morph targets
                         size_t p1 = valueStr.find(L"/1/");
                         if (p1 != std::wstring::npos) {
                             std::wstring mBlock = valueStr.substr(p1 + 3);
@@ -144,20 +146,16 @@ namespace DynPals {
         systemObj["WorldName"] = "Solo save";
         systemObj["WorldID"] = Utils::WStringToString(CurrentWorldSaveID);
 
-        // Populate Altermatic-compliant dictionaries
         for (auto& [id, data] : PersistedSwaps) {
             if (data.SwapIndex >= 0 && data.SwapIndex < (int)ConfigManager::Get().GetConfigs().size()) {
                 auto& swapCfg = ConfigManager::Get().GetConfigs()[data.SwapIndex];
                 std::string idxStr = std::to_string(data.SwapIndex);
 
-                // Format: "153": "/Script/Engine.SkeletalMesh'/Game/Path'"
                 std::wstring formattedPath = L"/Script/Engine.SkeletalMesh'" + Utils::FormatAssetPath(swapCfg.SkelMeshPath) + L"'";
                 skelMeshPathObj[idxStr] = Utils::WStringToString(formattedPath);
 
-                // Format: "153": "0/153/6/1"
                 skelMeshSwapObj[idxStr] = "0/" + idxStr + "/6/1";
 
-                // Format: "0/153"
                 std::wstring entryStr = L"0/" + Utils::StringToWString(idxStr);
                 
                 if (!data.MorphSet.empty()) {

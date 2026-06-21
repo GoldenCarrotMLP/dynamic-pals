@@ -32,78 +32,65 @@ namespace DynPals {
         uint8_t Pad[3];       
     };
 
-    UObject* UIManager::GetLocalPlayerController() {
-        std::vector<UObject*> PCs;
-        UObjectGlobals::FindAllOf(STR("PalPlayerController"), PCs);
-        for (UObject* PC : PCs) {
-            if (!PC || PC->GetName().rfind(L"Default__", 0) == 0) continue;
-            struct { bool ReturnValue; } IsLocalParams{false};
-            Utils::CallFunction(PC, STR("IsLocalPlayerController"), &IsLocalParams);
-            if (IsLocalParams.ReturnValue) return PC;
-        }
-        return nullptr;
-    }
-
     void UIManager::ToggleMenu() {
         bIsMenuOpen = !bIsMenuOpen;
         if (bIsMenuOpen) {
-            Output::send<LogLevel::Normal>(STR("[DynPals] Alt+N pressed. Scanning for closest Pal...\n"));
+            DP_LOG(Normal, "Alt+N pressed. Scanning for closest Pal...");
             UpdateTarget();
             
             if (TargetPal) {
-                Output::send<LogLevel::Normal>(STR("[DynPals] Found valid target. Building UI.\n"));
+                DP_LOG(Normal, "Found valid target. Building UI.");
                 BuildWidget();
                 LockInput(true);
             } else {
-                Output::send<LogLevel::Warning>(STR("[DynPals] No valid Pal found within 3000 units! Menu cancelled.\n"));
+                DP_LOG(Warning, "No valid Pal found within radius! Menu cancelled.");
                 bIsMenuOpen = false;
             }
         } else {
-            Output::send<LogLevel::Normal>(STR("[DynPals] Closing Menu.\n"));
+            DP_LOG(Normal, "Closing Menu.");
             DestroyWidget();
             LockInput(false);
         }
     }
 
     void UIManager::LockInput(bool bLock) {
-        UObject* PlayerController = GetLocalPlayerController();
-        if (!PlayerController) return;
+        if (!CurrentPlayerController) return;
 
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
         if (!WBL) return;
 
         if (bLock) {
-            auto* prop = Utils::GetProperty(PlayerController, STR("bShowMouseCursor"));
+            auto* prop = Utils::GetProperty(CurrentPlayerController, STR("bShowMouseCursor"));
             if (prop) {
-                bool* pVal = prop->ContainerPtrToValuePtr<bool>(PlayerController);
+                bool* pVal = prop->ContainerPtrToValuePtr<bool>(CurrentPlayerController);
                 if (pVal) *pVal = true;
             }
 
             struct { bool bNewLookInput; } LookParams{ true };
-            Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"), &LookParams);
+            Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreLookInput"), &LookParams);
 
             struct {
                 UObject* PlayerController;
                 UObject* InWidgetToFocus;
                 uint8_t InMouseLockMode; 
                 bool bFlushInput;
-            } SetInputParams{ PlayerController, MyWidget, 0, false };
+            } SetInputParams{ CurrentPlayerController, MyWidget, 2, false };
 
             Utils::CallFunction(WBL, STR("SetInputMode_UIOnlyEx"), &SetInputParams);
         } else {
-            auto* prop = Utils::GetProperty(PlayerController, STR("bShowMouseCursor"));
+            auto* prop = Utils::GetProperty(CurrentPlayerController, STR("bShowMouseCursor"));
             if (prop) {
-                bool* pVal = prop->ContainerPtrToValuePtr<bool>(PlayerController);
+                bool* pVal = prop->ContainerPtrToValuePtr<bool>(CurrentPlayerController);
                 if (pVal) *pVal = false;
             }
 
             struct { bool bNewLookInput; } LookParams{ false };
-            Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"), &LookParams);
+            Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreLookInput"), &LookParams);
 
             struct {
                 UObject* PlayerController;
                 bool bFlushInput;
-            } SetInputParams{ PlayerController, false };
+            } SetInputParams{ CurrentPlayerController, false };
 
             Utils::CallFunction(WBL, STR("SetInputMode_GameOnly"), &SetInputParams);
         }
@@ -114,12 +101,17 @@ namespace DynPals {
         TargetInstanceID = L"";
         TargetCharID = L"";
 
-        UObject* PlayerController = GetLocalPlayerController();
-        if (!PlayerController) return;
+        if (!CurrentPlayerController) {
+            DP_LOG(Warning, "UpdateTarget cancelled: CurrentPlayerController is NULL!");
+            return;
+        }
 
         UObject* PlayerPawn = nullptr;
-        Utils::CallFunction(PlayerController, STR("K2_GetPawn"), &PlayerPawn);
-        if (!PlayerPawn) return;
+        Utils::CallFunction(CurrentPlayerController, STR("K2_GetPawn"), &PlayerPawn);
+        if (!PlayerPawn) {
+            DP_LOG(Warning, "UpdateTarget cancelled: PlayerPawn is NULL!");
+            return;
+        }
 
         struct { FVector_UE5 RetVal; } LocParams;
         Utils::CallFunction(PlayerPawn, STR("K2_GetActorLocation"), &LocParams);
@@ -127,6 +119,8 @@ namespace DynPals {
 
         std::vector<UObject*> AllPals;
         UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+
+        DP_LOG(Normal, "Player Location: {}, {}, {} | Scanning {} Pals in memory...", PlayerLoc.X, PlayerLoc.Y, PlayerLoc.Z, AllPals.size());
 
         double closestDist = 999999999.0;
         UObject* closestPal = nullptr;
@@ -149,39 +143,45 @@ namespace DynPals {
             }
         }
 
-        if (closestPal && closestDist < (3000.0 * 3000.0)) {
-            TargetPal = closestPal;
+        if (closestPal) {
+            double actualDist = std::sqrt(closestDist);
+            DP_LOG(Normal, "Closest Pal found: {} at distance: {} units (Goal: < 5000)", closestPal->GetName(), actualDist);
 
-            UObject* ParamComp = nullptr;
-            Utils::GetPropertyValue(TargetPal, STR("CharacterParameterComponent"), ParamComp);
-            if (!ParamComp) return;
+            if (actualDist < 5000.0) {
+                TargetPal = closestPal;
 
-            UObject* IndivParam = nullptr;
-            Utils::GetPropertyValue(ParamComp, STR("IndividualParameter"), IndivParam);
-            if (!IndivParam) return;
+                UObject* ParamComp = nullptr;
+                Utils::GetPropertyValue(TargetPal, STR("CharacterParameterComponent"), ParamComp);
+                if (!ParamComp) return;
 
-            struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
-            if (Utils::GetPropertyValue(IndivParam, STR("IndividualId"), IDStruct)) {
-                TargetInstanceID = Utils::GuidToWString(IDStruct.InstanceId);
+                UObject* IndivParam = nullptr;
+                Utils::GetPropertyValue(ParamComp, STR("IndividualParameter"), IndivParam);
+                if (!IndivParam) return;
+
+                struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
+                if (Utils::GetPropertyValue(IndivParam, STR("IndividualId"), IDStruct)) {
+                    TargetInstanceID = Utils::GuidToWString(IDStruct.InstanceId);
+                }
+
+                UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+                struct { UObject* Char; FName RetVal; } CharIDParams{TargetPal, FName()};
+                if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
+                TargetCharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams.RetVal.ToString());
             }
-
-            UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
-            struct { UObject* Char; FName RetVal; } CharIDParams{TargetPal, FName()};
-            if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
-            TargetCharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams.RetVal.ToString());
+        } else {
+            DP_LOG(Warning, "Scan complete: No other PalCharacters exist in memory!");
         }
     }
 
     void UIManager::BuildWidget() {
-        UObject* PlayerController = GetLocalPlayerController();
-        if (!PlayerController) return;
+        if (!CurrentPlayerController) return;
 
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
         UClass* WidgetClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.UserWidget"));
         if (!WBL || !WidgetClass) return;
 
         struct { UObject* WorldContext; UClass* WidgetType; UObject* OwningPlayer; UObject* ReturnValue; } CreateParams{
-            PlayerController, WidgetClass, PlayerController, nullptr
+            CurrentPlayerController, WidgetClass, CurrentPlayerController, nullptr
         };
         
         UFunction* CreateFunc = WBL->GetFunctionByNameInChain(STR("Create"));
@@ -200,10 +200,10 @@ namespace DynPals {
         UObject* WidgetTree = nullptr;
         if (!Utils::GetPropertyValue(MyWidget, STR("WidgetTree"), WidgetTree) || !WidgetTree) return;
 
-        auto ConstructElement = [&](UClass* ElementClass, const wchar_t* Name) -> UObject* {
+        auto ConstructElement = [&](UClass* ElementClass) -> UObject* {
             if (!ElementClass) return nullptr;
             FStaticConstructObjectParameters Params{ElementClass, MyWidget};
-            Params.Name = FName(Name, FNAME_Add);
+            Params.Name = FName(); // Leave empty for safe engine generation
             return UObjectGlobals::StaticConstructObject(Params);
         };
 
@@ -219,10 +219,10 @@ namespace DynPals {
         UClass* SpacerClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Spacer"));
         UClass* ButtonClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Button"));
 
-        UObject* Canvas = ConstructElement(CanvasPanelClass, STR("Canvas"));
-        UObject* BackgroundBorder = ConstructElement(BorderClass, STR("BackgroundBorder"));
-        UObject* ScrollBox = ConstructElement(ScrollBoxClass, STR("ScrollBox"));
-        UObject* VBox = ConstructElement(VerticalBoxClass, STR("VBox"));
+        UObject* Canvas = ConstructElement(CanvasPanelClass);
+        UObject* BackgroundBorder = ConstructElement(BorderClass);
+        UObject* ScrollBox = ConstructElement(ScrollBoxClass);
+        UObject* VBox = ConstructElement(VerticalBoxClass);
 
         auto* RootProp = Utils::GetProperty(WidgetTree, STR("RootWidget"));
         if (RootProp) {
@@ -264,7 +264,7 @@ namespace DynPals {
         };
 
         auto AddSpacer = [&](double SizeY) {
-            UObject* Spacer = ConstructElement(SpacerClass, STR("Spacer"));
+            UObject* Spacer = ConstructElement(SpacerClass);
             if (Spacer) {
                 struct FVector2D { double X, Y; };
                 struct { FVector2D InSize; } SizeParams{{1.0, SizeY}};
@@ -338,7 +338,7 @@ namespace DynPals {
             }
         };
 
-        UObject* TitleText = ConstructElement(TextBlockClass, STR("TitleText"));
+        UObject* TitleText = ConstructElement(TextBlockClass);
         if (TitleText) {
             FText titleTextVal = ConvStringToText(L"DynPals Settings:\n" + TargetCharID);
             struct { FText InText; } SetTitleParams{titleTextVal};
@@ -351,7 +351,7 @@ namespace DynPals {
 
         AddSpacer(15.0);
 
-        UObject* SkinLabel = ConstructElement(TextBlockClass, STR("SkinLabel"));
+        UObject* SkinLabel = ConstructElement(TextBlockClass);
         if (SkinLabel) {
             FText labelVal = ConvStringToText(L"Current Swap:");
             struct { FText InText; } SetLabelParams{labelVal};
@@ -418,7 +418,6 @@ namespace DynPals {
 
         auto evaluations = ConfigManager::Get().EvaluateAllSwaps(TargetCharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
         
-        // Calculate Tie Counts for Percentages
         int bestScore = 999999;
         int tieCount = 0;
         for (const auto& eval : evaluations) {
@@ -444,7 +443,7 @@ namespace DynPals {
         }
 
         // --- COMBO BOX (Clean Names Only) ---
-        ComboBoxWidget = ConstructElement(ComboBoxClass, STR("SkinCombo"));
+        ComboBoxWidget = ConstructElement(ComboBoxClass);
         if (ComboBoxWidget) {
             GDropdownMapping.clear();
             LastSelectedOption = L"";
@@ -500,9 +499,9 @@ namespace DynPals {
         AddSpacer(15.0);
 
         // --- FILTER CHECKBOX ---
-        UObject* FilterHBox = ConstructElement(HorizontalBoxClass, STR("FilterHBox"));
+        UObject* FilterHBox = ConstructElement(HorizontalBoxClass);
         if (FilterHBox && CheckBoxClass) {
-            CheckBoxWidget = ConstructElement(CheckBoxClass, STR("HideInvalidCheck"));
+            CheckBoxWidget = ConstructElement(CheckBoxClass);
             if (CheckBoxWidget) {
                 struct { bool bInIsChecked; } CheckParams{bHideInvalidSwaps};
                 Utils::CallFunction(CheckBoxWidget, STR("SetIsChecked"), &CheckParams);
@@ -511,7 +510,7 @@ namespace DynPals {
                 Utils::CallFunction(FilterHBox, STR("AddChild"), &AddCheckParams);
             }
 
-            UObject* CheckLabel = ConstructElement(TextBlockClass, STR("CheckLabel"));
+            UObject* CheckLabel = ConstructElement(TextBlockClass);
             if (CheckLabel) {
                 FText labelVal = ConvStringToText(L" Hide Invalid Matches");
                 struct { FText InText; } SetLabelParams{labelVal};
@@ -528,9 +527,9 @@ namespace DynPals {
         }
 
         // --- RANDOMIZE BUTTON ---
-        RandomizeButtonWidget = ConstructElement(ButtonClass, STR("RandomizeButton"));
+        RandomizeButtonWidget = ConstructElement(ButtonClass);
         if (RandomizeButtonWidget && TextBlockClass) {
-            UObject* ButtonText = ConstructElement(TextBlockClass, STR("ButtonText"));
+            UObject* ButtonText = ConstructElement(TextBlockClass);
             if (ButtonText) {
                 FText btnTextVal = ConvStringToText(L"Reroll");
                 struct { FText InText; } SetTextParams{btnTextVal};
@@ -552,7 +551,7 @@ namespace DynPals {
         }
 
         // --- MATCHMAKER EVALUATION LOG ---
-        UObject* EvalLogTitle = ConstructElement(TextBlockClass, STR("EvalLogTitle"));
+        UObject* EvalLogTitle = ConstructElement(TextBlockClass);
         if (EvalLogTitle) {
             FText titleVal = ConvStringToText(L"Evaluation Log:");
             struct { FText InText; } SetTitleParams{titleVal};
@@ -564,7 +563,7 @@ namespace DynPals {
         AddSpacer(5.0);
 
         if (evaluations.empty()) {
-            UObject* NoEvalText = ConstructElement(TextBlockClass, STR("NoEvalText"));
+            UObject* NoEvalText = ConstructElement(TextBlockClass);
             if (NoEvalText) {
                 FText textVal = ConvStringToText(L"No swaps configured for this Pal.");
                 struct { FText InText; } SetTextParams{textVal};
@@ -579,7 +578,7 @@ namespace DynPals {
 
                 auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
                 
-                UObject* PackText = ConstructElement(TextBlockClass, STR("PackText"));
+                UObject* PackText = ConstructElement(TextBlockClass);
                 if (PackText) {
                     FText pTextVal = ConvStringToText(cfg.PackName);
                     struct { FText InText; } SetTextParams{pTextVal};
@@ -612,7 +611,7 @@ namespace DynPals {
 
                 std::wstring logStr = L"    " + std::to_wstring(pct) + L"% : " + processedFilename;
 
-                UObject* LogText = ConstructElement(TextBlockClass, STR("LogText"));
+                UObject* LogText = ConstructElement(TextBlockClass);
                 if (LogText) {
                     FText textVal = ConvStringToText(logStr);
                     struct { FText InText; } SetTextParams{textVal};
@@ -636,7 +635,7 @@ namespace DynPals {
             auto& activeCfg = ConfigManager::Get().GetConfigs()[persist->SwapIndex];
             
             if (!activeCfg.MorphTargetList.empty()) {
-                UObject* MorphLabel = ConstructElement(TextBlockClass, STR("MorphTitleLabel"));
+                UObject* MorphLabel = ConstructElement(TextBlockClass);
                 if (MorphLabel) {
                     FText labelVal = ConvStringToText(L"Morph Targets");
                     struct { FText InText; } SetLabelParams{labelVal};
@@ -651,7 +650,7 @@ namespace DynPals {
 
             for (auto& morph : activeCfg.MorphTargetList) {
                 if (morph.type != L"Restrict" && morph.minVal < morph.maxVal) {
-                    UObject* Label = ConstructElement(TextBlockClass, (morph.target + L"_Label").c_str());
+                    UObject* Label = ConstructElement(TextBlockClass);
                     if (Label) {
                         FText labelVal = ConvStringToText(morph.target);
                         struct { FText InText; } SetLabelParams{labelVal};
@@ -662,7 +661,7 @@ namespace DynPals {
                         Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
                     }
 
-                    UObject* Slider = ConstructElement(SliderClass, (morph.target + L"_Slider").c_str());
+                    UObject* Slider = ConstructElement(SliderClass);
                     if (Slider) {
                         struct { float InValue; } SetMinParams{(float)morph.minVal};
                         Utils::CallFunction(Slider, STR("SetMinValue"), &SetMinParams);
@@ -696,7 +695,9 @@ namespace DynPals {
         Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
     }
 
-    void UIManager::TickUI() {
+    void UIManager::TickUI(UObject* LocalPlayerController) {
+        CurrentPlayerController = LocalPlayerController; // Cache natively bound player
+
         // Process cross-thread toggle requests safely (such as Alt+N)
         if (bToggleRequested) {
             bToggleRequested = false;
@@ -705,40 +706,17 @@ namespace DynPals {
 
         if (!bIsMenuOpen || !MyWidget) return;
 
-        // --- NEW: Close the menu when Escape is pressed ---
+        // Close the menu when Escape is pressed
         static bool bWasEscapeDown = false;
         if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
             if (!bWasEscapeDown) {
                 bWasEscapeDown = true;
                 ToggleMenu(); 
-                return; // Exit early since MyWidget is now destroyed/null
+                return; 
             }
         } else {
             bWasEscapeDown = false;
         }
-
-        // --- Existing tracking and validation checks continue here ---
-        static auto LastCheckTime = std::chrono::steady_clock::now();
-        auto now = std::chrono::steady_clock::now();
-        if (now - LastCheckTime > std::chrono::seconds(1)) {
-            LastCheckTime = now;
-            
-            std::vector<UObject*> AllPals;
-            UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
-            
-            bool bIsTargetValid = false;
-            for (UObject* Pal : AllPals) {
-                if (Pal == TargetPal) {
-                    bIsTargetValid = true;
-                    break;
-                }
-            }
-            if (!bIsTargetValid) {
-                ToggleMenu(); 
-                return;
-            }
-        }
-
 
         if (CheckBoxWidget) {
             struct { bool ReturnValue; } IsCheckedParams{false};
@@ -767,7 +745,7 @@ namespace DynPals {
                         }
                     } else {
                         LastSelectedOption = selectedStr;
-                        PalProcessor::Get().ForceSwap(TargetPal, it->second, 10);
+                        PalProcessor::Get().ForceSwap(TargetPal, it->second);
                         
                         DestroyWidget();
                         BuildWidget();
@@ -787,7 +765,7 @@ namespace DynPals {
                 if (!bWasRandomizePressed) {
                     bWasRandomizePressed = true;
                     
-                    Output::send<LogLevel::Normal>(STR("[DynPals] Randomize button clicked. Rerolling swap and morphs...\n"));
+                    DP_LOG(Normal, "Randomize button clicked. Rerolling swap and morphs...");
                     PalProcessor::Get().ProcessPal(TargetPal, true);
                     
                     DestroyWidget();

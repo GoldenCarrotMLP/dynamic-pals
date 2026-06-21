@@ -7,7 +7,6 @@
 #include "ConfigManager.hpp"
 #include "SaveManager.hpp"
 #include "HooksManager.hpp"
-#include "PalProcessor.hpp"
 #include "UIManager.hpp"
 #include "Utils.hpp"
 
@@ -29,12 +28,11 @@ public:
 
     auto on_update() -> void override
     {
-        // Listen for Alt + N on the background thread safely
+        // Process Key Input safely on the worker thread
         static bool bMenuKeyPressed = false;
         if ((GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(0x4E) & 0x8000)) {
             if (!bMenuKeyPressed) {
                 bMenuKeyPressed = true;
-                // Signal the Game Thread to open the menu
                 DynPals::UIManager::Get().RequestMenuToggle();
             }
         } else {

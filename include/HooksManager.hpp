@@ -7,6 +7,6 @@ namespace DynPals {
         static void RegisterHooks();
 
     private:
-        static void OnPalInit(RC::Unreal::UnrealScriptFunctionCallableContext& Context, void*);
+        static void OnPalSpawnedReady(RC::Unreal::UnrealScriptFunctionCallableContext& Context, void*);
     };
 }

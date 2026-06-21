@@ -2,7 +2,7 @@
 #include <Unreal/UObjectGlobals.hpp>
 #include <string>
 #include <vector>
-#include <atomic> // For thread-safe flags
+#include <atomic>
 
 namespace DynPals {
 
@@ -20,17 +20,19 @@ namespace DynPals {
         }
 
         void ToggleMenu();
-        void TickUI();
+        void TickUI(RC::Unreal::UObject* LocalPlayerController); // Updated Signature!
         
-        // Safe cross-thread toggle request
         void RequestMenuToggle() { bToggleRequested = true; }
+
+        // Getters to allow safe, zero-overhead Game Thread tick suspension
+        bool IsToggleRequested() const { return bToggleRequested.load(); }
+        bool IsMenuOpen() const { return bIsMenuOpen; }
 
     private:
         UIManager() = default;
         UIManager(const UIManager&) = delete;
         UIManager& operator=(const UIManager&) = delete;
 
-        RC::Unreal::UObject* GetLocalPlayerController();
         void BuildWidget();
         void DestroyWidget();
         void UpdateTarget();
@@ -40,10 +42,11 @@ namespace DynPals {
         bool bIsMenuOpen = false;
         bool bHideInvalidSwaps = true; 
         
+        RC::Unreal::UObject* CurrentPlayerController = nullptr; // Saves the native player controller
         RC::Unreal::UObject* MyWidget = nullptr;
         RC::Unreal::UObject* ComboBoxWidget = nullptr;
         RC::Unreal::UObject* CheckBoxWidget = nullptr; 
-        RC::Unreal::UObject* RandomizeButtonWidget = nullptr; // Track the Randomize Button
+        RC::Unreal::UObject* RandomizeButtonWidget = nullptr; 
         RC::Unreal::UObject* TargetPal = nullptr;
 
         std::wstring TargetInstanceID = L"";
@@ -51,6 +54,6 @@ namespace DynPals {
         std::wstring LastSelectedOption = L"";
         std::vector<ActiveSlider> ActiveSliders;
 
-        bool bWasRandomizePressed = false; // Debounce state to prevent multi-triggering
+        bool bWasRandomizePressed = false; 
     };
 }

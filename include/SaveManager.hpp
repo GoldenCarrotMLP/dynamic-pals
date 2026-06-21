@@ -21,6 +21,9 @@ namespace DynPals {
         PalPersistData* GetPersistData(const std::wstring& InstanceID);
         void SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data);
 
+        // Clears cached save IDs and states on world transition
+        void Reset();
+
     private:
         SaveManager() = default;
         SaveManager(const SaveManager&) = delete;
