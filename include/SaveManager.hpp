@@ -1,7 +1,6 @@
 #pragma once
 #include <string>
 #include <map>
-#include <chrono>
 #include <Unreal/UObjectGlobals.hpp>
 #include "DataTypes.hpp"
 
@@ -16,7 +15,6 @@ namespace DynPals {
         void Initialize(const std::wstring& BasePath);
         void LoadWorldData(RC::Unreal::UObject* World);
         void SaveWorldData();
-        void TickSave();
 
         PalPersistData* GetPersistData(const std::wstring& InstanceID);
         void SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data);
@@ -33,8 +31,5 @@ namespace DynPals {
         std::wstring PersistFileName = L"_Altermatic_Persist_";
         std::wstring CurrentWorldSaveID = L"";
         std::map<std::wstring, PalPersistData> PersistedSwaps;
-
-        bool bSaveRequired = false;
-        std::chrono::steady_clock::time_point LastSaveTime = std::chrono::steady_clock::now();
     };
 }

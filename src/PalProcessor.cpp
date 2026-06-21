@@ -26,7 +26,7 @@ namespace DynPals {
         OutBlueprintName = PalClass->GetName();
         if (OutBlueprintName.empty() || OutBlueprintName.find(L"Default__") != std::wstring::npos) return false;
 
-        // DUAL-LAYERED GYM PROTECTION: Ignore composite Gym Leader blueprints [2]
+        // DUAL-LAYERED GYM PROTECTION: Ignore composite Gym Leader blueprints
         if (OutBlueprintName.find(L"_Gym") != std::wstring::npos) {
             return false;
         }
@@ -47,7 +47,8 @@ namespace DynPals {
         // 3. Active overworld Pal check
         bool bIsActive = true;
         if (Utils::GetPropertyValue<bool>(Pal, STR("bIsPalActiveActor"), bIsActive)) {
-            if (!bIsActive) return false;
+            // Disabled cuz prevents pals in your inventory from being replaced
+            //if (!bIsActive) return false;
         }
 
         UObject* MeshComp = nullptr;
@@ -65,12 +66,15 @@ namespace DynPals {
 
         // 5. Ghost/UI/Box Pals have collision disabled. 
         struct { bool ReturnValue; } ColParams{true};
-        Utils::CallFunction(Pal, STR("GetActorEnableCollision"), &ColParams);
-        if (!ColParams.ReturnValue) return false;
+       Utils::CallFunction(Pal, STR("GetActorEnableCollision"), &ColParams);
+       // Disabled cuz prevents pals in your inventory from being replaced
+        //if (!ColParams.ReturnValue) return false;
 
         bool bHidden = false;
         if (Utils::GetPropertyValue<bool>(Pal, STR("bHidden"), bHidden)) {
-            if (bHidden) return false;
+            // Disabled cuz prevents pals in your inventory from being replaced
+            //if (bHidden) return false;
+
         }
 
         return true;
@@ -127,7 +131,7 @@ namespace DynPals {
             return;
         }
 
-        DP_LOG(Normal, "Processing valid overworld Blueprint: {}", BlueprintName);
+        DP_LOG(Normal, "Processing valid overworld Blueprint: {}\n", BlueprintName);
 
         // Load world data
         SaveManager::Get().LoadWorldData(World);
@@ -222,36 +226,56 @@ namespace DynPals {
             AnimPath = CharID;
         }
 
+        UClass* TargetBPClass = nullptr;
+        std::wstring TargetPackagePath = L"";
+        std::wstring TargetClassName = L"";
+
         if (AnimPath.find(L'/') == std::wstring::npos) {
-            std::wstring FolderName = AnimPath;
-            size_t uscorePos = FolderName.find(L'_');
-            if (uscorePos != std::wstring::npos) {
-                FolderName = FolderName.substr(0, uscorePos);
+            // First, try loading the path exactly as provided (e.g. GuardianDog_Override)
+            std::wstring TryPath1 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
+            TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath1));
+
+            if (TargetBPClass) {
+                TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath;
+                TargetClassName = L"BP_" + AnimPath + L"_C";
+            } else {
+                // Fallback: Truncate at the underscore if the user provided a variant name (e.g. Boss_Override -> Boss)
+                std::wstring FolderName = AnimPath;
+                size_t uscorePos = FolderName.find(L'_');
+                if (uscorePos != std::wstring::npos) {
+                    FolderName = FolderName.substr(0, uscorePos);
+                    std::wstring TryPath2 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
+                    TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath2));
+                    
+                    if (TargetBPClass) {
+                        TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath;
+                        TargetClassName = L"BP_" + AnimPath + L"_C";
+                    }
+                }
             }
-            AnimPath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
+        } else {
+            // A full explicit path was provided
+            TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
+            size_t dotPos = AnimPath.find(L'.');
+            if (dotPos != std::wstring::npos) {
+                TargetPackagePath = AnimPath.substr(0, dotPos);
+                TargetClassName = AnimPath.substr(dotPos + 1);
+            }
         }
 
-        size_t dotPos = AnimPath.find(L'.');
-        if (dotPos != std::wstring::npos) {
-            std::wstring PackagePath = AnimPath.substr(0, dotPos);
-            std::wstring ClassName = AnimPath.substr(dotPos + 1);
-            std::wstring CDOPath = PackagePath + L".Default__" + ClassName;
+        // Post-Load Safety Gate 1
+        if (!IsPalBlueprintValid(Character, BPName)) return;
+        Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
+        if (!MeshComp) return;
 
-            UClass* TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
+        // SAFELY GET CDO USING THE NATIVE ENGINE LOADER (Prevents UE5 CDO instantiation crashes!)
+        if (TargetBPClass && !TargetPackagePath.empty() && !TargetClassName.empty()) {
+            DP_LOG(Normal, "[DEBUG] Successfully loaded Target Blueprint: {}\n", TargetBPClass->GetName());
             
-            // Post-Load Safety Gate 1
-            if (!IsPalBlueprintValid(Character, BPName)) return;
-            Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-            if (!MeshComp) return;
-
+            std::wstring CDOPath = TargetPackagePath + L".Default__" + TargetClassName;
             UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
             
-            // Post-Load Safety Gate 2
-            if (!IsPalBlueprintValid(Character, BPName)) return;
-            Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-            if (!MeshComp) return;
-
-            if (TargetBPClass && TargetCDO) {
+            if (TargetCDO) {
                 UObject* TargetMesh = nullptr;
                 Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
                 
@@ -272,11 +296,13 @@ namespace DynPals {
                     }
                 }
                 Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+            } else {
+                DP_LOG(Warning, "WARNING: TargetBPClass loaded, but failed to extract CDO via LoadAssetSafely!\n");
             }
         }
 
         // --- SMART ANIM SWAP LOGIC ---
-        // Only tear down and rebuild the animation pipeline if the classes are actually different!
+        // If we don't have a target, fallback to the natural default of the class
         if (!TargetAnimClass) {
             UClass* PalClass = Character->GetClassPrivate();
             if (PalClass) {
@@ -306,7 +332,7 @@ namespace DynPals {
             }
         }
 
-        // Fallback safety net
+        // Absolute fallback if everything fails
         if (!TargetAnimClass) { TargetAnimClass = CurrentAnimClass; }
 
         // Only tear down and rebuild the animation pipeline if the classes are actually different!
@@ -324,7 +350,6 @@ namespace DynPals {
 
         UObject* NewMesh = nullptr;
         if (!swap.SkelMeshPath.empty()) {
-            // Specialized mod-only skeletal mesh loading with prefixes fallbacks
             NewMesh = Utils::LoadSkeletalMeshSafely(swap.SkelMeshPath);
             
             // Post-Load Safety Gate 3
@@ -344,8 +369,8 @@ namespace DynPals {
                     Utils::CallFunction(NewMesh, STR("SetSkeleton"), &SkelParams);
                 }
 
-                // If animations are identical, we execute seamlessly with reset pose turned OFF!
-                struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, bNeedsAnimRebuild};
+                // ALWAYS set bReinitPose to true, so new modded skeletons map correctly!
+                struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
                 DP_LOG(Normal, "\nGonna try to swap skeleton: {}\n", swap.SkelMeshPath);
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
             } else {
@@ -457,31 +482,31 @@ namespace DynPals {
             }
         }
 
-        if (bNeedsAnimRebuild) {
-            UObject* NewAnimInst = nullptr;
-            Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
-            if (NewAnimInst) {
-                UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
-                if (LinkFunc) {
-                    std::vector<std::wstring> StandardLayers = {
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterPhysics.ABP_MonsterPhysics_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterUpper.ABP_MonsterUpper_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLookAt.ABP_MonsterLookAt_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLeaning.ABP_MonsterLeaning_C"
-                    };
+        // ALWAYS re-link physics layers regardless of bNeedsAnimRebuild, 
+        // to ensure the new custom mod bones properly receive physics calculations!
+        UObject* NewAnimInst = nullptr;
+        Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
+        if (NewAnimInst) {
+            UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
+            if (LinkFunc) {
+                std::vector<std::wstring> StandardLayers = {
+                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterPhysics.ABP_MonsterPhysics_C",
+                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterUpper.ABP_MonsterUpper_C",
+                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLookAt.ABP_MonsterLookAt_C",
+                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLeaning.ABP_MonsterLeaning_C"
+                };
 
-                    for (const auto& LayerPath : StandardLayers) {
-                        UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
-                        
-                        // Post-Load Safety Gate 5
-                        if (!IsPalBlueprintValid(Character, BPName)) return;
-                        Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-                        if (!MeshComp) return;
+                for (const auto& LayerPath : StandardLayers) {
+                    UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
+                    
+                    // Post-Load Safety Gate 5
+                    if (!IsPalBlueprintValid(Character, BPName)) return;
+                    Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
+                    if (!MeshComp) return;
 
-                        if (LayerClass) {
-                            struct { UClass* InClass; } LinkParams{ LayerClass };
-                            NewAnimInst->ProcessEvent(LinkFunc, &LinkParams);
-                        }
+                    if (LayerClass) {
+                        struct { UClass* InClass; } LinkParams{ LayerClass };
+                        NewAnimInst->ProcessEvent(LinkFunc, &LinkParams);
                     }
                 }
             }

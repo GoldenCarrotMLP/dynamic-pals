@@ -195,17 +195,6 @@ namespace DynPals {
         }
     }
 
-    void SaveManager::TickSave() {
-        if (bSaveRequired) {
-            auto now = std::chrono::steady_clock::now();
-            if (now - LastSaveTime > std::chrono::seconds(10)) {
-                SaveWorldData();
-                bSaveRequired = false;
-                LastSaveTime = now;
-            }
-        }
-    }
-
     PalPersistData* SaveManager::GetPersistData(const std::wstring& InstanceID) {
         auto it = PersistedSwaps.find(InstanceID);
         return it != PersistedSwaps.end() ? &it->second : nullptr;
@@ -213,6 +202,8 @@ namespace DynPals {
 
     void SaveManager::SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data) {
         PersistedSwaps[InstanceID] = Data;
-        bSaveRequired = true;
+        
+        // Manual change made in UI. Save instantly to prevent data loss!
+        SaveWorldData(); 
     }
 }
