@@ -8,6 +8,8 @@
 #include <Unreal/FString.hpp>
 #include <Unreal/Core/Containers/Array.hpp>
 
+///New code. Improved getting correct actor blueprint resolution by just using DT_PalBPClass_Common 
+
 using namespace RC;
 using namespace RC::Unreal;
 
@@ -24,6 +26,52 @@ namespace DynPals {
     void PalProcessor::ClearSwappedStatus(const std::wstring& InstanceID) {
         SwappedInstances.erase(InstanceID);
         RuntimeStatsCache.erase(InstanceID);
+    }
+    // Latch into Palworld's native database subsystem to resolve any CharacterID to its Blueprint Class path
+    // Safely queries the game's native DataTable DT_PalBPClass_Common using standard reflection
+    static bool ResolvePalBlueprintPath(UObject* WorldContext, const std::wstring& CharID, std::wstring& OutPath) {
+        if (!WorldContext) return false;
+
+        UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+        if (!PalUtil) return false;
+
+        // 1. Fetch the active UPalDatabaseCharacterParameter subsystem instance
+        struct { UObject* WorldCtx; UObject* DB; } GetDBParams{ WorldContext, nullptr };
+        UFunction* GetDBFunc = PalUtil->GetFunctionByNameInChain(STR("GetDatabaseCharacterParameter"));
+        if (!GetDBFunc) return false;
+        
+        PalUtil->ProcessEvent(GetDBFunc, &GetDBParams);
+        UObject* DB = GetDBParams.DB;
+        if (!DB) return false;
+
+        // 2. Fetch the native GetBPClass function
+        UFunction* GetBPClassFunc = DB->GetFunctionByNameInChain(STR("GetBPClass"));
+        if (!GetBPClassFunc) return false;
+
+        // 3. Package the parameter block (matches native UE5 alignment & size requirements)
+        struct {
+            FName RowName;                  // 0x00 (8 bytes)
+            bool bShowError;                // 0x08 (1 byte)
+            uint8_t Pad[7];                 // 0x09 - 0x0F (Align AltrSoftObjectPtr to 8-byte boundary)
+            AltrSoftObjectPtr ReturnValue;  // 0x10 (48 bytes SoftClassPtr / SoftObjectPtr)
+        } Params;
+
+        Params.RowName = FName(CharID.c_str(), FNAME_Add);
+        Params.bShowError = false;
+
+        // 4. Fire the native function call! (Now 100% stack-safe)
+        DB->ProcessEvent(GetBPClassFunc, &Params);
+
+        // 5. Convert the returned SoftClassPtr (AltrSoftObjectPtr) to a std::wstring path
+        std::wstring packageName = Params.ReturnValue.ObjectID.PackageName.ToString();
+        std::wstring assetName = Params.ReturnValue.ObjectID.AssetName.ToString();
+
+        if (!packageName.empty() && !assetName.empty()) {
+            OutPath = packageName + L"." + assetName;
+            return true;
+        }
+
+        return false;
     }
 
     static bool IsPalBlueprintValid(UObject* Pal, std::wstring& OutBlueprintName) {
@@ -84,6 +132,7 @@ namespace DynPals {
         if (InputID.rfind(L"BOSS_", 0) == 0) return InputID.substr(5);
         if (InputID.rfind(L"RAID_", 0) == 0) return InputID.substr(5);
         if (InputID.rfind(L"GYM_", 0) == 0) return InputID.substr(4);
+        if (InputID.rfind(L"PREDATOR_", 0) == 0) return InputID.substr(9); 
         return InputID;
     }
 
@@ -109,7 +158,7 @@ namespace DynPals {
         for (auto it = PendingSwaps.begin(); it != PendingSwaps.end();) {
             if (now >= it->ScheduledTime) {
                 if (it->Character) {
-                    // FIX: Pass explicit UI selection index instead of destroying it!
+                    // FIX: Pass explicit UI selection index instead of destroying it! Im back in 
                     ExecuteSwap(it->Character, false, it->SwapIndex);
                 }
                 it = PendingSwaps.erase(it);
@@ -364,39 +413,57 @@ namespace DynPals {
         std::wstring TargetPackagePath = L"";
         std::wstring TargetClassName = L"";
 
-        if (AnimPath.find(L'/') == std::wstring::npos) {
-            std::wstring TryPath1 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
-            TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath1));
+         if (AnimPath.find(L'/') == std::wstring::npos) {
+            // 1. Primary Attempt: Resolve natively via the game's native Database Subsystem!
+            std::wstring ResolvedPath;
+            if (ResolvePalBlueprintPath(Character, AnimPath, ResolvedPath)) {
+                TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(ResolvedPath));
+                if (TargetBPClass) {
+                    DP_LOG(Normal, "[DEBUG] Successfully resolved Pal '{}' natively to path: '{}'\n", AnimPath, ResolvedPath);
+                    size_t dotPos = ResolvedPath.find(L'.');
+                    if (dotPos != std::wstring::npos) {
+                        TargetPackagePath = ResolvedPath.substr(0, dotPos);
+                        TargetClassName = ResolvedPath.substr(dotPos + 1);
+                    }
+                }
+            }
 
-            if (TargetBPClass) {
-                TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath;
-                TargetClassName = L"BP_" + AnimPath + L"_C";
-            } else {
-                std::wstring FolderName = AnimPath;
-                size_t uscorePos = FolderName.find(L'_');
-                if (uscorePos != std::wstring::npos) {
-                    FolderName = FolderName.substr(0, uscorePos);
-                    std::wstring TryPath2 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
-                    TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath2));
-                    
-                    if (TargetBPClass) {
-                        TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath;
-                        TargetClassName = L"BP_" + AnimPath + L"_C";
+            // 2. Secondary Fallback: Guess paths if the ID isn't registered in the native Database
+            if (!TargetBPClass) {
+                DP_LOG(Warning, "[DEBUG] Pal '{}' not found in native Database. Falling back to path-guessing...\n", AnimPath);
+                
+                std::wstring TryPath1 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
+                TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath1));
+
+                if (TargetBPClass) {
+                    TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath;
+                    TargetClassName = L"BP_" + AnimPath + L"_C";
+                } else {
+                    std::wstring FolderName = AnimPath;
+                    size_t uscorePos = FolderName.find(L'_');
+                    if (uscorePos != std::wstring::npos) {
+                        FolderName = FolderName.substr(0, uscorePos);
+                        std::wstring TryPath2 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
+                        TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath2));
+                        
+                        if (TargetBPClass) {
+                            TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath;
+                            TargetClassName = L"BP_" + AnimPath + L"_C";
+                        }
                     }
                 }
             }
         } else {
             TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
-            
-            // UI WARNING: Fails to load custom absolute animation blueprint path
             if (!TargetBPClass) {
                 DP_LOG(Error, "Failed to load Animation Target Blueprint for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, AnimPath);
             }
-            
             size_t dotPos = AnimPath.find(L'.');
             if (dotPos != std::wstring::npos) {
                 TargetPackagePath = AnimPath.substr(0, dotPos);
                 TargetClassName = AnimPath.substr(dotPos + 1);
+
+
             }
         }
 
@@ -633,6 +700,8 @@ namespace DynPals {
             }
         }
 
+        struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
+        Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
         struct { bool bPause; } UnpauseAnim{ false };
         Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &UnpauseAnim);
