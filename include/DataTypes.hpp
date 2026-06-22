@@ -29,7 +29,7 @@ namespace DynPals {
     do { \
         RC::Output::send<RC::LogLevel::Level>(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__); \
         if constexpr (RC::LogLevel::Level == RC::LogLevel::Error || RC::LogLevel::Level == RC::LogLevel::Warning) { \
-            uint8_t priority = (RC::LogLevel::Level == RC::LogLevel::Error) ? 3 : 2; /* 3 = VeryImportant, 2 = Important */ \
+            uint8_t priority = (RC::LogLevel::Level == RC::LogLevel::Error) ? 2 : 1; /* 3 = VeryImportant, 2 = Important */ \
             uint8_t tone = 1; /* 1 = Negative (Red/Warning color) */ \
             DynPals::EnqueueUIToast( \
                 fmt::format(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__), \
