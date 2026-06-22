@@ -4,9 +4,11 @@
 #include "json.hpp"
 #include <random>
 #include <algorithm>
+#include <filesystem> // <--- ADD THIS INCLUDE
 
 using namespace RC;
 using namespace RC::Unreal;
+namespace fs = std::filesystem;
 
 namespace DynPals {
 
@@ -85,48 +87,81 @@ namespace DynPals {
         }
     }
 
+    
+
     void ConfigManager::Initialize(const std::wstring& BasePath) {
         ConfigPath = BasePath + L"Paks/~mods/SwapJSON/";
         LoadConfigJSONs();
     }
 
     void ConfigManager::LoadConfigJSONs() {
-        std::wstring loadListPath = ConfigPath + L"_LoadList.json";
-        std::string content = Utils::ReadFileToString(loadListPath);
+        Configs.clear();
         
-        if (content.empty()) {
-            Output::send<LogLevel::Error>(STR("[DynPals] _LoadList.json missing or unreadable!\n"));
+        // Ensure the directory exists before scanning
+        if (!std::filesystem::exists(ConfigPath)) {
+            Output::send<LogLevel::Error>(STR("[DynPals] SwapJSON directory missing! Created empty folder at: {}\n"), ConfigPath);
+            std::filesystem::create_directories(ConfigPath);
             return;
         }
 
-        try {
-            nlohmann::json loadList = nlohmann::json::parse(content, nullptr, true, true);
-            if (!loadList.contains("LoadList")) return;
+        int loadedPacksCount = 0;
+        DP_LOG(Normal, "ConfigManager: Scanning recursively for Swap JSONs...");
 
-            Configs.clear();
-            for (auto& item : loadList.at("LoadList")) {
-                std::string filename = item.get<std::string>();
-                if (filename.empty()) continue;
+        // Recursive directory iterator to scan the entire folder tree
+         for (const auto& entry : fs::recursive_directory_iterator(ConfigPath)) {
+            if (entry.is_regular_file()) {
+                std::wstring filepath = entry.path().wstring();
+                std::wstring filename = entry.path().filename().wstring();
 
-                std::wstring filepath = ConfigPath + Utils::StringToWString(filename) + L".json";
-                std::string fileContent = Utils::ReadFileToString(filepath);
-                if (fileContent.empty()) continue;
+                // Only load JSON files, and skip configuration template / backup files
+                if (entry.path().extension() == L".json") {
+                    if (filename.rfind(L"_", 0) == 0 || filename.find(L"Template") != std::wstring::npos) {
+                        continue; // Skip metadata files like '_LoadList.json' or templates
+                    }
 
-                nlohmann::json configData = nlohmann::json::parse(fileContent, nullptr, true, true);
-                std::wstring packName = L"Default Pack";
-                if (configData.contains("PackName")) {
-                    packName = Utils::StringToWString(configData.at("PackName").get<std::string>());
-                }
+                    std::string fileContent = Utils::ReadFileToString(filepath);
+                    if (fileContent.empty()) continue;
 
-                if (configData.contains("SkelMeshSwap")) {
-                    ParseSwaps(packName, configData.at("SkelMeshSwap"));
+                    try {
+                        nlohmann::json configData = nlohmann::json::parse(fileContent, nullptr, true, true);
+                        
+                        // 1. Structural Validation: Must be a JSON Object
+                        if (!configData.is_object()) {
+                            DP_LOG(Warning, "Skipping invalid config (not a JSON Object): '{}'\n", filename);
+                            continue;
+                        }
+
+                        // Determine the Pack Name
+                        std::wstring packName = L"Default Pack";
+                        if (configData.contains("PackName") && configData.at("PackName").is_string()) {
+                            packName = Utils::StringToWString(configData.at("PackName").get<std::string>());
+                        } else {
+                            // Fallback to file name without extension if "PackName" key is missing
+                            packName = entry.path().stem().wstring();
+                        }
+
+                        // 2. Data Validation: Must contain 'SkelMeshSwap' array
+                        if (configData.contains("SkelMeshSwap") && configData.at("SkelMeshSwap").is_array()) {
+                            ParseSwaps(packName, configData.at("SkelMeshSwap"));
+                            loadedPacksCount++;
+                        } else {
+                            DP_LOG(Warning, "Skipping config (missing 'SkelMeshSwap' array): '{}'\n", filename);
+                        }
+
+                    } catch (const std::exception& e) {
+                        // Safe exception catch: Keeps the mod from crashing if a user has a syntax typo in their JSON!
+                        DP_LOG(Error, "Failed to parse JSON file '{}': {}\n", filename, Utils::StringToWString(e.what()));
+                    }
                 }
             }
-            Output::send<LogLevel::Normal>(STR("[DynPals] Complete matchmaking table compiled with {} swaps.\n"), Configs.size());
-        } catch (const std::exception& e) {
-            Output::send<LogLevel::Error>(STR("[DynPals] JSON Error: {}\n"), Utils::StringToWString(e.what()));
         }
+
+        DP_LOG(Normal, "Successfully loaded {} skin packs dynamically.\n", loadedPacksCount);
+        DP_LOG(Normal, "Complete matchmaking table compiled with {} swaps.\n", Configs.size());
     }
+
+
+
 
     void ConfigManager::ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray) {
         for (auto& swapJson : swapArray) {
