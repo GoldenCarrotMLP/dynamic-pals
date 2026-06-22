@@ -95,8 +95,27 @@ namespace DynPals {
         }
 
         // 3. Compare and Update
-        if (remoteVersion != localVersion) {
-            DP_LOG(Normal, "Auto-Updater: Update found! Local: [{}] | Remote: [{}]", Utils::StringToWString(localVersion), Utils::StringToWString(remoteVersion));
+        bool bShouldUpdate = false;
+        try {
+            int localVal = std::stoi(localVersion);
+            int remoteVal = std::stoi(remoteVersion);
+            
+            if (remoteVal > localVal) {
+                bShouldUpdate = true;
+            } else {
+                DP_LOG(Normal, "Auto-Updater: Local version ({}) is up-to-date or newer than remote ({}). Skipping update.", 
+                    Utils::StringToWString(localVersion), Utils::StringToWString(remoteVersion));
+            }
+        } catch (...) {
+            // Fallback to string comparison if either version cannot be parsed as an integer
+            if (remoteVersion != localVersion) {
+                bShouldUpdate = true;
+            }
+        }
+
+        if (bShouldUpdate) {
+            DP_LOG(Normal, "Auto-Updater: Update found! Local: [{}] | Remote: [{}]", 
+                Utils::StringToWString(localVersion), Utils::StringToWString(remoteVersion));
             DP_LOG(Normal, "Auto-Updater: Downloading new main.dll...");
 
             std::string dllUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/main/dlls/main.dll";

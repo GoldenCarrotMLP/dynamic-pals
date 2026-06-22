@@ -17,8 +17,7 @@ namespace DynPals {
         void SaveWorldData();
 
         PalPersistData* GetPersistData(const std::wstring& InstanceID);
-        void SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data);
-
+        void SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data, bool bWriteToDisk = false);
         // Clears cached save IDs and states on world transition
         void Reset();
 

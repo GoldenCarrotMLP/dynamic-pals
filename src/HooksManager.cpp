@@ -4,7 +4,7 @@
 #include "SaveManager.hpp"
 #include "UIManager.hpp"
 #include "Utils.hpp"
-
+#include "NotificationManager.hpp"
 #include <Unreal/CoreUObject/UObject/Class.hpp> 
 #include <Unreal/UObjectGlobals.hpp>
 #include <chrono>
@@ -67,6 +67,12 @@ namespace DynPals {
         static bool bIsReentrant = false;
         if (bIsReentrant) return;
         bIsReentrant = true;
+
+    UObject* ActorContext = Context.Context;
+    if (ActorContext) {
+        NotificationManager::Get().ProcessToasts(ActorContext);
+    }
+
 
         // ZERO-OVERHEAD BYPASS: Suspends the tick hook completely during normal gameplay.
         // It only wakes up during level loading, when the menu is open, if a toggle is requested, or if a deferred swap is executing.

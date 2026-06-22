@@ -14,6 +14,7 @@ add_library(DynamicPals SHARED
     "src/PalProcessor.cpp"
     "src/UIManager.cpp"
     "src/Updater.cpp"
+    "src/NotificationManager.cpp" 
 )
 
 # Standard UE4SS Include Paths + Your New include/ Directory

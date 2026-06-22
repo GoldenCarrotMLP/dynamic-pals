@@ -138,13 +138,13 @@ namespace DynPals {
         ClearSwappedStatus(InstanceID);
 
         PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
-        if (!ExistingData) {
-            PalPersistData newData = { InstanceID, SwapIndex, {} };
-            SaveManager::Get().SetPersistData(InstanceID, newData);
-        } else {
-            ExistingData->SwapIndex = SwapIndex;
-            SaveManager::Get().SetPersistData(InstanceID, *ExistingData); 
-        }
+    if (!ExistingData) {
+        PalPersistData newData = { InstanceID, SwapIndex, {} };
+        SaveManager::Get().SetPersistData(InstanceID, newData, true); 
+    } else {
+        ExistingData->SwapIndex = SwapIndex;
+        SaveManager::Get().SetPersistData(InstanceID, *ExistingData, true); 
+    }
 
         PendingSwap ps;
         ps.Character = Character;
@@ -309,14 +309,26 @@ namespace DynPals {
             if (bNeedsApply) {
                 PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ InstanceID, finalSwap, {} };
                 newData.SwapIndex = finalSwap;
-                SaveManager::Get().SetPersistData(InstanceID, newData);
 
+                // 1. FIX: Clear old morphs on reroll so ApplySwap is forced to roll brand new ones!
+                if (ForceReroll) {
+                    newData.MorphSet.clear();
+                }
+
+                // 2. FIX: Run ApplySwap FIRST to apply the meshes and generate the new morphs inside 'newData'
                 ApplySwap(Character, ConfigManager::Get().GetConfigs()[finalSwap], newData);
+
+                // 3. FIX: Only save to disk instantly if this is a manual UI action (Rerolling or picking from dropdown)
+                bool bIsManualAction = (ExplicitSwapIndex != -1) || ForceReroll;
+
+                // 4. FIX: Save AFTER ApplySwap has fully generated the new morph values!
+                SaveManager::Get().SetPersistData(InstanceID, newData, bIsManualAction);
+
                 SwappedInstances.insert(InstanceID);
             }
         }
-    }
 
+    }
     void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
         std::wstring BPName;
         if (!IsPalBlueprintValid(Character, BPName)) return;
@@ -328,8 +340,8 @@ namespace DynPals {
         struct { bool bPause; } PauseAnim{ true };
         Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &PauseAnim);
 
-        struct { bool bNewDisablePostProcessBlueprint; } DisablePP{ true };
-        Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP);
+        struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ true };
+        Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &EnablePP);
 
         UClass* CurrentAnimClass = nullptr;
         Utils::GetPropertyValue<UClass*>(MeshComp, STR("AnimClass"), CurrentAnimClass);
@@ -375,6 +387,12 @@ namespace DynPals {
             }
         } else {
             TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
+            
+            // UI WARNING: Fails to load custom absolute animation blueprint path
+            if (!TargetBPClass) {
+                DP_LOG(Error, "Failed to load Animation Target Blueprint for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, AnimPath);
+            }
+            
             size_t dotPos = AnimPath.find(L'.');
             if (dotPos != std::wstring::npos) {
                 TargetPackagePath = AnimPath.substr(0, dotPos);
@@ -473,6 +491,9 @@ namespace DynPals {
 
                 struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
+            } else {
+                // UI WARNING: Fails to load custom skeletal mesh asset (e.g. wrong path or missing mod files)
+                DP_LOG(Error, "Failed to load Skeletal Mesh for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, swap.SkelMeshPath);
             }
         }
 
@@ -529,6 +550,9 @@ namespace DynPals {
                 int idx = std::stoi(mat.index);
                 struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
                 Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
+            } else {
+                // UI WARNING: Fails to load material replacement asset (e.g. wrong material path)
+                DP_LOG(Warning, "Failed to load Material index {} for Pal '{}' from Pack '{}'!\nPath: {}", Utils::StringToWString(mat.index), CharID, swap.PackName, mat.matPath);
             }
         }
 
@@ -579,39 +603,41 @@ namespace DynPals {
             }
         }
 
-        UObject* NewAnimInst = nullptr;
-        Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
-        if (NewAnimInst) {
-            UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
-            if (LinkFunc) {
-                std::vector<std::wstring> StandardLayers = {
-                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterPhysics.ABP_MonsterPhysics_C",
-                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterUpper.ABP_MonsterUpper_C",
-                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLookAt.ABP_MonsterLookAt_C",
-                    L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLeaning.ABP_MonsterLeaning_C"
-                };
+        // === COMPILER OPTIMIZATION: ONLY RE-LINK STANDARD LAYERS IF ANIMATION WAS REBUILT ===
+        if (bNeedsAnimRebuild) {
+            UObject* NewAnimInst = nullptr;
+            Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
+            if (NewAnimInst) {
+                UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
+                if (LinkFunc) {
+                    std::vector<std::wstring> StandardLayers = {
+                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterPhysics.ABP_MonsterPhysics_C",
+                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterUpper.ABP_MonsterUpper_C",
+                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLookAt.ABP_MonsterLookAt_C",
+                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLeaning.ABP_MonsterLeaning_C"
+                    };
 
-                for (const auto& LayerPath : StandardLayers) {
-                    UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
-                    
-                    if (!IsPalBlueprintValid(Character, BPName)) return;
-                    Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-                    if (!MeshComp) return;
+                    for (const auto& LayerPath : StandardLayers) {
+                        UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
+                        
+                        if (!IsPalBlueprintValid(Character, BPName)) return;
+                        Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
+                        if (!MeshComp) return;
 
-                    if (LayerClass) {
-                        struct { UClass* InClass; } LinkParams{ LayerClass };
-                        NewAnimInst->ProcessEvent(LinkFunc, &LinkParams);
+                        if (LayerClass) {
+                            struct { UClass* InClass; } LinkParams{ LayerClass };
+                            NewAnimInst->ProcessEvent(LinkFunc, &LinkParams);
+                        }
                     }
                 }
             }
         }
 
-        struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ false };
-        Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &EnablePP);
 
         struct { bool bPause; } UnpauseAnim{ false };
         Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &UnpauseAnim);
 
-        DP_LOG(Normal, "Successfully applied swap and morph targets to Pal!\n");
+        // NATIVE CONSOLE LOG (Kept as 'Normal' level so it stays out of the UI and doesn't clutter player gameplay screen)
+        DP_LOG(Normal, "Successfully applied swap '{}' from Pack '{}' to Pal '{}'!\n", swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID);
     }
 }

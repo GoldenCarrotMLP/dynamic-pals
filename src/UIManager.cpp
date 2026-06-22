@@ -807,7 +807,7 @@ namespace DynPals {
             }
 
             if (bChanged) {
-                SaveManager::Get().SetPersistData(TargetInstanceID, *persist); 
+                SaveManager::Get().SetPersistData(TargetInstanceID, *persist, true); 
             }
         }
     }

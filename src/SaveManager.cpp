@@ -127,7 +127,7 @@ namespace DynPals {
                 }
             }
         } catch (...) {
-            Output::send<LogLevel::Error>(STR("[DynPals] Failed to parse world persistence.\n"));
+            DP_LOG(Error, "Failed to parse world persistence.\n");
         }
     }
 
@@ -191,7 +191,7 @@ namespace DynPals {
         std::ofstream file(persistPath);
         if (file.is_open()) {
             file << out.dump(4);
-            Output::send<LogLevel::Normal>(STR("[DynPals] World persistence synchronized (Altermatic 1:1 Parity).\n"));
+            DP_LOG(Normal, "Saved world persistence data.\n");
         }
     }
 
@@ -200,10 +200,11 @@ namespace DynPals {
         return it != PersistedSwaps.end() ? &it->second : nullptr;
     }
 
-    void SaveManager::SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data) {
-        PersistedSwaps[InstanceID] = Data;
-        
-        // Manual change made in UI. Save instantly to prevent data loss!
+    void SaveManager::SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data, bool bWriteToDisk) {
+    PersistedSwaps[InstanceID] = Data;
+    
+    if (bWriteToDisk) {
+        // Only perform physical disk write if explicitly requested (e.g., manual UI edits)
         SaveWorldData(); 
     }
-}
+}}
