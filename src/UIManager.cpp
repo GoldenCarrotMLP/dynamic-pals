@@ -54,50 +54,52 @@ namespace DynPals {
     }
 
     void UIManager::LockInput(bool bLock) {
-        if (!CurrentPlayerController) return;
+    if (!CurrentPlayerController) return;
 
+    if (bLock) {
+        // 1. Show the mouse cursor and enable click events 
+        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bShowMouseCursor"), true);
+        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableClickEvents"), true);
+        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableMouseOverEvents"), true);
+
+        // 2. Ignore camera movement
+        // Note: In Unreal Engine, this increments an internal "Ignore" counter!
+        struct { bool bNewLookInput; } LookParams{ true };
+        Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreLookInput"), &LookParams);
+
+        // 3. Ignore player/mount movement 
+        struct { bool bNewMoveInput; } MoveParams{ true };
+        Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreMoveInput"), &MoveParams);
+
+    } else {
+        // 1. Hide the mouse cursor AND disable click events! 
+        // (If not disabled, the PlayerController will intercept clicks meant for the game viewport)
+        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bShowMouseCursor"), false);
+        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableClickEvents"), false);
+        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableMouseOverEvents"), false);
+
+        // 2. Restore camera & movement
+        // CRITICAL FIX: Use Reset() instead of Set(false). 
+        // Because rebuilding the UI calls LockInput(true) multiple times, the ignore counters stack. 
+        // Resetting guarantees the counters drop to 0, completely unblocking the player.
+        Utils::CallFunction(CurrentPlayerController, STR("ResetIgnoreLookInput"));
+        Utils::CallFunction(CurrentPlayerController, STR("ResetIgnoreMoveInput"));
+        
+        // 3. Force focus back to game viewport
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
-        if (!WBL) return;
-
-        if (bLock) {
-            auto* prop = Utils::GetProperty(CurrentPlayerController, STR("bShowMouseCursor"));
-            if (prop) {
-                bool* pVal = prop->ContainerPtrToValuePtr<bool>(CurrentPlayerController);
-                if (pVal) *pVal = true;
-            }
-
-            struct { bool bNewLookInput; } LookParams{ true };
-            Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreLookInput"), &LookParams);
-
-            struct {
-                UObject* PlayerController;
-                UObject* InWidgetToFocus;
-                uint8_t InMouseLockMode; 
-                bool bFlushInput;
-            } SetInputParams{ CurrentPlayerController, MyWidget, 2, false };
-
-            Utils::CallFunction(WBL, STR("SetInputMode_UIOnlyEx"), &SetInputParams);
-        } else {
-            auto* prop = Utils::GetProperty(CurrentPlayerController, STR("bShowMouseCursor"));
-            if (prop) {
-                bool* pVal = prop->ContainerPtrToValuePtr<bool>(CurrentPlayerController);
-                if (pVal) *pVal = false;
-            }
-
-            struct { bool bNewLookInput; } LookParams{ false };
-            Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreLookInput"), &LookParams);
-
-            struct {
-                UObject* PlayerController;
-                bool bFlushInput;
-            } SetInputParams{ CurrentPlayerController, false };
-
-            Utils::CallFunction(WBL, STR("SetInputMode_GameOnly"), &SetInputParams);
-            
-            // Force Slate to focus back to the game viewport so you regain full mouse look control instantly
+        if (WBL) {
             Utils::CallFunction(WBL, STR("SetFocusToGameViewport"));
+            
+            // 4. Safely return Input Mode to Game Only
+            UFunction* InputModeFunc = WBL->GetFunctionByNameInChain(STR("SetInputMode_GameOnly"));
+            if (InputModeFunc) {
+                struct { UObject* PC; bool bConsume; } InputModeParams{ CurrentPlayerController, false };
+                WBL->ProcessEvent(InputModeFunc, &InputModeParams);
+            }
         }
     }
+}
+
     void UIManager::UpdateTarget() {
         TargetPal = nullptr;
         TargetInstanceID = L"";
@@ -513,13 +515,14 @@ namespace DynPals {
             }
 
             UObject* CheckLabel = ConstructElement(TextBlockClass);
-            if (CheckLabel) {
+          if (CheckLabel) {
                 FText labelVal = ConvStringToText(L" Hide Invalid Matches");
                 struct { FText InText; } SetLabelParams{labelVal};
                 Utils::CallFunction(CheckLabel, STR("SetText"), &SetLabelParams);
                 SetTextColor(CheckLabel, OffWhite);
                 
-                struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{FilterHBox, nullptr};
+                // FIX: Pass the actual label widget as the content!
+                struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{CheckLabel, nullptr}; 
                 Utils::CallFunction(FilterHBox, STR("AddChild"), &AddLabelParams);
             }
 
@@ -528,7 +531,7 @@ namespace DynPals {
             AddSpacer(15.0);
         }
 
-        // --- RANDOMIZE BUTTON ---
+        // --- RANDOMIZE BUTTON --- 
         RandomizeButtonWidget = ConstructElement(ButtonClass);
         if (RandomizeButtonWidget && TextBlockClass) {
             UObject* ButtonText = ConstructElement(TextBlockClass);

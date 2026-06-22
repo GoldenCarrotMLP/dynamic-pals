@@ -4,6 +4,9 @@
 #include <Mod/CppUserModBase.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 
+#include "Updater.hpp" // <-- Add this include at the top
+#include <thread>      // <-- Add this include
+
 #include "ConfigManager.hpp"
 #include "SaveManager.hpp"
 #include "HooksManager.hpp"
@@ -51,6 +54,13 @@ public:
             DynPals::SaveManager::Get().Initialize(BasePath);
             DynPals::ConfigManager::Get().Initialize(BasePath);
             DynPals::HooksManager::RegisterHooks();
+
+            // Run Updater asynchronously
+            std::thread([]() {
+                DynPals::Updater::CheckForUpdates();
+            }).detach();
+
+
         }
     }
 };

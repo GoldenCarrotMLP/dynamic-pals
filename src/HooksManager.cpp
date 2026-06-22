@@ -90,15 +90,24 @@ namespace DynPals {
             if (UIManager::Get().IsMenuOpen() || UIManager::Get().IsToggleRequested()) {
                 UObject* ActorContext = Context.Context;
                 if (ActorContext) {
-                    UObject* PlayerController = nullptr;
-                    UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
-                    if (GameplayStatics) {
-                        struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{ActorContext, 0, nullptr};
-                        Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
-                        PlayerController = GSParams.ReturnValue;
-                    }
-                    if (PlayerController) {
-                        UIManager::Get().TickUI(PlayerController);
+                    UObject* Level = ActorContext->GetOuterPrivate();
+                    UObject* World = Level ? Level->GetOuterPrivate() : nullptr;
+
+                    // CRITICAL FIX: Only accept ticks from the main gameplay World.
+                    // Palworld streams its 3D UI elements in hidden utility worlds at 0,0,0.
+                    // If we blindly grab the PlayerController from one of those utility actors,
+                    // the Engine shifts view targets to 0,0,0, breaking LODs and World Partition!
+                    if (World && World == LastWorld) {
+                        UObject* PlayerController = nullptr;
+                        UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+                        if (GameplayStatics) {
+                            struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{ActorContext, 0, nullptr};
+                            Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
+                            PlayerController = GSParams.ReturnValue;
+                        }
+                        if (PlayerController) {
+                            UIManager::Get().TickUI(PlayerController);
+                        }
                     }
                 }
             }

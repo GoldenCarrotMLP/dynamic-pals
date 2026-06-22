@@ -13,6 +13,7 @@ add_library(DynamicPals SHARED
     "src/SaveManager.cpp"
     "src/PalProcessor.cpp"
     "src/UIManager.cpp"
+    "src/Updater.cpp"
 )
 
 # Standard UE4SS Include Paths + Your New include/ Directory
@@ -25,7 +26,7 @@ target_include_directories(DynamicPals PRIVATE
 )
 
 # Link against UE4SS
-target_link_libraries(DynamicPals PUBLIC UE4SS)
+target_link_libraries(DynamicPals PUBLIC UE4SS wininet)
 
 # FORCE SYNCHRONOUS PDB WRITES (Fixes C1041 Compiler Locks)
 if(MSVC)
@@ -115,8 +116,41 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generate_template.ps1" "${PS_SCRIPT}")
 # =========================================================================
 # AUTOMATION: Executed on post-build to copy dll and run the parser
 # =========================================================================
+# =========================================================================
+# VERSION GENERATOR: Dynamically queries Git commit count at build time
+# =========================================================================
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/write_version.cmake" "
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(
+            COMMAND \${GIT_EXECUTABLE} rev-list --count HEAD
+            WORKING_DIRECTORY \"${CMAKE_CURRENT_SOURCE_DIR}\"
+            OUTPUT_VARIABLE GIT_COMMIT_COUNT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        if(GIT_COMMIT_COUNT)
+            file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/dlls/version.txt\" \"\${GIT_COMMIT_COUNT}\")
+        else()
+            file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/dlls/version.txt\" \"0\")
+        endif()
+    else()
+        # Fallback if git is not installed or not in PATH
+        file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/dlls/version.txt\" \"0\")
+    endif()
+")
+# =========================================================================
+# AUTOMATION: Executed on post-build to copy dll and run the parser
+# =========================================================================
 add_custom_command(TARGET DynamicPals POST_BUILD
+    # 1. Copy the compiled DLL to the dlls folder
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:DynamicPals>" "${CMAKE_CURRENT_SOURCE_DIR}/dlls/main.dll"
+    
+    # 2. Run the PowerShell template parser
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_BINARY_DIR}/generate_template.ps1"
-    COMMENT "Copying main.dll and dynamically parsing DataTypes.hpp to generate _Template_SwapConfig.json"
+    
+    # 3. Query Git and write/upsert the version.txt file
+    COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_BINARY_DIR}/write_version.cmake"
+    
+    COMMENT "Copying main.dll, generating SwapConfig templates, and updating version.txt with Git commit count."
 )
