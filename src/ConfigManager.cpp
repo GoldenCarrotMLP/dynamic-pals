@@ -97,7 +97,6 @@ namespace DynPals {
     void ConfigManager::LoadConfigJSONs() {
         Configs.clear();
         
-        // Ensure the directory exists before scanning
         if (!std::filesystem::exists(ConfigPath)) {
             Output::send<LogLevel::Error>(STR("[DynPals] SwapJSON directory missing! Created empty folder at: {}\n"), ConfigPath);
             std::filesystem::create_directories(ConfigPath);
@@ -107,16 +106,14 @@ namespace DynPals {
         int loadedPacksCount = 0;
         DP_LOG(Normal, "ConfigManager: Scanning recursively for Swap JSONs...");
 
-        // Recursive directory iterator to scan the entire folder tree
          for (const auto& entry : fs::recursive_directory_iterator(ConfigPath)) {
             if (entry.is_regular_file()) {
                 std::wstring filepath = entry.path().wstring();
                 std::wstring filename = entry.path().filename().wstring();
 
-                // Only load JSON files, and skip configuration template / backup files
                 if (entry.path().extension() == L".json") {
                     if (filename.rfind(L"_", 0) == 0 || filename.find(L"Template") != std::wstring::npos) {
-                        continue; // Skip metadata files like '_LoadList.json' or templates
+                        continue;
                     }
 
                     std::string fileContent = Utils::ReadFileToString(filepath);
@@ -125,31 +122,33 @@ namespace DynPals {
                     try {
                         nlohmann::json configData = nlohmann::json::parse(fileContent, nullptr, true, true);
                         
-                        // 1. Structural Validation: Must be a JSON Object
                         if (!configData.is_object()) {
                             DP_LOG(Warning, "Skipping invalid config (not a JSON Object): '{}'\n", filename);
                             continue;
                         }
 
-                        // Determine the Pack Name
+                        // Support both PackName (v1) and ModelPack (v2) naming conventions
                         std::wstring packName = L"Default Pack";
                         if (configData.contains("PackName") && configData.at("PackName").is_string()) {
                             packName = Utils::StringToWString(configData.at("PackName").get<std::string>());
+                        } else if (configData.contains("ModelPack") && configData.at("ModelPack").is_string()) {
+                            packName = Utils::StringToWString(configData.at("ModelPack").get<std::string>());
                         } else {
-                            // Fallback to file name without extension if "PackName" key is missing
                             packName = entry.path().stem().wstring();
                         }
 
-                        // 2. Data Validation: Must contain 'SkelMeshSwap' array
+                        // Smart format detection
                         if (configData.contains("SkelMeshSwap") && configData.at("SkelMeshSwap").is_array()) {
                             ParseSwaps(packName, configData.at("SkelMeshSwap"));
                             loadedPacksCount++;
+                        } else if (configData.contains("SkinList") && configData.at("SkinList").is_object()) {
+                            ParseSwapsV2(packName, configData.at("SkinList"));
+                            loadedPacksCount++;
                         } else {
-                            DP_LOG(Warning, "Skipping config (missing 'SkelMeshSwap' array): '{}'\n", filename);
+                            DP_LOG(Warning, "Skipping config (missing 'SkelMeshSwap' or 'SkinList' root): '{}'\n", filename);
                         }
 
                     } catch (const std::exception& e) {
-                        // Safe exception catch: Keeps the mod from crashing if a user has a syntax typo in their JSON!
                         DP_LOG(Error, "Failed to parse JSON file '{}': {}\n", filename, Utils::StringToWString(e.what()));
                     }
                 }
@@ -161,16 +160,14 @@ namespace DynPals {
     }
 
 
-
-
     void ConfigManager::ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray) {
         for (auto& swapJson : swapArray) {
             SwapConfig sc;
             sc.PackName = PackName; 
             
-            sc.CharacterID = Utils::StringToWString(GetValue(swapJson, "CharacterID").get<std::string>());
+            if (ContainsKey(swapJson, "CharacterID")) sc.CharacterID = Utils::StringToWString(GetValue(swapJson, "CharacterID").get<std::string>());
             if (ContainsKey(swapJson, "SkelMeshPath")) sc.SkelMeshPath = Utils::StringToWString(GetValue(swapJson, "SkelMeshPath").get<std::string>());
-            if (ContainsKey(swapJson, "AnimTarget")) { sc.AnimTarget = Utils::StringToWString(GetValue(swapJson, "AnimTarget").get<std::string>()); }
+            if (ContainsKey(swapJson, "AnimTarget")) sc.AnimTarget = Utils::StringToWString(GetValue(swapJson, "AnimTarget").get<std::string>());
             if (ContainsKey(swapJson, "Gender")) sc.Gender = Utils::StringToWString(GetValue(swapJson, "Gender").get<std::string>());
             if (ContainsKey(swapJson, "SkinName")) sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());
             
@@ -191,21 +188,50 @@ namespace DynPals {
                     sc.SkipTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
                 }
             }
-            if (ContainsKey(swapJson, "Extra") && GetValue(swapJson, "Extra").is_object()) {
-                sc.Extra = Utils::StringToWString(GetValue(swapJson, "Extra").dump());
+
+            // Aligned: Robust Extra metadata parsing (supports both JSON object and stringified JSON string)
+            if (ContainsKey(swapJson, "Extra")) {
+                const auto& extraNode = GetValue(swapJson, "Extra");
+                if (extraNode.is_object()) {
+                    sc.Extra = Utils::StringToWString(extraNode.dump());
+                } else if (extraNode.is_string()) {
+                    sc.Extra = Utils::StringToWString(extraNode.get<std::string>());
+                }
             }
             
-            sc.IsRarePal = SafeGetOptionalBool(swapJson, "IsRarePal");
+            // Aligned: LuckyStarReq alias fallback for V1
+            if (ContainsKey(swapJson, "LuckyStarReq")) {
+                sc.IsRarePal = SafeGetOptionalBool(swapJson, "LuckyStarReq");
+            } else {
+                sc.IsRarePal = SafeGetOptionalBool(swapJson, "IsRarePal");
+            }
+            
             sc.IsWildPal = SafeGetOptionalBool(swapJson, "IsWildPal");
 
-            if (ContainsKey(swapJson, "ReqTrait")) {
+            // Aligned: PassiveSkills alias fallback for V1
+            if (ContainsKey(swapJson, "PassiveSkills")) {
+                for (auto& trait : GetValue(swapJson, "PassiveSkills")) sc.ReqTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+            } else if (ContainsKey(swapJson, "ReqTrait")) {
                 for (auto& trait : GetValue(swapJson, "ReqTrait")) sc.ReqTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
             }
+
             if (ContainsKey(swapJson, "PrefTrait")) {
                 for (auto& trait : GetValue(swapJson, "PrefTrait")) sc.PrefTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
             }
             
-            if (ContainsKey(swapJson, "MatReplace")) {
+            // Aligned: SpecialMaterial / MatReplace dual support for V1
+            if (ContainsKey(swapJson, "SpecialMaterial")) {
+                for (auto& mat : GetValue(swapJson, "SpecialMaterial")) {
+                    MatReplace mr;
+                    mr.index = SafeGetIndexString(mat, "Index");
+                    if (ContainsKey(mat, "MaterialAsset")) {
+                        mr.matPath = Utils::StringToWString(GetValue(mat, "MaterialAsset").get<std::string>());
+                    } else if (ContainsKey(mat, "MatPath")) {
+                        mr.matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
+                    }
+                    sc.MatReplaceList.push_back(mr);
+                }
+            } else if (ContainsKey(swapJson, "MatReplace")) {
                 for (auto& mat : GetValue(swapJson, "MatReplace")) {
                     MatReplace mr;
                     mr.index = SafeGetIndexString(mat, "Index");
@@ -214,15 +240,36 @@ namespace DynPals {
                 }
             }
 
-            if (ContainsKey(swapJson, "MorphTarget")) {
-                for (auto& morph : GetValue(swapJson, "MorphTarget")) {
+            // Aligned: ShapeKeys / MorphTarget dual support for V1
+            if (ContainsKey(swapJson, "ShapeKeys")) {
+                for (auto& morph : GetValue(swapJson, "ShapeKeys")) {
                     MorphTarget mt;
-                    mt.target = Utils::StringToWString(GetValue(morph, "Target").get<std::string>());
+                    if (ContainsKey(morph, "Name")) {
+                        mt.target = Utils::StringToWString(GetValue(morph, "Name").get<std::string>());
+                    } else if (ContainsKey(morph, "Target")) {
+                        mt.target = Utils::StringToWString(GetValue(morph, "Target").get<std::string>());
+                    }
                     
                     mt.setVal = SafeGetDouble(morph, "Set", -1000.0);
                     mt.minVal = SafeGetDouble(morph, "Min", 0.0);
                     mt.maxVal = SafeGetDouble(morph, "Max", 1.0);
                     
+                    if (ContainsKey(morph, "Mode")) {
+                        std::string modeStr = GetValue(morph, "Mode").get<std::string>();
+                        if (ToLower(modeStr) == "restrictive" || ToLower(modeStr) == "restrict") mt.type = L"Restrict";
+                        else mt.type = Utils::StringToWString(modeStr);
+                    } else if (ContainsKey(morph, "Type")) {
+                        mt.type = Utils::StringToWString(GetValue(morph, "Type").get<std::string>());
+                    }
+                    sc.MorphTargetList.push_back(mt);
+                }
+            } else if (ContainsKey(swapJson, "MorphTarget")) {
+                for (auto& morph : GetValue(swapJson, "MorphTarget")) {
+                    MorphTarget mt;
+                    mt.target = Utils::StringToWString(GetValue(morph, "Target").get<std::string>());
+                    mt.setVal = SafeGetDouble(morph, "Set", -1000.0);
+                    mt.minVal = SafeGetDouble(morph, "Min", 0.0);
+                    mt.maxVal = SafeGetDouble(morph, "Max", 1.0);
                     if (ContainsKey(morph, "Type")) mt.type = Utils::StringToWString(GetValue(morph, "Type").get<std::string>());
                     sc.MorphTargetList.push_back(mt);
                 }
@@ -230,7 +277,119 @@ namespace DynPals {
             Configs.push_back(sc);
         }
     }
+    
+    
+    void ConfigManager::ParseSwapsV2(const std::wstring& PackName, const nlohmann::json& skinListObj) {
+        for (auto& [charIdStr, skinsObj] : skinListObj.items()) {
+            if (!skinsObj.is_object()) continue;
+            std::wstring charID = Utils::StringToWString(charIdStr);
+            
+            for (auto& [skinLabelStr, swapJson] : skinsObj.items()) {
+                if (!swapJson.is_object()) continue;
 
+                SwapConfig sc;
+                sc.PackName = PackName;
+                sc.CharacterID = charID;
+                sc.SkinName = Utils::StringToWString(skinLabelStr); 
+
+                // Core Translations
+                if (ContainsKey(swapJson, "SkinPath")) sc.SkelMeshPath = Utils::StringToWString(GetValue(swapJson, "SkinPath").get<std::string>());
+                if (ContainsKey(swapJson, "AnimTarget")) sc.AnimTarget = Utils::StringToWString(GetValue(swapJson, "AnimTarget").get<std::string>());
+                if (ContainsKey(swapJson, "Gender")) sc.Gender = Utils::StringToWString(GetValue(swapJson, "Gender").get<std::string>());
+                
+                // Limits mapping
+                sc.MinLevel = SafeGetInt(swapJson, "MinLevel", 1);
+                sc.MaxLevel = SafeGetInt(swapJson, "MaxLevel", 999);
+                sc.MinTrust = SafeGetInt(swapJson, "MinTrust", 0);
+                sc.MaxTrust = SafeGetInt(swapJson, "MaxTrust", 999999);
+                sc.MinRank = SafeGetInt(swapJson, "MinRank", 0);
+                sc.MaxRank = SafeGetInt(swapJson, "MaxRank", 5);
+                
+                if (ContainsKey(swapJson, "SpawnWeight")) {
+                    int w = SafeGetInt(swapJson, "SpawnWeight", 1);
+                    sc.SpawnWeight = w > 0 ? w : 1;
+                }
+                
+                // Wild Pal Flag
+                if (ContainsKey(swapJson, "IsWildPal")) {
+                    sc.IsWildPal = SafeGetOptionalBool(swapJson, "IsWildPal");
+                }
+
+                // Lucky Star / Rare Pal Flag
+                if (ContainsKey(swapJson, "LuckyStarReq")) {
+                    sc.IsRarePal = SafeGetOptionalBool(swapJson, "LuckyStarReq");
+                } else if (ContainsKey(swapJson, "IsRarePal")) {
+                    sc.IsRarePal = SafeGetOptionalBool(swapJson, "IsRarePal");
+                }
+
+                // Trait handling
+                if (ContainsKey(swapJson, "PassiveSkills")) {
+                    for (auto& trait : GetValue(swapJson, "PassiveSkills")) sc.ReqTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+                } else if (ContainsKey(swapJson, "ReqTrait")) {
+                    for (auto& trait : GetValue(swapJson, "ReqTrait")) sc.ReqTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+                }
+
+                if (ContainsKey(swapJson, "PrefTrait")) {
+                    for (auto& trait : GetValue(swapJson, "PrefTrait")) sc.PrefTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+                }
+                
+                if (ContainsKey(swapJson, "SkipTrait")) {
+                    for (auto& trait : GetValue(swapJson, "SkipTrait")) sc.SkipTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
+                }
+                
+                // Materials
+                if (ContainsKey(swapJson, "SpecialMaterial")) {
+                    for (auto& mat : GetValue(swapJson, "SpecialMaterial")) {
+                        MatReplace mr;
+                        mr.index = SafeGetIndexString(mat, "Index");
+                        if (ContainsKey(mat, "MaterialAsset")) {
+                            mr.matPath = Utils::StringToWString(GetValue(mat, "MaterialAsset").get<std::string>());
+                        } else if (ContainsKey(mat, "MatPath")) {
+                            mr.matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
+                        }
+                        sc.MatReplaceList.push_back(mr);
+                    }
+                }
+
+                // Morphs
+                if (ContainsKey(swapJson, "ShapeKeys")) {
+                    for (auto& morph : GetValue(swapJson, "ShapeKeys")) {
+                        MorphTarget mt;
+                        if (ContainsKey(morph, "Name")) {
+                            mt.target = Utils::StringToWString(GetValue(morph, "Name").get<std::string>());
+                        } else if (ContainsKey(morph, "Target")) {
+                            mt.target = Utils::StringToWString(GetValue(morph, "Target").get<std::string>());
+                        }
+                        
+                        mt.setVal = SafeGetDouble(morph, "Set", -1000.0);
+                        mt.minVal = SafeGetDouble(morph, "Min", 0.0);
+                        mt.maxVal = SafeGetDouble(morph, "Max", 1.0);
+                        
+                        if (ContainsKey(morph, "Mode")) {
+                            std::string modeStr = GetValue(morph, "Mode").get<std::string>();
+                            if (ToLower(modeStr) == "restrictive" || ToLower(modeStr) == "restrict") mt.type = L"Restrict";
+                            else mt.type = Utils::StringToWString(modeStr);
+                        } else if (ContainsKey(morph, "Type")) {
+                            mt.type = Utils::StringToWString(GetValue(morph, "Type").get<std::string>());
+                        }
+                        sc.MorphTargetList.push_back(mt);
+                    }
+                }
+
+                // Metadata Extra parsing (supports either nested JSON object or stringified JSON string safely)
+                if (ContainsKey(swapJson, "Extra")) {
+                    const auto& extraNode = GetValue(swapJson, "Extra");
+                    if (extraNode.is_object()) {
+                        sc.Extra = Utils::StringToWString(extraNode.dump());
+                    } else if (extraNode.is_string()) {
+                        sc.Extra = Utils::StringToWString(extraNode.get<std::string>());
+                    }
+                }
+                
+                Configs.push_back(sc);
+            }
+        }
+    }
     std::vector<SwapEvaluation> ConfigManager::EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild) const {
         std::vector<SwapEvaluation> results;
 

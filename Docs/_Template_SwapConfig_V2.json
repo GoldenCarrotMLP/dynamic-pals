@@ -1,0 +1,46 @@
+{
+    "ModelPack":  "Your Replacer Pack Name",
+    "SkinList":  {
+                     "CharacterID_Example":  {
+                                                 "Your Skin Label":  {
+                                                                         "SkinPath":  "",
+                                                                         "AnimTarget":  "",
+                                                                         "Gender":  "None",
+                                                                         "MinLevel":  1,
+                                                                         "MaxLevel":  999,
+                                                                         "MinTrust":  0,
+                                                                         "MaxTrust":  999999,
+                                                                         "MinRank":  0,
+                                                                         "MaxRank":  5,
+                                                                         "SpawnWeight":  1,
+                                                                         "LuckyStarReq":  "false",
+                                                                         "IsWildPal":  "false",
+                                                                         "PassiveSkills":  [
+                                                                                               "TraitExample"
+                                                                                           ],
+                                                                         "PrefTrait":  [
+                                                                                           "TraitExample"
+                                                                                       ],
+                                                                         "SkipTrait":  [
+                                                                                           "TraitExample"
+                                                                                       ],
+                                                                         "SpecialMaterial":  [
+                                                                                                 {
+                                                                                                     "MaterialAsset":  "/Game/MaterialPath",
+                                                                                                     "Index":  "0"
+                                                                                                 }
+                                                                                             ],
+                                                                         "ShapeKeys":  [
+                                                                                           {
+                                                                                               "Min":  0,
+                                                                                               "Name":  "MorphName",
+                                                                                               "Max":  1,
+                                                                                               "Mode":  "Restrictive, Free, None",
+                                                                                               "Set":  1
+                                                                                           }
+                                                                                       ],
+                                                                         "Extra":  "{}"
+                                                                     }
+                                             }
+                 }
+}

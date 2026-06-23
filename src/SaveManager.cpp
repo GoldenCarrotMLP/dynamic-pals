@@ -65,8 +65,8 @@ namespace DynPals {
             // FIX 1: Use auto to strictly inherit the ordered_json return type from the parser
             auto data = nlohmann::ordered_json::parse(content);
             
-            if (data.contains("Pals") && data.at("Pals").is_object()) {
-                for (auto& [instanceIdStr, palNode] : data.at("Pals").items()) {
+            if (data.contains("PersistencePals") && data.at("PersistencePals").is_object()) {
+                for (auto& [instanceIdStr, palNode] : data.at("PersistencePals").items()) {
                     PalPersistData pd;
                     pd.InstanceID = Utils::StringToWString(instanceIdStr);
                     pd.PackName = Utils::StringToWString(palNode.value("PackName", ""));
@@ -125,7 +125,7 @@ namespace DynPals {
             }
         }
         
-        out["Pals"] = palsObj;
+        out["PersistencePals"] = palsObj;
 
         std::ofstream file(persistPath);
         if (file.is_open()) {

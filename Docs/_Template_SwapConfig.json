@@ -33,11 +33,11 @@
                                                 ],
                              "MorphTargetList":  [
                                                      {
-                                                         "Max":  1,
+                                                         "Set":  1,
                                                          "Min":  0,
                                                          "Target":  "MorphName",
-                                                         "Type":  "Free",
-                                                         "Set":  1
+                                                         "Type":  "Restrict, Free, None",
+                                                         "Max":  1
                                                      }
                                                  ],
                              "Extra":  "{}"
