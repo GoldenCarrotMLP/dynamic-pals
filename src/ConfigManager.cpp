@@ -338,7 +338,26 @@ namespace DynPals {
         }
         return results;
     }
+int ConfigManager::FindConfigIndex(const std::wstring& PackName, const std::wstring& SkinName, const std::wstring& SkelMeshPath) const {
+        // Tier 1: Exact Match (PackName + SkinName) - Only if SkinName isn't empty to avoid false positives on generic configs
+        if (!SkinName.empty()) {
+            for (size_t i = 0; i < Configs.size(); ++i) {
+                if (Configs[i].PackName == PackName && Configs[i].SkinName == SkinName) return (int)i;
+            }
+        }
+        
+        // Tier 2: PackName + SkelMeshPath (Fallback for anonymous skins)
+        for (size_t i = 0; i < Configs.size(); ++i) {
+            if (Configs[i].PackName == PackName && Configs[i].SkelMeshPath == SkelMeshPath) return (int)i;
+        }
 
+        // Tier 3: SkelMeshPath only (Fallback if the user renamed the Pack folder/json file)
+        for (size_t i = 0; i < Configs.size(); ++i) {
+            if (Configs[i].SkelMeshPath == SkelMeshPath) return (int)i;
+        }
+
+        return -1; // Pack was uninstalled or heavily modified
+    }
     int ConfigManager::PickBestSwap(const std::vector<SwapEvaluation>& evaluations) const {
         int bestScore = 999999;
         std::vector<int> bestMatches;

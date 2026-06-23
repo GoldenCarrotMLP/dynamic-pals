@@ -87,9 +87,17 @@ struct SwapEvaluation {
 
 struct PalPersistData {
     std::wstring InstanceID;
-    int SwapIndex = -1;
+    std::wstring PackName;
+    std::wstring SkinName;
+    std::wstring SkelMeshPath;
     std::map<std::wstring, double> MorphSet;
+
+    // Helper to check if a swap has been assigned
+    bool HasSavedSwap() const {
+        return !SkelMeshPath.empty() || !SkinName.empty();
+    }
 };
+
 
 struct AltrSoftObjectPath {
     RC::Unreal::FName PackageName;

@@ -186,13 +186,21 @@ namespace DynPals {
 
         ClearSwappedStatus(InstanceID);
 
+        auto& config = ConfigManager::Get().GetConfigs()[SwapIndex];
         PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
-    if (!ExistingData) {
-        PalPersistData newData = { InstanceID, SwapIndex, {} };
-        SaveManager::Get().SetPersistData(InstanceID, newData, true); 
-    } else {
-        ExistingData->SwapIndex = SwapIndex;
-        SaveManager::Get().SetPersistData(InstanceID, *ExistingData, true); 
+        if (!ExistingData) {
+            PalPersistData newData;
+            newData.InstanceID = InstanceID;
+            newData.PackName = config.PackName;
+            newData.SkinName = config.SkinName;
+            newData.SkelMeshPath = config.SkelMeshPath;
+            SaveManager::Get().SetPersistData(InstanceID, newData, true); 
+        } else {
+            ExistingData->PackName = config.PackName;
+            ExistingData->SkinName = config.SkinName;
+            ExistingData->SkelMeshPath = config.SkelMeshPath;
+            SaveManager::Get().SetPersistData(InstanceID, *ExistingData, true); 
+
     }
 
         PendingSwap ps;
@@ -290,9 +298,12 @@ namespace DynPals {
         }
 
         PalRuntimeStats& CachedStats = RuntimeStatsCache[InstanceID];
+        
+        // 1. FIX: Differentiate between first-time overworld load and live gameplay stat-changes
+        bool bLiveEventTriggered = (CachedStats.Level != -1); 
         bool bBucketChanged = false;
 
-        if (CachedStats.Level != -1) {
+        if (bLiveEventTriggered) {
             auto oldEvaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, CachedStats.Level, SkinName, CachedStats.Rank, CachedStats.Friendship, IsWild);
             auto newEvaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
 
@@ -305,78 +316,112 @@ namespace DynPals {
             if (oldValidSkins != newValidSkins) {
                 bBucketChanged = true;
             }
-        } else {
-            bBucketChanged = true;
         }
 
+        // Cache current stats for future live events
         CachedStats.Level = LevelNum;
         CachedStats.Rank = RankNum;
         CachedStats.Friendship = FriendshipNum;
 
+        // Resolve current active swap from database strings
+        int currentSwap = -1;
+        if (ExistingData && ExistingData->HasSavedSwap()) {
+            currentSwap = ConfigManager::Get().FindConfigIndex(ExistingData->PackName, ExistingData->SkinName, ExistingData->SkelMeshPath);
+        }
+
         int finalSwap = -1;
 
-        // NEW: Strict manual override logic
+        // Strict manual override logic
         if (ExplicitSwapIndex != -1) {
             finalSwap = ExplicitSwapIndex;
         } 
         else {
+            // Guard: If it's a normal update but we already processed it in memory, skip
             if (!ForceReroll && !bBucketChanged && SwappedInstances.find(InstanceID) != SwappedInstances.end()) {
                 return; 
             }
 
             auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
             int newBestSwap = ConfigManager::Get().PickBestSwap(evaluations);
-            int currentSwap = ExistingData ? ExistingData->SwapIndex : -1;
             
             finalSwap = currentSwap;
 
             if (ForceReroll) {
                 finalSwap = newBestSwap;
-            } else if (currentSwap >= 0 && currentSwap < (int)evaluations.size()) {
-                auto& currentEval = evaluations[currentSwap];
-                if (bBucketChanged) {
-                    int absoluteBestScore = 999999;
+            } else if (currentSwap != -1) {
+                
+                if (bLiveEventTriggered) {
+                    // A. LIVE EVENT RE-EVALUATION: Stats shifted or traits changed. Check if we need to upgrade.
+                    const SwapEvaluation* currentEval = nullptr;
                     for (const auto& ev : evaluations) {
-                        if (ev.IsValid && ev.Score < absoluteBestScore) {
-                            absoluteBestScore = ev.Score;
+                        if (ev.ConfigIndex == currentSwap) {
+                            currentEval = &ev;
+                            break;
                         }
                     }
 
-                    if (!currentEval.IsValid || currentEval.Score > absoluteBestScore) {
-                        DP_LOG(Normal, "Bucket shifted! Upgrading Pal skin to newly unlocked tier.\n");
+                    if (currentEval) {
+                        if (bBucketChanged) {
+                            int absoluteBestScore = 999999;
+                            for (const auto& ev : evaluations) {
+                                if (ev.IsValid && ev.Score < absoluteBestScore) {
+                                    absoluteBestScore = ev.Score;
+                                }
+                            }
+
+                            if (!currentEval->IsValid || currentEval->Score > absoluteBestScore) {
+                                DP_LOG(Normal, "Live Event: Skin bucket changed or became invalid. Upgrading skin.\n");
+                                finalSwap = newBestSwap;
+                            } else {
+                                finalSwap = currentSwap;
+                            }
+                        } else {
+                            finalSwap = currentSwap;
+                        }
+                    } else {
+                        // Saved skin config is no longer loaded/valid, fallback to best match
                         finalSwap = newBestSwap;
                     }
+                } else {
+                    // B. UNCONDITIONAL LOAD: It's an overworld spawn, login, or world load. 
+                    // We unconditionally load whatever was saved in the file! [2]
+                    finalSwap = currentSwap;
                 }
             } else {
+                // No saved skin, load the best evaluated match
                 finalSwap = newBestSwap;
             }
         }
 
         if (finalSwap != -1) {
-            bool bNeedsApply = (ExplicitSwapIndex != -1) || ForceReroll || (finalSwap != (ExistingData ? ExistingData->SwapIndex : -1)) || (SwappedInstances.find(InstanceID) == SwappedInstances.end());
+            bool bNeedsApply = (ExplicitSwapIndex != -1) || ForceReroll || (finalSwap != currentSwap) || (SwappedInstances.find(InstanceID) == SwappedInstances.end());
             
             if (bNeedsApply) {
-                PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ InstanceID, finalSwap, {} };
-                newData.SwapIndex = finalSwap;
+                PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ InstanceID, L"", L"", L"", {} };
+                
+                // Fetch the config and assign the database strings cleanly
+                auto& finalConfig = ConfigManager::Get().GetConfigs()[finalSwap];
+                newData.PackName = finalConfig.PackName;
+                newData.SkinName = finalConfig.SkinName;
+                newData.SkelMeshPath = finalConfig.SkelMeshPath;
 
-                // 1. FIX: Clear old morphs on reroll so ApplySwap is forced to roll brand new ones!
+                // Clear old morphs on reroll so ApplySwap is forced to roll brand new ones!
                 if (ForceReroll) {
                     newData.MorphSet.clear();
                 }
 
-                // 2. FIX: Run ApplySwap FIRST to apply the meshes and generate the new morphs inside 'newData'
-                ApplySwap(Character, ConfigManager::Get().GetConfigs()[finalSwap], newData);
+                // Run ApplySwap FIRST to apply the meshes and generate the new morphs inside 'newData'
+                ApplySwap(Character, finalConfig, newData);
 
-                // 3. FIX: Only save to disk instantly if this is a manual UI action (Rerolling or picking from dropdown)
+                // Only save to disk instantly if this is a manual UI action (Rerolling or picking from dropdown)
                 bool bIsManualAction = (ExplicitSwapIndex != -1) || ForceReroll;
 
-                // 4. FIX: Save AFTER ApplySwap has fully generated the new morph values!
+                // Save AFTER ApplySwap has fully generated the new morph values!
                 SaveManager::Get().SetPersistData(InstanceID, newData, bIsManualAction);
 
                 SwappedInstances.insert(InstanceID);
             }
         }
-
     }
     void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
         std::wstring BPName;

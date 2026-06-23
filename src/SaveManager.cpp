@@ -14,18 +14,6 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
-    // Helper to strip the Unreal Engine `/Script/Engine.SkeletalMesh'Path'` wrapper
-    static std::wstring CleanAltermaticPath(const std::wstring& path) {
-        size_t firstQuote = path.find(L'\'');
-        if (firstQuote != std::wstring::npos) {
-            size_t lastQuote = path.find(L'\'', firstQuote + 1);
-            if (lastQuote != std::wstring::npos) {
-                return path.substr(firstQuote + 1, lastQuote - firstQuote - 1);
-            }
-        }
-        return path;
-    }
-
     void SaveManager::Initialize(const std::wstring& BasePath) {
         ConfigPath = BasePath + L"Paks/~mods/"; 
     }
@@ -33,6 +21,22 @@ namespace DynPals {
     void SaveManager::Reset() {
         CurrentWorldSaveID = L"";
         PersistedSwaps.clear();
+        AccessOrder.clear(); // Clear order queue on world transition
+    }
+
+    void SaveManager::MarkAccessed(const std::wstring& InstanceID) {
+        // 1. Remove from its current position in the queue (if it exists)
+        AccessOrder.remove(InstanceID);
+        
+        // 2. Push to the front (making it the most recently used) [1]
+        AccessOrder.push_front(InstanceID);
+        
+        // 3. If we exceed the 1000-entry limit, evict the oldest forgotten ones! [1, 4]
+        while (AccessOrder.size() > MaxSaveEntries) {
+            std::wstring oldestID = AccessOrder.back();
+            AccessOrder.pop_back(); // Remove from queue [1]
+            PersistedSwaps.erase(oldestID); // Erase from database memory [4]
+        }
     }
 
     void SaveManager::LoadWorldData(UObject* World) {
@@ -50,84 +54,36 @@ namespace DynPals {
 
         CurrentWorldSaveID = WorldSaveID;
         PersistedSwaps.clear();
-        PalProcessor::Get().ClearAllSwappedStatus(); // Clear on world load!
+        AccessOrder.clear(); 
+        PalProcessor::Get().ClearAllSwappedStatus(); 
 
         std::wstring persistPath = ConfigPath + PersistFileName + CurrentWorldSaveID + L".json";
         std::string content = Utils::ReadFileToString(persistPath);
         if (content.empty()) return;
 
         try {
-            nlohmann::json data = nlohmann::json::parse(content);
+            // FIX 1: Use auto to strictly inherit the ordered_json return type from the parser
+            auto data = nlohmann::ordered_json::parse(content);
             
-            std::map<std::wstring, std::wstring> altrMeshPaths;
-            if (data.contains("SkelMeshPath") && data.at("SkelMeshPath").is_object()) {
-                for (auto& [idStr, pathNode] : data.at("SkelMeshPath").items()) {
-                    std::wstring rawPath = Utils::StringToWString(pathNode.get<std::string>());
-                    altrMeshPaths[Utils::StringToWString(idStr)] = CleanAltermaticPath(rawPath);
-                }
-            }
-
-            if (data.contains("PalSwap") && data.at("PalSwap").is_object()) {
-                for (auto& [instanceIdStr, valueStrNode] : data.at("PalSwap").items()) {
-                    std::wstring instanceId = Utils::StringToWString(instanceIdStr);
-                    std::wstring valueStr = Utils::StringToWString(valueStrNode.get<std::string>());
-                    
+            if (data.contains("Pals") && data.at("Pals").is_object()) {
+                for (auto& [instanceIdStr, palNode] : data.at("Pals").items()) {
                     PalPersistData pd;
-                    pd.InstanceID = instanceId;
+                    pd.InstanceID = Utils::StringToWString(instanceIdStr);
+                    pd.PackName = Utils::StringToWString(palNode.value("PackName", ""));
+                    pd.SkinName = Utils::StringToWString(palNode.value("SkinName", ""));
+                    pd.SkelMeshPath = Utils::StringToWString(palNode.value("SkelMeshPath", ""));
 
-                    size_t p0 = valueStr.find(L"0/");
-                    if (p0 != std::wstring::npos) {
-                        size_t pNext = valueStr.find(L'/', p0 + 2);
-                        std::wstring altrId = (pNext == std::wstring::npos) ? valueStr.substr(p0 + 2) : valueStr.substr(p0 + 2, pNext - (p0 + 2));
-                        
-                        pd.SwapIndex = -1;
-                        auto ItPath = altrMeshPaths.find(altrId);
-                        if (ItPath != altrMeshPaths.end()) {
-                            std::wstring MatchPath = ItPath->second;
-                            auto& configs = ConfigManager::Get().GetConfigs();
-                            for (size_t i = 0; i < configs.size(); ++i) {
-                                if (Utils::FormatAssetPath(configs[i].SkelMeshPath) == Utils::FormatAssetPath(MatchPath)) {
-                                    pd.SwapIndex = (int)i;
-                                    break;
-                                }
-                            }
+                    if (palNode.contains("Morphs") && palNode.at("Morphs").is_object()) {
+                        for (auto& [morphName, morphVal] : palNode.at("Morphs").items()) {
+                            pd.MorphSet[Utils::StringToWString(morphName)] = morphVal.get<double>();
                         }
-
-                        size_t p1 = valueStr.find(L"/1/");
-                        if (p1 != std::wstring::npos) {
-                            std::wstring mBlock = valueStr.substr(p1 + 3);
-                            size_t p2 = mBlock.find(L'/');
-                            if (p2 != std::wstring::npos) mBlock = mBlock.substr(0, p2);
-
-                            size_t pos = 0;
-                            while (pos < mBlock.size()) {
-                                size_t colon = mBlock.find(L':', pos);
-                                if (colon == std::wstring::npos) break;
-
-                                std::wstring pair = mBlock.substr(pos, colon - pos);
-                                size_t uscore = pair.find(L'_');
-                                if (uscore != std::wstring::npos) {
-                                    try {
-                                        int mIdx = std::stoi(pair.substr(0, uscore));
-                                        double mVal = std::stod(pair.substr(uscore + 1));
-
-                                        if (pd.SwapIndex >= 0 && pd.SwapIndex < (int)ConfigManager::Get().GetConfigs().size()) {
-                                            auto& swapCfg = ConfigManager::Get().GetConfigs()[pd.SwapIndex];
-                                            if (mIdx >= 0 && mIdx < (int)swapCfg.MorphTargetList.size()) {
-                                                pd.MorphSet[swapCfg.MorphTargetList[mIdx].target] = mVal;
-                                            }
-                                        }
-                                    } catch (...) {}
-                                }
-                                pos = colon + 1;
-                            }
-                        }
-                        PersistedSwaps[pd.InstanceID] = pd;
                     }
+                    PersistedSwaps[pd.InstanceID] = pd;
+                    AccessOrder.push_back(pd.InstanceID); 
                 }
             }
         } catch (...) {
-            DP_LOG(Error, "Failed to parse world persistence.\n");
+            DP_LOG(Error, "Failed to parse world persistence data. File might be corrupted.\n");
         }
     }
 
@@ -136,75 +92,64 @@ namespace DynPals {
         
         std::wstring persistPath = ConfigPath + PersistFileName + CurrentWorldSaveID + L".json";
         
-        nlohmann::json out = nlohmann::json::object();
-        nlohmann::json systemObj = nlohmann::json::object();
-        nlohmann::json skelMeshPathObj = nlohmann::json::object();
-        nlohmann::json skelMeshSwapObj = nlohmann::json::object();
-        nlohmann::json palSwaps = nlohmann::json::object();
+        // FIX 2: Create strictly ordered objects with NO initializer list {} conversions!
+        nlohmann::ordered_json out;
         
-        systemObj["ALTR_MODversion"] = "4000";
-        systemObj["WorldName"] = "Solo save";
+        nlohmann::ordered_json systemObj;
+        systemObj["ModVersion"] = "1.1.0";
         systemObj["WorldID"] = Utils::WStringToString(CurrentWorldSaveID);
+        out["System"] = systemObj;
+        
+        nlohmann::ordered_json palsObj;
+        
+        for (const auto& id : AccessOrder) {
+            auto it = PersistedSwaps.find(id);
+            if (it != PersistedSwaps.end()) {
+                auto& data = it->second;
+                if (!data.HasSavedSwap()) continue;
 
-        for (auto& [id, data] : PersistedSwaps) {
-            if (data.SwapIndex >= 0 && data.SwapIndex < (int)ConfigManager::Get().GetConfigs().size()) {
-                auto& swapCfg = ConfigManager::Get().GetConfigs()[data.SwapIndex];
-                std::string idxStr = std::to_string(data.SwapIndex);
-
-                std::wstring formattedPath = L"/Script/Engine.SkeletalMesh'" + Utils::FormatAssetPath(swapCfg.SkelMeshPath) + L"'";
-                skelMeshPathObj[idxStr] = Utils::WStringToString(formattedPath);
-
-                skelMeshSwapObj[idxStr] = "0/" + idxStr + "/6/1";
-
-                std::wstring entryStr = L"0/" + Utils::StringToWString(idxStr);
+                // Explicit ordered node
+                nlohmann::ordered_json palNode;
+                palNode["PackName"] = Utils::WStringToString(data.PackName);
+                palNode["SkinName"] = Utils::WStringToString(data.SkinName);
+                palNode["SkelMeshPath"] = Utils::WStringToString(data.SkelMeshPath);
                 
-                if (!data.MorphSet.empty()) {
-                    entryStr += L"/1/";
-                    for (auto& [morphName, morphVal] : data.MorphSet) {
-                        int mIdx = -1;
-                        for (int i = 0; i < (int)swapCfg.MorphTargetList.size(); ++i) {
-                            if (swapCfg.MorphTargetList[i].target == morphName) { mIdx = i; break; }
-                        }
-
-                        if (mIdx != -1) {
-                            std::wstring valStr = std::to_wstring(morphVal);
-                            valStr.erase(valStr.find_last_not_of(L'0') + 1, std::wstring::npos);
-                            if (valStr.back() == L'.') valStr += L"0"; 
-                            
-                            entryStr += std::to_wstring(mIdx) + L"_" + valStr + L":";
-                        }
-                    }
+                // Explicit ordered morphs
+                nlohmann::ordered_json morphsObj;
+                for (const auto& [mName, mVal] : data.MorphSet) {
+                    morphsObj[Utils::WStringToString(mName)] = mVal;
                 }
-                palSwaps[Utils::WStringToString(data.InstanceID)] = Utils::WStringToString(entryStr);
+                palNode["Morphs"] = morphsObj;
+                
+                palsObj[Utils::WStringToString(id)] = palNode;
             }
         }
         
-        out["System"] = systemObj;
-        out["SkelMeshPath"] = skelMeshPathObj;
-        out["MatPath"] = nlohmann::json::object();
-        out["SkinName"] = nlohmann::json::object();
-        out["Trait"] = nlohmann::json::object();
-        out["Morph"] = nlohmann::json::object();
-        out["SkelMeshSwap"] = skelMeshSwapObj;
-        out["PalSwap"] = palSwaps;
+        out["Pals"] = palsObj;
 
         std::ofstream file(persistPath);
         if (file.is_open()) {
             file << out.dump(4);
-            DP_LOG(Normal, "Saved world persistence data.\n");
+            DP_LOG(Normal, "Saved world persistence data cleanly to disk.\n");
         }
     }
-
+    
+   
     PalPersistData* SaveManager::GetPersistData(const std::wstring& InstanceID) {
         auto it = PersistedSwaps.find(InstanceID);
-        return it != PersistedSwaps.end() ? &it->second : nullptr;
+        if (it != PersistedSwaps.end()) {
+            MarkAccessed(InstanceID); // Bump accessed Pal to the front of our LRU queue! [1, 3]
+            return &it->second;
+        }
+        return nullptr;
     }
 
     void SaveManager::SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data, bool bWriteToDisk) {
-    PersistedSwaps[InstanceID] = Data;
-    
-    if (bWriteToDisk) {
-        // Only perform physical disk write if explicitly requested (e.g., manual UI edits)
-        SaveWorldData(); 
+        PersistedSwaps[InstanceID] = Data;
+        MarkAccessed(InstanceID); // Bump updated Pal and evict the oldest if size > 1000 [1, 3]
+        
+        if (bWriteToDisk) {
+            SaveWorldData(); 
+        }
     }
-}}
+}

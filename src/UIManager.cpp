@@ -484,7 +484,8 @@ namespace DynPals {
                     GDropdownMapping[optName] = eval.ConfigIndex;
 
                     PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
-                    if (persist && persist->SwapIndex == eval.ConfigIndex) {
+                    int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SkelMeshPath) : -1;
+                    if (persistConfigIndex == eval.ConfigIndex) {
                         LastSelectedOption = optName;
                     }
                 }
@@ -636,8 +637,10 @@ namespace DynPals {
         // --- SLIDERS ---
         ActiveSliders.clear();
         PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
-        if (persist && persist->SwapIndex != -1) {
-            auto& activeCfg = ConfigManager::Get().GetConfigs()[persist->SwapIndex];
+        int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SkelMeshPath) : -1;
+        if (persist && persistConfigIndex != -1) {
+            auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
+
             
             if (!activeCfg.MorphTargetList.empty()) {
                 UObject* MorphLabel = ConstructElement(TextBlockClass);
