@@ -4,7 +4,6 @@
 
 It includes an asynchronous auto-updater, a thread-safe native UI notification system (toasts), an in-game manual customization UI, and an in-memory database persistence system.
 
-#[Guide](./Docs/README.md)
 
 ---
 
