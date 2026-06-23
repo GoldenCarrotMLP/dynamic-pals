@@ -145,7 +145,7 @@ namespace DynPals {
                             WriteFileStr(versionTxtPath, remoteVersion);
 
                             DP_LOG(Warning, "=========================================================");
-                            DP_LOG(Warning, "DynPals has been auto-updated to commit/version: {}", Utils::StringToWString(remoteVersion));
+                            DP_LOG(Warning, "DynPals has been auto-updated to version: {}", Utils::StringToWString(remoteVersion));
                             DP_LOG(Warning, "Please restart Palworld to apply the new update.");
                             DP_LOG(Warning, "=========================================================");
                         } else {

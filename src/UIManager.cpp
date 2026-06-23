@@ -39,7 +39,7 @@ namespace DynPals {
             UpdateTarget();
             
             if (TargetPal) {
-                DP_LOG(Normal, "Found valid target. Building UI.");
+                DP_LOG(Normal, "Found '{}' . Building UI.",TargetPal->GetName());
                 BuildWidget();
                 LockInput(true);
             } else {

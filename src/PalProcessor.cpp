@@ -741,6 +741,6 @@ namespace DynPals {
         Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &UnpauseAnim);
 
         // NATIVE CONSOLE LOG (Kept as 'Normal' level so it stays out of the UI and doesn't clutter player gameplay screen)
-        DP_LOG(Normal, "Successfully applied swap '{}' from Pack '{}' to Pal '{}'!\n", swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID);
+        //DP_LOG(Normal, "Successfully applied swap '{}' from Pack '{}' to Pal '{}'!\n", swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID);
     }
 }

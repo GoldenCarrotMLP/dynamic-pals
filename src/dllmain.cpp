@@ -9,7 +9,7 @@
 #include "HooksManager.hpp"
 #include "UIManager.hpp"
 #include "Utils.hpp"
-#include "AsyncHelper.hpp" // Ensure AsyncHelper is included!
+#include "AsyncHelper.hpp"
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -34,7 +34,7 @@ public:
             if (!bMenuKeyPressed) {
                 bMenuKeyPressed = true;
                 
-                // Instantly execute ToggleMenu on the Game Thread!
+                // Instantly execute ToggleMenu on the Game Thread
                 DynPals::AsyncHelper::AsyncTask(DynPals::ENamedThreads::GameThread, [](){
                     DynPals::UIManager::Get().ToggleMenu();
                 });
@@ -46,7 +46,7 @@ public:
 
     auto on_unreal_init() -> void override
     {
-        // 1. Initialize our independent scanner SAFELY (Unreal Memory is fully ready here!)
+        // 1. Initialize the independent scanner
         DynPals::AsyncHelper::Initialize();
 
         // 2. Initialize the rest of the mod
