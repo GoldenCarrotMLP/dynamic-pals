@@ -1,8 +1,10 @@
-# DynamicPals (DynPals)
+# DynamicPals [(Guide)](./Docs/README.md)
 
 `DynamicPals` is a native C++ runtime skeletal mesh, material, and morph target swapper for Palworld, built on top of [RE-UE4SS](https://github.com/Okaetsu/RE-UE4SS). It allows server-safe, client-side, or single-player cosmetic variations of Pals based on custom traits, levels, genders, trust, and more.
 
 It includes an asynchronous auto-updater, a thread-safe native UI notification system (toasts), an in-game manual customization UI, and an in-memory database persistence system.
+
+#[Guide](./Docs/README.md)
 
 ---
 
