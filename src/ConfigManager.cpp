@@ -376,6 +376,43 @@ int ConfigManager::FindConfigIndex(const std::wstring& PackName, const std::wstr
         }
 
         if (!bestMatches.empty()) {
+            // 1. BIAS DETECTION: Only evaluate if we have a tie (more than 1 candidate)
+            if (bestMatches.size() > 1) {
+                int maxWeight = -1;
+                int maxWeightIdx = -1;
+                int secondMaxWeight = -1;
+                int secondMaxWeightIdx = -1;
+
+                // Find the highest and second-highest weights in the tie-breaker pool
+                for (int idx : bestMatches) {
+                    int w = Configs[idx].SpawnWeight;
+                    if (w > maxWeight) {
+                        secondMaxWeight = maxWeight;
+                        secondMaxWeightIdx = maxWeightIdx;
+                        maxWeight = w;
+                        maxWeightIdx = idx;
+                    } else if (w > secondMaxWeight) {
+                        secondMaxWeight = w;
+                        secondMaxWeightIdx = idx;
+                    }
+                }
+
+                // If the top candidate's weight is over double the next best candidate's weight [1]
+                if (secondMaxWeight > 0 && maxWeight > (2 * secondMaxWeight)) {
+                    auto& maxConfig = Configs[maxWeightIdx];
+                    std::wstring maxName = maxConfig.SkinName.empty() ? L"Anonymous Mesh" : maxConfig.SkinName;
+                    
+                    std::wstring secondName = L"Other Candidates";
+                    if (secondMaxWeightIdx != -1) {
+                        secondName = Configs[secondMaxWeightIdx].SkinName.empty() ? L"Anonymous Mesh" : Configs[secondMaxWeightIdx].SkinName;
+                    }
+
+                    // Fires a yellow warning toast directly on the player's screen! [2]
+                    DP_LOG(Warning, "Skin '{}' in Pack '{}' has a biased spawn weight ({}) which is over double the weight of other candidates (like '{}' with {}). You can adjust this in the JSON file for more variety!", 
+                           maxName, maxConfig.PackName, maxWeight, secondName, secondMaxWeight);
+                }
+            }
+
             int totalWeight = 0;
             for (int idx : bestMatches) {
                 totalWeight += Configs[idx].SpawnWeight;

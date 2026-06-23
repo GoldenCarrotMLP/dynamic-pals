@@ -117,17 +117,34 @@ namespace DynPals {
             return;
         }
 
-        struct { FVector_UE5 RetVal; } LocParams;
-        Utils::CallFunction(PlayerPawn, STR("K2_GetActorLocation"), &LocParams);
-        FVector_UE5 PlayerLoc = LocParams.RetVal;
+        // 1. Get the actual 3D camera location and rotation natively (resolves third-person camera offset)
+        struct FRotator_UE5 { double Pitch, Yaw, Roll; };
+        struct { FVector_UE5 Location; FRotator_UE5 Rotation; } ViewPointParams;
+        Utils::CallFunction(CurrentPlayerController, STR("GetPlayerViewPoint"), &ViewPointParams);
+        
+        FVector_UE5 CameraLoc = ViewPointParams.Location;
+        FRotator_UE5 CameraRot = ViewPointParams.Rotation;
+
+        // 2. Convert Camera Rotation to a 3D Forward Unit Vector
+        double PitchRad = CameraRot.Pitch * 0.01745329251; // Degrees to Radians
+        double YawRad = CameraRot.Yaw * 0.01745329251;
+        double CosPitch = std::cos(PitchRad);
+
+        FVector_UE5 CameraForward;
+        CameraForward.X = std::cos(YawRad) * CosPitch;
+        CameraForward.Y = std::sin(YawRad) * CosPitch;
+        CameraForward.Z = std::sin(PitchRad);
 
         std::vector<UObject*> AllPals;
         UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
 
-        DP_LOG(Normal, "Player Location: {}, {}, {} | Scanning {} Pals in memory...", PlayerLoc.X, PlayerLoc.Y, PlayerLoc.Z, AllPals.size());
+        UObject* aimedPal = nullptr;
+        double highestDot = -1.0;
 
-        double closestDist = 999999999.0;
         UObject* closestPal = nullptr;
+        double closestDistSq = 999999999.0;
+
+        DP_LOG(Normal, "=== DYN_PALS TARGET SCAN START (Origin: Camera Viewpoint) ===");
 
         for (UObject* Pal : AllPals) {
             if (Pal == PlayerPawn || !Pal) continue;
@@ -136,47 +153,79 @@ namespace DynPals {
             Utils::CallFunction(Pal, STR("K2_GetActorLocation"), &PalLocParams);
             FVector_UE5 PalLoc = PalLocParams.RetVal;
 
-            double dx = PalLoc.X - PlayerLoc.X;
-            double dy = PalLoc.Y - PlayerLoc.Y;
-            double dz = PalLoc.Z - PlayerLoc.Z;
-            double distSq = (dx*dx) + (dy*dy) + (dz*dz);
+            FVector_UE5 Dir;
+            Dir.X = PalLoc.X - CameraLoc.X;
+            Dir.Y = PalLoc.Y - CameraLoc.Y;
+            Dir.Z = PalLoc.Z - CameraLoc.Z;
 
-            if (distSq < closestDist) {
-                closestDist = distSq;
+            double distSq = (Dir.X * Dir.X) + (Dir.Y * Dir.Y) + (Dir.Z * Dir.Z);
+            double dist = std::sqrt(distSq);
+            double distMeters = dist / 100.0; // Convert Unreal units (cm) to meters
+
+            // Ignore Pals outside our 50m scanning radius
+            if (dist > 5000.0) {
+                continue;
+            }
+
+            // Calculate alignment dot product (1.0 = perfect center-screen crosshair alignment)
+            FVector_UE5 DirNorm = { Dir.X / dist, Dir.Y / dist, Dir.Z / dist };
+            double dot = CameraForward.X * DirNorm.X + CameraForward.Y * DirNorm.Y + CameraForward.Z * DirNorm.Z;
+
+            // Verbose diagnostics: print details for every nearby candidate being scanned
+            DP_LOG(Normal, "[AIM SCAN] Candidate: '{}' | Dist: {:.1f}m | Crosshair Alignment (Dot): {:.4f} (Cone req: >= 0.9700)\n", 
+                   Pal->GetName(), distMeters, dot);
+
+            // If the Pal is inside our 14-degree crosshair aiming cone (dot >= 0.97)
+            if (dot >= 0.97) {
+                if (dot > highestDot) {
+                    highestDot = dot;
+                    aimedPal = Pal;
+                }
+            }
+
+            // Tracker for the closest fallback Pal
+            if (distSq < closestDistSq) {
+                closestDistSq = distSq;
                 closestPal = Pal;
             }
         }
 
-        if (closestPal) {
-            double actualDist = std::sqrt(closestDist);
-            DP_LOG(Normal, "Closest Pal found: {} at distance: {} units (Goal: < 5000)", closestPal->GetName(), actualDist);
+        // 3. Selection Resolution
+        UObject* selectedPal = nullptr;
+        if (aimedPal) {
+            selectedPal = aimedPal;
+            DP_LOG(Normal, "===> SELECTED AIMED TARGET: '{}' (Crosshair Alignment: {:.4f})\n", selectedPal->GetName(), highestDot);
+        } else if (closestPal) {
+            selectedPal = closestPal;
+            DP_LOG(Normal, "===> NO PAL AIMED AT. FALLING BACK TO CLOSEST: '{}' (Distance: {:.1f}m)\n", selectedPal->GetName(), std::sqrt(closestDistSq) / 100.0);
+        }
 
-            if (actualDist < 5000.0) {
-                TargetPal = closestPal;
+        DP_LOG(Normal, "=== DYN_PALS TARGET SCAN END ===");
 
-                UObject* ParamComp = nullptr;
-                Utils::GetPropertyValue(TargetPal, STR("CharacterParameterComponent"), ParamComp);
-                if (!ParamComp) return;
+        if (selectedPal) {
+            TargetPal = selectedPal;
 
-                UObject* IndivParam = nullptr;
-                Utils::GetPropertyValue(ParamComp, STR("IndividualParameter"), IndivParam);
-                if (!IndivParam) return;
+            UObject* ParamComp = nullptr;
+            Utils::GetPropertyValue(TargetPal, STR("CharacterParameterComponent"), ParamComp);
+            if (!ParamComp) return;
 
-                struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
-                if (Utils::GetPropertyValue(IndivParam, STR("IndividualId"), IDStruct)) {
-                    TargetInstanceID = Utils::GuidToWString(IDStruct.InstanceId);
-                }
+            UObject* IndivParam = nullptr;
+            Utils::GetPropertyValue(ParamComp, STR("IndividualParameter"), IndivParam);
+            if (!IndivParam) return;
 
-                UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
-                struct { UObject* Char; FName RetVal; } CharIDParams{TargetPal, FName()};
-                if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
-                TargetCharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams.RetVal.ToString());
+            struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
+            if (Utils::GetPropertyValue(IndivParam, STR("IndividualId"), IDStruct)) {
+                TargetInstanceID = Utils::GuidToWString(IDStruct.InstanceId);
             }
+
+            UObject* PalUtil1 = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+            struct { UObject* Char; FName RetVal; } CharIDParams1{TargetPal, FName()};
+            if (PalUtil1) Utils::CallFunction(PalUtil1, STR("GetCharacterIDFromCharacter"), &CharIDParams1);
+            TargetCharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams1.RetVal.ToString());
         } else {
-            DP_LOG(Warning, "Scan complete: No other PalCharacters exist in memory!");
+            DP_LOG(Warning, "Target Scan completed: No valid PalCharacters were found in 50-meter range.");
         }
     }
-
     void UIManager::BuildWidget() {
         if (!CurrentPlayerController) return;
 
