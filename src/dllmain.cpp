@@ -4,14 +4,12 @@
 #include <Mod/CppUserModBase.hpp>
 #include <DynamicOutput/DynamicOutput.hpp>
 
-#include "Updater.hpp" // <-- Add this include at the top
-#include <thread>      // <-- Add this include
-
 #include "ConfigManager.hpp"
 #include "SaveManager.hpp"
 #include "HooksManager.hpp"
 #include "UIManager.hpp"
 #include "Utils.hpp"
+#include "AsyncHelper.hpp" // Ensure AsyncHelper is included!
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -31,12 +29,15 @@ public:
 
     auto on_update() -> void override
     {
-        // Process Key Input safely on the worker thread
         static bool bMenuKeyPressed = false;
         if ((GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(0x4E) & 0x8000)) {
             if (!bMenuKeyPressed) {
                 bMenuKeyPressed = true;
-                DynPals::UIManager::Get().RequestMenuToggle();
+                
+                // Instantly execute ToggleMenu on the Game Thread!
+                DynPals::AsyncHelper::AsyncTask(DynPals::ENamedThreads::GameThread, [](){
+                    DynPals::UIManager::Get().ToggleMenu();
+                });
             }
         } else {
             bMenuKeyPressed = false;
@@ -45,6 +46,10 @@ public:
 
     auto on_unreal_init() -> void override
     {
+        // 1. Initialize our independent scanner SAFELY (Unreal Memory is fully ready here!)
+        DynPals::AsyncHelper::Initialize();
+
+        // 2. Initialize the rest of the mod
         UObject* KismetLib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetSystemLibrary"));
         if (KismetLib) {
             FString ContentDir;
@@ -54,13 +59,6 @@ public:
             DynPals::SaveManager::Get().Initialize(BasePath);
             DynPals::ConfigManager::Get().Initialize(BasePath);
             DynPals::HooksManager::RegisterHooks();
-
-            // Run Updater asynchronously
-            std::thread([]() {
-                DynPals::Updater::CheckForUpdates();
-            }).detach();
-
-
         }
     }
 };

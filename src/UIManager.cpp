@@ -105,6 +105,10 @@ namespace DynPals {
         TargetInstanceID = L"";
         TargetCharID = L"";
 
+         if (!CurrentPlayerController) {
+            CurrentPlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+        }
+
         if (!CurrentPlayerController) {
             DP_LOG(Warning, "UpdateTarget cancelled: CurrentPlayerController is NULL!");
             return;
@@ -144,7 +148,7 @@ namespace DynPals {
         UObject* closestPal = nullptr;
         double closestDistSq = 999999999.0;
 
-        DP_LOG(Normal, "=== DYN_PALS TARGET SCAN START (Origin: Camera Viewpoint) ===");
+        //DP_LOG(Normal, "=== DYN_PALS TARGET SCAN START (Origin: Camera Viewpoint) ===");
 
         for (UObject* Pal : AllPals) {
             if (Pal == PlayerPawn || !Pal) continue;
@@ -172,8 +176,7 @@ namespace DynPals {
             double dot = CameraForward.X * DirNorm.X + CameraForward.Y * DirNorm.Y + CameraForward.Z * DirNorm.Z;
 
             // Verbose diagnostics: print details for every nearby candidate being scanned
-            DP_LOG(Normal, "[AIM SCAN] Candidate: '{}' | Dist: {:.1f}m | Crosshair Alignment (Dot): {:.4f} (Cone req: >= 0.9700)\n", 
-                   Pal->GetName(), distMeters, dot);
+            //DP_LOG(Normal, "[AIM SCAN] Candidate: '{}' | Dist: {:.1f}m | Crosshair Alignment (Dot): {:.4f} (Cone req: >= 0.9700)\n", Pal->GetName(), distMeters, dot);
 
             // If the Pal is inside our 14-degree crosshair aiming cone (dot >= 0.97)
             if (dot >= 0.97) {
@@ -194,13 +197,13 @@ namespace DynPals {
         UObject* selectedPal = nullptr;
         if (aimedPal) {
             selectedPal = aimedPal;
-            DP_LOG(Normal, "===> SELECTED AIMED TARGET: '{}' (Crosshair Alignment: {:.4f})\n", selectedPal->GetName(), highestDot);
+            //DP_LOG(Normal, "===> SELECTED AIMED TARGET: '{}' (Crosshair Alignment: {:.4f})\n", selectedPal->GetName(), highestDot);
         } else if (closestPal) {
             selectedPal = closestPal;
-            DP_LOG(Normal, "===> NO PAL AIMED AT. FALLING BACK TO CLOSEST: '{}' (Distance: {:.1f}m)\n", selectedPal->GetName(), std::sqrt(closestDistSq) / 100.0);
+            //DP_LOG(Normal, "===> NO PAL AIMED AT. FALLING BACK TO CLOSEST: '{}' (Distance: {:.1f}m)\n", selectedPal->GetName(), std::sqrt(closestDistSq) / 100.0);
         }
 
-        DP_LOG(Normal, "=== DYN_PALS TARGET SCAN END ===");
+        //DP_LOG(Normal, "=== DYN_PALS TARGET SCAN END ===");
 
         if (selectedPal) {
             TargetPal = selectedPal;

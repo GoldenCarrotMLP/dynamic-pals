@@ -142,7 +142,7 @@ namespace DynPals::Utils {
         }
 
         // USER LOG REQUEST: Real-time debug logging of FName paths passed to the engine loader
-        DP_LOG(Normal, "[DEBUG] Attempting to load Package: '{}' | Asset: '{}'\n", package, asset);
+        //DP_LOG(Normal, "[DEBUG] Attempting to load Package: '{}' | Asset: '{}'\n", package, asset);
 
         AltrSoftObjectPtr SoftPtr;
         SoftPtr.ObjectID.PackageName = FName(package.c_str(), FNAME_Add);
@@ -164,7 +164,7 @@ namespace DynPals::Utils {
             if (ClassName == L"ObjectRedirector") {
                 UObject* Destination = nullptr;
                 if (GetPropertyValue<UObject*>(LoadedObj, STR("DestinationObject"), Destination)) {
-                    DP_LOG(Normal, "[DEBUG] Resolved Redirector to target: '{}'\n", Destination->GetName());
+                    //DP_LOG(Normal, "[DEBUG] Resolved Redirector to target: '{}'\n", Destination->GetName());
                     return Destination;
                 }
             }

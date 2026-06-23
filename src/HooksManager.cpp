@@ -3,11 +3,14 @@
 #include "PalProcessor.hpp"
 #include "SaveManager.hpp"
 #include "UIManager.hpp"
-#include "Utils.hpp"
 #include "NotificationManager.hpp"
+#include "Utils.hpp"
+#include "AsyncHelper.hpp" // <--- FIX: Correctly includes our flat helper header! [2]
+
 #include <Unreal/CoreUObject/UObject/Class.hpp> 
 #include <Unreal/UObjectGlobals.hpp>
 #include <chrono>
+#include <thread>
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -15,10 +18,6 @@ using namespace RC::Unreal;
 namespace DynPals {
 
     static bool bCompletedInitReady = false;
-    static std::chrono::steady_clock::time_point WorldStartTime;
-    static bool bTimerStarted = false;
-    static bool bTickProcessingEnabled = false; 
-    
     static UObject* LastPlayerController = nullptr;
     static UObject* LastWorld = nullptr;
 
@@ -63,23 +62,14 @@ namespace DynPals {
     }
 
     // Ticks synchronously on the main Game Thread via Actor:K2_GetActorRotation
+    // Ticks synchronously on the main Game Thread via Actor:K2_GetActorRotation
     static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context, void*) {
         static bool bIsReentrant = false;
         if (bIsReentrant) return;
         bIsReentrant = true;
 
-    UObject* ActorContext = Context.Context;
-    if (ActorContext) {
-        NotificationManager::Get().ProcessToasts(ActorContext);
-    }
-
-
-        // ZERO-OVERHEAD BYPASS: Suspends the tick hook completely during normal gameplay.
-        // It only wakes up during level loading, when the menu is open, if a toggle is requested, or if a deferred swap is executing.
-        if (!bTickProcessingEnabled && 
-            !UIManager::Get().IsMenuOpen() && 
-            !UIManager::Get().IsToggleRequested() && 
-            !PalProcessor::Get().HasPendingSwaps()) 
+        // NEW BYPASS: The tick is 100% asleep during normal gameplay unless the menu is actively open [7]!
+        if (!UIManager::Get().IsMenuOpen()) 
         {
             bIsReentrant = false;
             return;
@@ -92,17 +82,13 @@ namespace DynPals {
         if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastTickTime).count() >= 16) {
             LastTickTime = Now;
             
-            // FIX: Process UI inputs if the menu is active OR if the user is attempting to toggle it (Alt+N)
-            if (UIManager::Get().IsMenuOpen() || UIManager::Get().IsToggleRequested()) {
+            // Process UI inputs if the menu is active
+            if (UIManager::Get().IsMenuOpen()) {
                 UObject* ActorContext = Context.Context;
                 if (ActorContext) {
                     UObject* Level = ActorContext->GetOuterPrivate();
                     UObject* World = Level ? Level->GetOuterPrivate() : nullptr;
 
-                    // CRITICAL FIX: Only accept ticks from the main gameplay World.
-                    // Palworld streams its 3D UI elements in hidden utility worlds at 0,0,0.
-                    // If we blindly grab the PlayerController from one of those utility actors,
-                    // the Engine shifts view targets to 0,0,0, breaking LODs and World Partition!
                     if (World && World == LastWorld) {
                         UObject* PlayerController = nullptr;
                         UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
@@ -115,31 +101,6 @@ namespace DynPals {
                             UIManager::Get().TickUI(PlayerController);
                         }
                     }
-                }
-            }
-
-            // Process deferred swaps
-            PalProcessor::Get().TickDeferredSwaps();
-
-            // Handle the 5-second level load reconciliation countdown
-            if (bTimerStarted && !bCompletedInitReady) {
-                auto Elapsed = std::chrono::duration_cast<std::chrono::seconds>(Now - WorldStartTime).count();
-                
-                if (Elapsed >= 5) {
-                    DP_LOG(Normal, "Settle period complete. Running overworld Pal reconciliation...\n");
-                    
-                    std::vector<UObject*> AllPals;
-                    UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
-                    for (UObject* Pal : AllPals) {
-                        if (Pal) {
-                            PalProcessor::Get().ProcessPal(Pal, false);
-                        }
-                    }
-
-                    bCompletedInitReady = true;
-                    bTimerStarted = false;
-                    bTickProcessingEnabled = false; // Goes back to sleep!
-                    DP_LOG(Normal, "Reconciliation complete. Mod entering zero-overhead standby.\n");
                 }
             }
         }
@@ -168,8 +129,7 @@ namespace DynPals {
                                 MapName.empty());
 
                 if (bIsMenu) {
-                    bTimerStarted = false;
-                    bTickProcessingEnabled = false; 
+                    bCompletedInitReady = false;
                     
                     SaveManager::Get().Reset();
                     PalProcessor::Get().ClearAllSwappedStatus();
@@ -177,14 +137,32 @@ namespace DynPals {
                     DP_LOG(Normal, "Transitioned to Main Menu. Mod entering standby mode...\n");
                 } else {
                     bCompletedInitReady = false;
-                    bTimerStarted = true;
-                    bTickProcessingEnabled = true; 
-                    WorldStartTime = std::chrono::steady_clock::now();
                     
                     SaveManager::Get().Reset();
                     PalProcessor::Get().ClearAllSwappedStatus();
 
                     DP_LOG(Normal, "New Session Detected (Map: '{}'). Spawning surge quarantine active. Pausing swaps for 5 seconds...\n", MapName);
+
+                    // Fire and forget the 5-second settle period on a background thread! [7]
+                    std::thread([]() {
+                        std::this_thread::sleep_for(std::chrono::seconds(5));
+
+                        // FIX: Safely dispatch back to the Game Thread using our own AsyncHelper! [2, 7]
+                        AsyncHelper::AsyncTask(ENamedThreads::GameThread, []() {
+                            DP_LOG(Normal, "Settle period complete. Running overworld Pal reconciliation...\n");
+
+                            std::vector<UObject*> AllPals;
+                            UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+                            for (UObject* Pal : AllPals) {
+                                if (Pal) {
+                                    PalProcessor::Get().ProcessPal(Pal, false);
+                                }
+                            }
+
+                            bCompletedInitReady = true; // Safe to process new spawns now!
+                            DP_LOG(Normal, "Reconciliation complete. Mod entering zero-overhead standby.\n");
+                        });
+                    }).detach();
                 }
             }
         }
@@ -237,11 +215,11 @@ namespace DynPals {
             STR("/Script/Pal.PalIndividualCharacterParameter:RemovePassiveSkill")
         };
 
-        for (const wchar_t* HookTarget : StatHooks) {
-            UFunction* Func = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, HookTarget);
-            if (Func) {
-                Func->RegisterPostHook(OnPalStatChanged, nullptr);
-                DP_LOG(Normal, "Live Stat Hook Registered: {}\n", HookTarget);
+        for (const wchar_t* HookName : StatHooks) {
+            // FIX: Correctly queries HookName and registers the post-hook cleanly [3]
+            UFunction* TargetFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, HookName);
+            if (TargetFunc) {
+                TargetFunc->RegisterPostHook(OnPalStatChanged, nullptr);
             }
         }
     }

@@ -8,11 +8,6 @@
 #include "DataTypes.hpp"
 
 namespace DynPals {
-    struct PendingSwap {
-        RC::Unreal::UObject* Character;
-        int SwapIndex;
-        std::chrono::steady_clock::time_point ScheduledTime;
-    };
 
     struct QueuedPal {
         RC::Unreal::UObject* Character;
@@ -36,12 +31,10 @@ namespace DynPals {
 
         std::wstring StripCharacterPrefix(const std::wstring& InputID);
         void ProcessPal(RC::Unreal::UObject* Character, bool ForceReroll);
-        bool HasPendingSwaps() const { return !PendingSwaps.empty(); }
         void CheckAndTriggerUpdate(RC::Unreal::UObject* Character);
         void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex, int DelayMs = 10);
         
         void ScanActivePals();
-        void TickDeferredSwaps();
 
         void ClearAllSwappedStatus();
         void ClearSwappedStatus(const std::wstring& InstanceID);
@@ -54,14 +47,12 @@ namespace DynPals {
         int EvaluateIdealSwapIndex(RC::Unreal::UObject* Character, std::wstring& OutInstanceID);
         void ApplySwap(RC::Unreal::UObject* Character, const SwapConfig& swap, PalPersistData& persist);
         
-        // NEW: Accepts ExplicitSwapIndex to bypass evaluation
         void ExecuteSwap(RC::Unreal::UObject* Character, bool ForceReroll, int ExplicitSwapIndex = -1);
 
         std::set<std::wstring> SwappedInstances;
         std::map<std::wstring, PalRuntimeStats> RuntimeStatsCache;
 
         std::set<RC::Unreal::UObject*> ProcessedPals; 
-        std::vector<PendingSwap> PendingSwaps; 
         std::vector<QueuedPal> ProcessingQueue; 
         std::chrono::steady_clock::time_point LastScanTime = std::chrono::steady_clock::now();
     };

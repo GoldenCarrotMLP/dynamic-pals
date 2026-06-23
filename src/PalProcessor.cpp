@@ -2,7 +2,9 @@
 #include "ConfigManager.hpp"
 #include "SaveManager.hpp"
 #include "Utils.hpp"
+#include "AsyncHelper.hpp"
 #include <random>
+#include <thread>
 
 #include <Unreal/UObject.hpp>
 #include <Unreal/FString.hpp>
@@ -19,7 +21,6 @@ namespace DynPals {
         SwappedInstances.clear();
         RuntimeStatsCache.clear();
         ProcessedPals.clear();
-        PendingSwaps.clear();
         ProcessingQueue.clear();
     }
 
@@ -152,21 +153,6 @@ namespace DynPals {
         }
     }
 
-    void PalProcessor::TickDeferredSwaps() {
-        auto now = std::chrono::steady_clock::now();
-        
-        for (auto it = PendingSwaps.begin(); it != PendingSwaps.end();) {
-            if (now >= it->ScheduledTime) {
-                if (it->Character) {
-                    // FIX: Pass explicit UI selection index instead of destroying it! Im back in 
-                    ExecuteSwap(it->Character, false, it->SwapIndex);
-                }
-                it = PendingSwaps.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
 
     void PalProcessor::ForceSwap(UObject* Character, int SwapIndex, int DelayMs) {
         if (!Character || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
@@ -200,15 +186,18 @@ namespace DynPals {
             ExistingData->SkinName = config.SkinName;
             ExistingData->SkelMeshPath = config.SkelMeshPath;
             SaveManager::Get().SetPersistData(InstanceID, *ExistingData, true); 
+        }
 
+        // FIX: Launch a fire-and-forget background timer, then safely dispatch the swap to the Game Thread! [1]
+        std::thread([Character, SwapIndex, DelayMs]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
+            
+            AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Character, SwapIndex]() {
+                PalProcessor::Get().ExecuteSwap(Character, false, SwapIndex);
+            });
+        }).detach();
     }
 
-        PendingSwap ps;
-        ps.Character = Character;
-        ps.SwapIndex = SwapIndex;
-        ps.ScheduledTime = std::chrono::steady_clock::now() + std::chrono::milliseconds(DelayMs);
-        PendingSwaps.push_back(ps);
-    }
 
     int PalProcessor::EvaluateIdealSwapIndex(UObject* Character, std::wstring& OutInstanceID) {
         return -1; 
@@ -464,7 +453,7 @@ namespace DynPals {
             if (ResolvePalBlueprintPath(Character, AnimPath, ResolvedPath)) {
                 TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(ResolvedPath));
                 if (TargetBPClass) {
-                    DP_LOG(Normal, "[DEBUG] Successfully resolved Pal '{}' natively to path: '{}'\n", AnimPath, ResolvedPath);
+                    //DP_LOG(Normal, "[DEBUG] Successfully resolved Pal '{}' natively to path: '{}'\n", AnimPath, ResolvedPath);
                     size_t dotPos = ResolvedPath.find(L'.');
                     if (dotPos != std::wstring::npos) {
                         TargetPackagePath = ResolvedPath.substr(0, dotPos);
