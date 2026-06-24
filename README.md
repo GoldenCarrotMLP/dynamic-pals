@@ -109,12 +109,19 @@ Configurations are stored as JSON files inside your project's content directory 
 This mod is possible and stable thanks to these amazing people:
 
 MonoDragon
+
 Z3NlTH-Dr4G0N
+
 ⌞ℤ𝕖𝕥𝕥𝕖𝕣𝟛𝔻⌝
+
 MCorgano
+
 Okaetsu
+
 T-Box
+
 DefaultUsername80
+
 Reaper
 
 ## License
