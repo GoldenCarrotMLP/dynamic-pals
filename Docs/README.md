@@ -10,9 +10,9 @@ Unlike traditional `.pak` replacements which statically overwrite game-wide asse
 * **Native Execution:** Written completely in C++ for maximum performance and minimal frame-time overhead.
 * **Two JSON Formats Supported:** Seamlessly parses both Version 1 (Altermatic) and Version 2 (PalMagic) configuration schemas.
 * **Matchmaking Engine:** Evaluates Pals' traits, gender, level, and rarity against configured weights to assign the most specific skin.
-* **UI Integration:** Utilize the `SkinLabel` property to give your replacement skins clean, readable names inside supported in-game menus.
+* **UI Integration:** Utilize the `SwapLabel` property to give your replacement skins clean, readable names inside supported in-game menus.
 * **Dynamic Morph Target Engine:** Randomized or absolute morph targets (blendshapes) applied cleanly per-instance.
-* **Advanced Material Instancing:** Swap textures and materials dynamically per-slot without duplicating mesh files. Now features wildcard targeting for rapid material overrides!
+* **Advanced Material Instancing:** Swap textures and materials dynamically per-slot without duplicating mesh files. Now features wildcard targeting (`/*`) for rapid material folder overrides!
 * **Overworld Settle Quarantine:** Pauses swaps for 5 seconds during initial level loads to prevent spawning performance spikes.
 
 ---
@@ -20,9 +20,11 @@ Unlike traditional `.pak` replacements which statically overwrite game-wide asse
 ## Installation
 
 1. Install the latest stable version of [UE4SS](https://github.com/Okaetsu/RE-UE4SS).
-3. Drop the compiled [`DynamicPals.zip`](https://github.com/GoldenCarrotMLP/dynamic-pals/releases/latest) folder into `ue4ss/Mods/`.
-4. Place your JSON configuration files inside `Mods/DynamicPals/Paks/~mods/SwapJSON/`.
-5. Launch Palworld.
+2. Drop the compiled [`DynamicPals.zip`](https://github.com/GoldenCarrotMLP/dynamic-pals/releases/latest) folder (or the offline release) into your `ue4ss/Mods/` directory.
+3. Place your JSON configuration files in their respective folders:
+   * **Version 1 (Array-based) files:** `Mods/DynamicPals/Paks/~mods/SwapJSON/`
+   * **Version 2 (Map-based) files:** `Mods/DynamicPals/Paks/~mods/ModelJSON/`
+4. Launch Palworld.
 
 ---
 
@@ -48,8 +50,7 @@ If two or more configurations tie for the lowest score, the engine resolves the 
 | **IsRarePal / IsWildPal Misaligned** | Fail | Skip Swap (Invalidated) |
 | **Level / Rank / Trust Out of Range** | Fail | Skip Swap (Invalidated) |
 | **Gender Misaligned (Explicit)** | Fail | Skip Swap (Invalidated) |
-| **Gender Generic Fallback (`None`)** | Miss | **+500,000** Penalty (Direct gender matches always win) |
-| **Gender Extended Fallback (SCake)** | Miss | **+50,000** Penalty (e.g. Futa fallback on Male) |
+| **Gender Matched (Explicit, Neutral, or SCake)** | Pass | **0** (Valid match, score is unaffected) |
 | **IsRarePal Matched** | Hit | **-50** Bonus |
 | **IsWildPal Matched** | Hit | **-50** Bonus |
 | **Explicit SkinName Matched** | Hit | **-50** Bonus |
@@ -59,6 +60,10 @@ If two or more configurations tie for the lowest score, the engine resolves the 
 | **Specific Level Range Defined** | Hit | **-10** Bonus |
 | **Specific Rank Range Defined** | Hit | **-10** Bonus |
 | **Specific Trust Range Defined** | Hit | **-10** Bonus |
-| **Gender Matched (Explicit)** | Hit | **-100** Bonus |
+
+### Blacklist-Style Gender Filtering
+Gender is treated as a strict filter rather than a scoring metric. 
+* A gender-neutral swap (`"None"` or `"Any"`) and a gender-matching swap both incur **0 score adjustments**, putting them into the exact same pool if all other traits/limits align. Selection is resolved entirely by their configured `SpawnWeight`.
+* If a configuration specifies a gender (e.g., `"Female"`), and the spawned Pal is not female (or does not match an allowable SCake fallback like `"Andro"`), the swap is **invalidated** and skipped.
 
 *Note: If a skin's configured SpawnWeight is over double the weight of other tied candidates, the mod will print a yellow warning trace in your console to prevent unintentional variety dilution.*

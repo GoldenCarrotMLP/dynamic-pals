@@ -90,21 +90,27 @@ namespace DynPals {
     
 
     void ConfigManager::Initialize(const std::wstring& BasePath) {
-        ConfigPath = BasePath + L"Paks/~mods/SwapJSON/";
+        ConfigPath = BasePath + L"Paks/~mods/";
         LoadConfigJSONs();
     }
 
     void ConfigManager::LoadConfigJSONs() {
         Configs.clear();
         
-        if (!std::filesystem::exists(ConfigPath)) {
-            Output::send<LogLevel::Error>(STR("[DynPals] SwapJSON directory missing! Created empty folder at: {}\n"), ConfigPath);
-            std::filesystem::create_directories(ConfigPath);
-            return;
+        std::wstring PathV1 = ConfigPath + L"SwapJSON/";
+        std::wstring PathV2 = ConfigPath + L"ModelJSON/";
+
+        // 1. Ensure both directories exist safely
+        if (!std::filesystem::exists(PathV1)) {
+            std::filesystem::create_directories(PathV1);
+        }
+        if (!std::filesystem::exists(PathV2)) {
+            std::filesystem::create_directories(PathV2);
         }
 
         int loadedPacksCount = 0;
-        DP_LOG(Normal, "ConfigManager: Scanning recursively for Swap JSONs...");
+        DP_LOG(Normal, "ConfigManager: Scanning recursively for Swap/Model JSONs...");
+
 
          for (const auto& entry : fs::recursive_directory_iterator(ConfigPath)) {
             if (entry.is_regular_file()) {
@@ -421,7 +427,7 @@ namespace DynPals {
             if (eval.IsValid && (Trust < swap.MinTrust || Trust > swap.MaxTrust)) eval.IsValid = false;
             else if (swap.MinTrust > 0 || swap.MaxTrust < 999999) eval.Score -= 10; 
 
-            // 2. Aligned Gender Match with Normalization
+            // 2. Gender Match (Blacklist style - No score adjustments, just validation checks)
             std::wstring swapGender = ToLower(swap.Gender);
             std::wstring charGender = ToLower(GenderStr);
 
@@ -433,22 +439,23 @@ namespace DynPals {
                 charGender = L"none";
             }
 
+            // If the skin specifies a gender, it acts as a strict blacklist
             if (eval.IsValid && swapGender != L"none") {
                 if (swapGender != charGender) {
                     bool fallbackMatched = false;
+                    
+                    // Support for SCake extended genders (treated as valid matches, but no score bonus)
                     if (swapGender == L"male" && (charGender == L"futa" || charGender == L"fullfuta")) {
-                        eval.Score += 50000; 
                         fallbackMatched = true;
                     } else if (swapGender == L"female" && (charGender == L"andro" || charGender == L"neutered" || charGender == L"fullneutered")) {
-                        eval.Score += 50000;
                         fallbackMatched = true;
                     }
-                    if (!fallbackMatched) eval.IsValid = false;
-                } else {
-                    eval.Score -= 100; 
+                    
+                    // If it entirely misses the gender and fallbacks, invalidate it completely
+                    if (!fallbackMatched) {
+                        eval.IsValid = false;
+                    }
                 }
-            } else if (eval.IsValid && swapGender == L"none" && charGender != L"none") {
-                eval.Score += 500000; 
             }
 
             // 3. Exact String Matches
@@ -511,6 +518,7 @@ namespace DynPals {
                     }
                 }
             }
+            
             results.push_back(eval);
         }
         return results;
