@@ -18,6 +18,7 @@ Version 1 is an array-based format created by Michael where every replacement en
 | **`AnimTarget`** | String | No | Target Pal ID or asset path to copy animations from. |
 | **`Gender`** | String | No | `"Male"`, `"Female"`, `"None"`, `"Futa"`, `"FullFuta"`, `"Andro"`, `"Neutered"`, `"FullNeutered"` |
 | **`SkinName`** | String | No | Game-native Skin ID to overwrite. |
+| **`SkinLabel`** | String | No | Descriptive name for this specific skin to display in supported UI menus. |
 | **`MinLevel`** / **`MaxLevel`** | Integer | No | Minimum (default 1) and Maximum (default 999) level requirements. |
 | **`MinTrust`** / **`MaxTrust`** | Integer | No | Minimum (default 0) and Maximum (default 999999) friendship/trust requirements. |
 | **`MinRank`** / **`MaxRank`** | Integer | No | Minimum (default 0) and Maximum (default 5) star-rank requirements. |
@@ -27,7 +28,7 @@ Version 1 is an array-based format created by Michael where every replacement en
 | **`ReqTrait`** | Array | No | Array of passive skill IDs the Pal **must** possess. |
 | **`PrefTrait`** | Array | No | Array of passive skill IDs the Pal **should** possess (increases match score). |
 | **`SkipTrait`** | Array | No | Array of passive skill IDs that **banned** this swap from occurring. |
-| **`MatReplaceList`** | Array | No | Array of material override objects. Contains `"Index"` (String integer) and `"MatPath"` (String path). |
+| **`MatReplaceList`** | Array | No | Array of material override objects. Contains `"Index"` (String integer or wildcard) and `"MatPath"` (String path). |
 | **`MorphTargetList`** | Array | No | Array of morph slider overrides. See Morph Target sub-schema below. |
 | **`Extra`** | String/Obj | No | Extended stringified JSON or JSON object for custom metadata. |
 
@@ -50,6 +51,7 @@ Version 1 is an array-based format created by Michael where every replacement en
             "AnimTarget": "PinkCat",
             "Gender": "Female",
             "SkinName": "PinkCat_Skin001",
+            "SkinLabel": "Classic Pink Cat Custom",
             "MinLevel": 1,
             "MaxLevel": 50,
             "MinTrust": 0,

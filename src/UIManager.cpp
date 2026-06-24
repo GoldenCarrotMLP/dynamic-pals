@@ -513,8 +513,16 @@ namespace DynPals {
 
                 for (const auto& eval : evals) {
                     auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
-                    std::wstring labelName = cfg.SkinName;
                     
+                    // 1. Try to use the friendly UI display name (SwapLabel)
+                    std::wstring labelName = cfg.SwapLabel;
+                    
+                    // 2. Fallback to native SkinName if SwapLabel is empty
+                    if (labelName.empty()) {
+                        labelName = cfg.SkinName;
+                    }
+                    
+                    // 3. Fallback to parsing the file path if both are empty
                     if (labelName.empty()) {
                         std::wstring filename = cfg.SkelMeshPath;
                         size_t lastSlash = filename.find_last_of(L'/');
@@ -536,7 +544,9 @@ namespace DynPals {
                     GDropdownMapping[optName] = eval.ConfigIndex;
 
                     PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
-                    int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SkelMeshPath) : -1;
+                    
+                    // Database lookup remains 100% collision-free using the unique SkelMeshPath
+                    int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SwapLabel, persist->SkelMeshPath) : -1;
                     if (persistConfigIndex == eval.ConfigIndex) {
                         LastSelectedOption = optName;
                     }
@@ -689,7 +699,8 @@ namespace DynPals {
         // --- SLIDERS ---
         ActiveSliders.clear();
         PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
-        int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SkelMeshPath) : -1;
+        int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SwapLabel, persist->SkelMeshPath) : -1;
+
         if (persist && persistConfigIndex != -1) {
             auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
 

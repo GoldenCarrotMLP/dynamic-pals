@@ -6,31 +6,28 @@
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/FString.hpp> 
 #include <Unreal/NameTypes.hpp> 
-#include <Unreal/FText.hpp> // <--- FIX: Resolves undefined RC::Unreal::FText
+#include <Unreal/FText.hpp> 
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <fmt/format.h> 
 
 namespace DynPals {
-    // Forward declaration to break circular dependency
-    void EnqueueUIToast(const std::wstring& Message, uint8_t PriorityType, uint8_t ToneType); // <--- FIXED
+    void EnqueueUIToast(const std::wstring& Message, uint8_t PriorityType, uint8_t ToneType);
 
     struct DynPalsGuid {
         uint32_t A, B, C, D;
         
-        // INSTANT ZERO-CHECK (No String Conversion Needed!)
         bool IsValid() const {
             return A != 0 || B != 0 || C != 0 || D != 0;
         }
     };
 }
 
-// HIJACKED DP_LOG: Compile-time optimized. Branches are discarded at compile-time for Normal/Debug logs.
 #define DP_LOG(Level, Format, ...) \
     do { \
         RC::Output::send<RC::LogLevel::Level>(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__); \
         if constexpr (RC::LogLevel::Level == RC::LogLevel::Error || RC::LogLevel::Level == RC::LogLevel::Warning) { \
-            uint8_t priority = (RC::LogLevel::Level == RC::LogLevel::Error) ? 2 : 1; /* 3 = VeryImportant, 2 = Important */ \
-            uint8_t tone = 1; /* 1 = Negative (Red/Warning color) */ \
+            uint8_t priority = (RC::LogLevel::Level == RC::LogLevel::Error) ? 2 : 1; \
+            uint8_t tone = 1; \
             DynPals::EnqueueUIToast( \
                 fmt::format(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__), \
                 priority, \
@@ -39,8 +36,8 @@ namespace DynPals {
         } \
     } while(0)
 
-using GenderType = std::wstring; // OPTIONS: Male, Female, None, Futa, FullFuta, Andro, Neutered, FullNeutered
-using MorphType = std::wstring;  // OPTIONS: Restrict, Free, None
+using GenderType = std::wstring; 
+using MorphType = std::wstring;  
 
 struct MatReplace {
     std::string index;
@@ -61,7 +58,8 @@ struct SwapConfig {
     std::wstring SkelMeshPath;
     std::wstring AnimTarget = L"";
     GenderType Gender = L"None"; 
-    std::wstring SkinName = L"";
+    std::wstring SkinName = L"";   
+    std::wstring SwapLabel = L"";  // UI Display Name
     int MinLevel = 1;
     int MaxLevel = 999;
     int MinTrust = 0;        
@@ -89,15 +87,15 @@ struct PalPersistData {
     std::wstring InstanceID;
     std::wstring PackName;
     std::wstring SkinName;
+    std::wstring SwapLabel;
     std::wstring SkelMeshPath;
     std::map<std::wstring, double> MorphSet;
+    std::map<std::string, std::wstring> MatSet; // <-- FIXED: Correctly closed with semicolon
 
-    // Helper to check if a swap has been assigned
     bool HasSavedSwap() const {
         return !SkelMeshPath.empty() || !SkinName.empty();
     }
 };
-
 
 struct AltrSoftObjectPath {
     RC::Unreal::FName PackageName;
@@ -110,7 +108,6 @@ struct AltrWeakObjectPtr {
     int32_t ObjectSerialNumber = 0;
 };
 
-// Alignment and packing safety 
 #pragma pack(push, 1)
 struct AltrSoftObjectPtr {
     AltrWeakObjectPtr WeakPtr;
@@ -124,11 +121,7 @@ struct FVector_UE5 {
     double X, Y, Z;
 };
 
-// ============================================================================
-// NATIVE PALWORLD TOAST UI MEMORY STRUCTS
-// ============================================================================
 namespace DynPals {
-
     enum class EPalLogPriority : uint8_t { 
         None = 0, Normal = 1, Important = 2, VeryImportant = 3 
     };
@@ -142,26 +135,24 @@ namespace DynPals {
         int32_t Num = 0;
     };
 
-    // CRITICAL: Perfectly byte-aligned memory layout to match Palworld's 0x38 FPalLogAdditionalData size
     #pragma pack(push, 1)
     struct FPalLogAdditionalData {
-        RC::Unreal::TArray<void*> SoftTextures; // 16 bytes (0x00)
-        uint8_t LogToneType;                    // 1 byte  (0x10)
-        uint8_t Pad1[3];                        // 3 bytes (0x11)
-        RC::Unreal::FName DefaultFontStyleName; // 8 bytes (0x14)
-        uint8_t Pad2[4];                        // 4 bytes (0x1C)
-        RC::Unreal::UClass* OverrideWidgetClass;// 8 bytes (0x20)
-        FPalStaticItemIdAndNum ItemIDAndNum;    // 12 bytes(0x28)
-        uint8_t Pad3[4];                        // 4 bytes (0x34) -> Totals 0x38 bytes!
+        RC::Unreal::TArray<void*> SoftTextures; 
+        uint8_t LogToneType;                    
+        uint8_t Pad1[3];                        
+        RC::Unreal::FName DefaultFontStyleName; 
+        uint8_t Pad2[4];                        
+        RC::Unreal::UClass* OverrideWidgetClass;
+        FPalStaticItemIdAndNum ItemIDAndNum;    
+        uint8_t Pad3[4];                        
     };
     #pragma pack(pop)
 
-    // Parameter block for UPalLogManager::AddLog
     struct FPalAddLogParams {
-        uint8_t Priority;                       // 0x00
-        uint8_t Pad1[7];                        // Align FText
-        RC::Unreal::FText Text;                 // 0x08
-        FPalLogAdditionalData AdditionalData;   // 0x20
-        DynPalsGuid ReturnValue;                // 0x58
+        uint8_t Priority;                       
+        uint8_t Pad1[7];                        
+        RC::Unreal::FText Text;                 
+        FPalLogAdditionalData AdditionalData;   
+        DynPalsGuid ReturnValue;                
     };
 }

@@ -71,11 +71,17 @@ namespace DynPals {
                     pd.InstanceID = Utils::StringToWString(instanceIdStr);
                     pd.PackName = Utils::StringToWString(palNode.value("PackName", ""));
                     pd.SkinName = Utils::StringToWString(palNode.value("SkinName", ""));
+                    pd.SwapLabel = Utils::StringToWString(palNode.value("SwapLabel", palNode.value("SkinLabel", ""))); 
                     pd.SkelMeshPath = Utils::StringToWString(palNode.value("SkelMeshPath", ""));
 
                     if (palNode.contains("Morphs") && palNode.at("Morphs").is_object()) {
                         for (auto& [morphName, morphVal] : palNode.at("Morphs").items()) {
                             pd.MorphSet[Utils::StringToWString(morphName)] = morphVal.get<double>();
+                        }
+                    }
+                    if (palNode.contains("Mats") && palNode.at("Mats").is_object()) {
+                        for (auto& [matIndex, matPath] : palNode.at("Mats").items()) {
+                            pd.MatSet[matIndex] = Utils::StringToWString(matPath.get<std::string>());
                         }
                     }
                     PersistedSwaps[pd.InstanceID] = pd;
@@ -112,6 +118,7 @@ namespace DynPals {
                 nlohmann::ordered_json palNode;
                 palNode["PackName"] = Utils::WStringToString(data.PackName);
                 palNode["SkinName"] = Utils::WStringToString(data.SkinName);
+                palNode["SwapLabel"] = Utils::WStringToString(data.SwapLabel); 
                 palNode["SkelMeshPath"] = Utils::WStringToString(data.SkelMeshPath);
                 
                 // Explicit ordered morphs
@@ -121,7 +128,14 @@ namespace DynPals {
                 }
                 palNode["Morphs"] = morphsObj;
                 
+                nlohmann::ordered_json matsObj;
+                for (const auto& [mIndex, mPath] : data.MatSet) {
+                    matsObj[mIndex] = Utils::WStringToString(mPath);
+                }
+                if (!matsObj.empty()) palNode["Mats"] = matsObj;
+                
                 palsObj[Utils::WStringToString(id)] = palNode;
+
             }
         }
         

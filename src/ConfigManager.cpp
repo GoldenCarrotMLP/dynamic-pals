@@ -170,6 +170,12 @@ namespace DynPals {
             if (ContainsKey(swapJson, "AnimTarget")) sc.AnimTarget = Utils::StringToWString(GetValue(swapJson, "AnimTarget").get<std::string>());
             if (ContainsKey(swapJson, "Gender")) sc.Gender = Utils::StringToWString(GetValue(swapJson, "Gender").get<std::string>());
             if (ContainsKey(swapJson, "SkinName")) sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());
+            if (ContainsKey(swapJson, "SkinName")) sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());
+            
+            // Parse explicit UI friendly display labels into SwapLabel
+            if (ContainsKey(swapJson, "SkinLabel")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SkinLabel").get<std::string>());
+            else if (ContainsKey(swapJson, "SwapLabel")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SwapLabel").get<std::string>());
+            else if (ContainsKey(swapJson, "SwapName")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SwapName").get<std::string>());
             
             sc.MinLevel = SafeGetInt(swapJson, "MinLevel", 1);
             sc.MaxLevel = SafeGetInt(swapJson, "MaxLevel", 999);
@@ -291,7 +297,10 @@ namespace DynPals {
                 sc.PackName = PackName;
                 sc.CharacterID = charID;
                 sc.SkinName = Utils::StringToWString(skinLabelStr); 
+                sc.SwapLabel = Utils::StringToWString(skinLabelStr); 
 
+                      
+                
                 // Core Translations
                 if (ContainsKey(swapJson, "SkinPath")) sc.SkelMeshPath = Utils::StringToWString(GetValue(swapJson, "SkinPath").get<std::string>());
                 if (ContainsKey(swapJson, "AnimTarget")) sc.AnimTarget = Utils::StringToWString(GetValue(swapJson, "AnimTarget").get<std::string>());
@@ -497,26 +506,36 @@ namespace DynPals {
         }
         return results;
     }
-int ConfigManager::FindConfigIndex(const std::wstring& PackName, const std::wstring& SkinName, const std::wstring& SkelMeshPath) const {
-        // Tier 1: Exact Match (PackName + SkinName) - Only if SkinName isn't empty to avoid false positives on generic configs
-        if (!SkinName.empty()) {
+    int ConfigManager::FindConfigIndex(const std::wstring& PackName, const std::wstring& SkinName, const std::wstring& SwapLabel, const std::wstring& SkelMeshPath) const {
+        
+        // Tier 1: Exact Match by PackName + SwapLabel (Safely resolves identical meshes with different materials)
+        if (!SwapLabel.empty()) {
+            for (size_t i = 0; i < Configs.size(); ++i) {
+                if (Configs[i].PackName == PackName && Configs[i].SwapLabel == SwapLabel) return (int)i;
+            }
+        }
+        
+        // Tier 2: Exact Match by PackName + Game-native SkinName
+        if (!SkinName.empty() && SkinName != L"None") {
             for (size_t i = 0; i < Configs.size(); ++i) {
                 if (Configs[i].PackName == PackName && Configs[i].SkinName == SkinName) return (int)i;
             }
         }
         
-        // Tier 2: PackName + SkelMeshPath (Fallback for anonymous skins)
+        // Tier 3: Exact Match by PackName + unique SkelMeshPath
         for (size_t i = 0; i < Configs.size(); ++i) {
             if (Configs[i].PackName == PackName && Configs[i].SkelMeshPath == SkelMeshPath) return (int)i;
         }
 
-        // Tier 3: SkelMeshPath only (Fallback if the user renamed the Pack folder/json file)
+        // Tier 4: Path fallback (if pack folder or json was renamed by the user)
         for (size_t i = 0; i < Configs.size(); ++i) {
             if (Configs[i].SkelMeshPath == SkelMeshPath) return (int)i;
         }
 
-        return -1; // Pack was uninstalled or heavily modified
+        return -1; 
     }
+    
+    
     int ConfigManager::PickBestSwap(const std::vector<SwapEvaluation>& evaluations) const {
         int bestScore = 999999;
         std::vector<int> bestMatches;

@@ -7,6 +7,7 @@
                              "AnimTarget":  "",
                              "Gender":  "None",
                              "SkinName":  "",
+                             "SwapLabel":  "",
                              "MinLevel":  1,
                              "MaxLevel":  999,
                              "MinTrust":  0,
@@ -36,7 +37,7 @@
                                                          "Set":  1,
                                                          "Min":  0,
                                                          "Target":  "MorphName",
-                                                         "Type":  "Restrict, Free, None",
+                                                         "Type":  "Free",
                                                          "Max":  1
                                                      }
                                                  ],

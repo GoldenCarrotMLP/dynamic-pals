@@ -179,11 +179,13 @@ namespace DynPals {
             newData.InstanceID = InstanceID;
             newData.PackName = config.PackName;
             newData.SkinName = config.SkinName;
+            newData.SwapLabel = config.SwapLabel; 
             newData.SkelMeshPath = config.SkelMeshPath;
             SaveManager::Get().SetPersistData(InstanceID, newData, true); 
         } else {
             ExistingData->PackName = config.PackName;
             ExistingData->SkinName = config.SkinName;
+            ExistingData->SwapLabel = config.SwapLabel;
             ExistingData->SkelMeshPath = config.SkelMeshPath;
             SaveManager::Get().SetPersistData(InstanceID, *ExistingData, true); 
         }
@@ -315,7 +317,8 @@ namespace DynPals {
         // Resolve current active swap from database strings
         int currentSwap = -1;
         if (ExistingData && ExistingData->HasSavedSwap()) {
-            currentSwap = ConfigManager::Get().FindConfigIndex(ExistingData->PackName, ExistingData->SkinName, ExistingData->SkelMeshPath);
+            currentSwap = ConfigManager::Get().FindConfigIndex(ExistingData->PackName, ExistingData->SkinName, ExistingData->SwapLabel, ExistingData->SkelMeshPath);
+
         }
 
         int finalSwap = -1;
@@ -392,11 +395,13 @@ namespace DynPals {
                 auto& finalConfig = ConfigManager::Get().GetConfigs()[finalSwap];
                 newData.PackName = finalConfig.PackName;
                 newData.SkinName = finalConfig.SkinName;
+                newData.SwapLabel = finalConfig.SwapLabel;
                 newData.SkelMeshPath = finalConfig.SkelMeshPath;
 
                 // Clear old morphs on reroll so ApplySwap is forced to roll brand new ones!
                 if (ForceReroll) {
                     newData.MorphSet.clear();
+                    newData.MatSet.clear();
                 }
 
                 // Run ApplySwap FIRST to apply the meshes and generate the new morphs inside 'newData'
@@ -640,22 +645,95 @@ namespace DynPals {
             Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
         }
 
-        for (auto& mat : swap.MatReplaceList) {
-            UObject* NewMat = Utils::LoadAssetSafely(mat.matPath);
-            
-            if (!IsPalBlueprintValid(Character, BPName)) return;
-            Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-            if (!MeshComp) return;
+        // Apply material overrides safely
+        DP_LOG(Normal, "=== MATERIAL OVERRIDE PROCESS START (Count: {}) ===", swap.MatReplaceList.size());
 
-            if (NewMat) {
-                int idx = std::stoi(mat.index);
-                struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
-                Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
+        for (auto& mat : swap.MatReplaceList) {
+            std::wstring ChosenPath = mat.matPath;
+            std::wstring WideIndex = Utils::StringToWString(mat.index);
+
+            DP_LOG(Normal, "[Slot {}] Target Config Path: '{}'", WideIndex, mat.matPath);
+
+            // 1. Is this a wildcard folder path?
+            if (mat.matPath.length() >= 2 && mat.matPath.substr(mat.matPath.length() - 2) == L"/*") {
+                DP_LOG(Normal, "[Slot {}] Wildcard folder detected. Verifying persistent cache...", WideIndex);
+                
+                // 2. Do we already have a saved material for this specific slot?
+                auto savedMatIt = persist.MatSet.find(mat.index);
+                if (savedMatIt != persist.MatSet.end() && !savedMatIt->second.empty()) {
+                    ChosenPath = savedMatIt->second;
+                    DP_LOG(Normal, "[Slot {}] Persistent cache HIT. Using saved material path: '{}'", WideIndex, ChosenPath);
+                } 
+                else {
+                    // 3. Resolve the virtual folder natively
+                    std::wstring VirtualFolder = mat.matPath.substr(0, mat.matPath.length() - 2);
+                    DP_LOG(Normal, "[Slot {}] Persistent cache MISS. Querying Asset Registry for folder: '{}'", WideIndex, VirtualFolder);
+
+                    std::vector<std::wstring> AvailableMats = Utils::GetAssetsInVirtualFolder(VirtualFolder);
+                    DP_LOG(Normal, "[Slot {}] Asset Registry returned {} valid material files.", WideIndex, AvailableMats.size());
+
+                    // Verbose: Dump every discovered asset inside the target folder
+                    for (size_t i = 0; i < AvailableMats.size(); ++i) {
+                        DP_LOG(Normal, "  -> Discovered [{}]: '{}'", i, AvailableMats[i]);
+                    }
+                    
+                    if (!AvailableMats.empty()) {
+                        // 4. Pick randomly and persist the choice
+                        static std::random_device rd;
+                        static std::mt19937 gen(rd());
+                        std::uniform_int_distribution<int> dis(0, (int)(AvailableMats.size() - 1));
+                        
+                        int RolledIndex = dis(gen);
+                        ChosenPath = AvailableMats[RolledIndex];
+                        persist.MatSet[mat.index] = ChosenPath;
+                        
+                        DP_LOG(Normal, "[Slot {}] Rolled Index {} out of {}. Chosen: '{}'", WideIndex, RolledIndex, AvailableMats.size(), ChosenPath);
+                    } else {
+                        DP_LOG(Warning, "[Slot {}] Wildcard folder '{}' has ZERO matching material files! Skipping slot.", WideIndex, VirtualFolder);
+                        continue;
+                    }
+                }
             } else {
-                // UI WARNING: Fails to load material replacement asset (e.g. wrong material path)
-                DP_LOG(Warning, "Failed to load Material index {} for Pal '{}' from Pack '{}'!\nPath: {}", Utils::StringToWString(mat.index), CharID, swap.PackName, mat.matPath);
+                DP_LOG(Normal, "[Slot {}] Static path detected. Direct apply.", WideIndex);
+                persist.MatSet[mat.index] = ChosenPath;
             }
+
+            // 5. Load and apply the chosen material
+            DP_LOG(Normal, "[Slot {}] Invoking LoadAssetSafely for: '{}'", WideIndex, ChosenPath);
+            UObject* NewMat = Utils::LoadAssetSafely(ChosenPath);
+            
+            if (!NewMat) {
+                DP_LOG(Warning, "[Slot {}] LoadAssetSafely FAILED for path: '{}'", WideIndex, ChosenPath);
+                continue;
+            }
+            DP_LOG(Normal, "[Slot {}] Material loaded successfully: '{}' (Class: %s)", WideIndex, NewMat->GetName(), NewMat->GetClassPrivate()->GetName().c_str());
+
+            // 6. Verify mesh/blueprint targets are fully ready
+            if (!IsPalBlueprintValid(Character, BPName)) {
+                DP_LOG(Warning, "[Slot {}] Target character blueprint is INVALID. Aborting apply.", WideIndex);
+                return;
+            }
+
+            UObject* MeshComp = nullptr;
+            Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
+            if (!MeshComp) {
+                DP_LOG(Warning, "[Slot {}] GetMainMesh returned NULL. Aborting apply.", WideIndex);
+                return;
+            }
+            DP_LOG(Normal, "[Slot {}] Successfully verified MainMesh component: '{}'", WideIndex, MeshComp->GetName());
+
+            // 7. Execute native SetMaterial
+            int idx = std::stoi(mat.index);
+            DP_LOG(Normal, "[Slot {}] Preparing to execute SetMaterial on index: {}.", WideIndex, idx);
+            
+            struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
+            Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
+            
+            DP_LOG(Normal, "[Slot {}] SetMaterial execution completed successfully.", WideIndex);
         }
+
+        DP_LOG(Normal, "=== MATERIAL OVERRIDE PROCESS END ===");
+
 
         if (!swap.MorphTargetList.empty()) {
             static std::random_device rd;
