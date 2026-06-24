@@ -408,27 +408,36 @@ namespace DynPals {
 
             SwapEvaluation eval;
             eval.ConfigIndex = (int)i;
-            eval.Score = 0; // In DynPals, a LOWER SCORE is fundamentally better (0 is base, negatives are highly specific overrides)
+            eval.Score = 0; 
             eval.IsValid = true;
 
             // 1. Hard Limits & Range Specificity Bonuses
             if (Level < swap.MinLevel || Level > swap.MaxLevel) eval.IsValid = false;
-            else if (swap.MinLevel > 1 || swap.MaxLevel < 999) eval.Score -= 10; // Specificity Bonus
+            else if (swap.MinLevel > 1 || swap.MaxLevel < 999) eval.Score -= 10; 
 
             if (eval.IsValid && (Rank < swap.MinRank || Rank > swap.MaxRank)) eval.IsValid = false;
-            else if (swap.MinRank > 0 || swap.MaxRank < 5) eval.Score -= 10; // Specificity Bonus
+            else if (swap.MinRank > 0 || swap.MaxRank < 5) eval.Score -= 10; 
 
             if (eval.IsValid && (Trust < swap.MinTrust || Trust > swap.MaxTrust)) eval.IsValid = false;
-            else if (swap.MinTrust > 0 || swap.MaxTrust < 999999) eval.Score -= 10; // Specificity Bonus
+            else if (swap.MinTrust > 0 || swap.MaxTrust < 999999) eval.Score -= 10; 
 
-            // 2. Gender Match
-            if (eval.IsValid && ToLower(swap.Gender) != L"none") {
-                std::wstring swapGender = ToLower(swap.Gender);
-                std::wstring charGender = ToLower(GenderStr);
+            // 2. Aligned Gender Match with Normalization
+            std::wstring swapGender = ToLower(swap.Gender);
+            std::wstring charGender = ToLower(GenderStr);
+
+            // Normalize "any", "all", or missing/empty strings to "none"
+            if (swapGender == L"any" || swapGender == L"all" || swapGender.empty()) {
+                swapGender = L"none";
+            }
+            if (charGender == L"any" || charGender == L"all" || charGender.empty()) {
+                charGender = L"none";
+            }
+
+            if (eval.IsValid && swapGender != L"none") {
                 if (swapGender != charGender) {
                     bool fallbackMatched = false;
                     if (swapGender == L"male" && (charGender == L"futa" || charGender == L"fullfuta")) {
-                        eval.Score += 50000; // Penalize fallback so direct Futa skins win if available
+                        eval.Score += 50000; 
                         fallbackMatched = true;
                     } else if (swapGender == L"female" && (charGender == L"andro" || charGender == L"neutered" || charGender == L"fullneutered")) {
                         eval.Score += 50000;
@@ -436,29 +445,29 @@ namespace DynPals {
                     }
                     if (!fallbackMatched) eval.IsValid = false;
                 } else {
-                    eval.Score -= 100; // HUGE bonus for matching explicitly defined genders
+                    eval.Score -= 100; 
                 }
-            } else if (eval.IsValid && ToLower(swap.Gender) == L"none" && ToLower(GenderStr) != L"none") {
-                eval.Score += 500000; // Massive penalty if skin is generic "None" but Pal has an actual gender
+            } else if (eval.IsValid && swapGender == L"none" && charGender != L"none") {
+                eval.Score += 500000; 
             }
 
             // 3. Exact String Matches
             if (eval.IsValid && !swap.SkinName.empty()) {
                 if (ToLower(SkinName) != ToLower(swap.SkinName)) eval.IsValid = false;
-                else eval.Score -= 50; // Explicit skin name match bonus
+                else eval.Score -= 50; 
             }
 
             // 4. Boolean Flags
             if (eval.IsValid && swap.IsRarePal.has_value()) {
                 bool reqRare = swap.IsRarePal.value();
                 if (reqRare != IsRare) eval.IsValid = false; 
-                else eval.Score -= 50; // Skin explicitly asked for Rare status, beat generic skins!
+                else eval.Score -= 50; 
             }
 
             if (eval.IsValid && swap.IsWildPal.has_value()) {
                 bool reqWild = swap.IsWildPal.value();
                 if (reqWild != IsWild) eval.IsValid = false;
-                else eval.Score -= 50; // Skin explicitly asked for Wild status, beat generic skins!
+                else eval.Score -= 50; 
             }
 
             // 5. Traits
@@ -472,7 +481,7 @@ namespace DynPals {
                         eval.IsValid = false;
                         break;
                     } else {
-                        eval.Score -= 20; // Specificity Bonus per matched required trait!
+                        eval.Score -= 20; 
                     }
                 }
             }
@@ -483,8 +492,8 @@ namespace DynPals {
                     for (const auto& t : Traits) {
                         if (ToLower(t) == ToLower(pref)) { hasTrait = true; break; }
                     }
-                    if (hasTrait) eval.Score -= 10; // Bonus if preferred trait is matched
-                    else eval.Score += 10;          // Minor penalty if missing
+                    if (hasTrait) eval.Score -= 10; 
+                    else eval.Score += 10;          
                 }
             }
             if (eval.IsValid) {
@@ -497,7 +506,7 @@ namespace DynPals {
                         }
                     }
                     if (hasBlacklistedTrait) {
-                        eval.IsValid = false; // Banned trait found, skip this swap!
+                        eval.IsValid = false; 
                         break;
                     }
                 }
@@ -506,6 +515,7 @@ namespace DynPals {
         }
         return results;
     }
+
     int ConfigManager::FindConfigIndex(const std::wstring& PackName, const std::wstring& SkinName, const std::wstring& SwapLabel, const std::wstring& SkelMeshPath) const {
         
         // Tier 1: Exact Match by PackName + SwapLabel (Safely resolves identical meshes with different materials)
