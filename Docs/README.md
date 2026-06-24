@@ -19,7 +19,7 @@ Unlike traditional `.pak` replacements which statically overwrite game-wide asse
 ## Installation
 
 1. Install the latest stable version of [UE4SS](https://github.com/Okaetsu/RE-UE4SS).
-3. Drop the compiled `DynamicPals` folder into `ue4ss/Mods/`.
+3. Drop the compiled [`DynamicPals.zip`](https://github.com/GoldenCarrotMLP/dynamic-pals/releases/latest) folder into `ue4ss/Mods/`.
 4. Place your JSON configuration files inside `Mods/DynamicPals/Paks/~mods/SwapJSON/`.
 5. Launch Palworld.
 
