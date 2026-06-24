@@ -72,7 +72,6 @@ namespace DynPals {
         if (!hInternet) return;
 
         // 2. Fetch Remote Version
-        // Note: Using raw.githubusercontent avoids the 302 redirect of github.com/raw/ URLs
         std::string remoteVersionUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/main/dlls/version.txt";
         HINTERNET hUrl = InternetOpenUrlA(hInternet, remoteVersionUrl.c_str(), NULL, 0, INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE, 0);
         
@@ -107,7 +106,6 @@ namespace DynPals {
                     Utils::StringToWString(localVersion), Utils::StringToWString(remoteVersion));
             }
         } catch (...) {
-            // Fallback to string comparison if either version cannot be parsed as an integer
             if (remoteVersion != localVersion) {
                 bShouldUpdate = true;
             }
@@ -131,17 +129,13 @@ namespace DynPals {
                 InternetCloseHandle(hDownload);
 
                 if (!dllData.empty()) {
-                    // Rename the currently locked DLL to .old
                     if (MoveFileExW(currentDllPath.c_str(), oldDllPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                        
-                        // Write the newly downloaded main.dll
                         HANDLE hFile = CreateFileW(currentDllPath.c_str(), GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
                         if (hFile != INVALID_HANDLE_VALUE) {
                             DWORD bytesWritten;
                             WriteFile(hFile, dllData.data(), dllData.size(), &bytesWritten, NULL);
                             CloseHandle(hFile);
 
-                            // Write the new version.txt so it doesn't loop next startup
                             WriteFileStr(versionTxtPath, remoteVersion);
 
                             DP_LOG(Warning, "=========================================================");
@@ -149,7 +143,6 @@ namespace DynPals {
                             DP_LOG(Warning, "Please restart Palworld to apply the new update.");
                             DP_LOG(Warning, "=========================================================");
                         } else {
-                            // Recover safely if writing the new DLL fails
                             MoveFileExW(oldDllPath.c_str(), currentDllPath.c_str(), MOVEFILE_REPLACE_EXISTING);
                             DP_LOG(Error, "Auto-Updater: Failed to write new main.dll to disk!");
                         }
