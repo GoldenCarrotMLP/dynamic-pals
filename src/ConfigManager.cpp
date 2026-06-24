@@ -111,51 +111,57 @@ namespace DynPals {
         int loadedPacksCount = 0;
         DP_LOG(Normal, "ConfigManager: Scanning recursively for Swap/Model JSONs...");
 
+        // Only scan within these two target folders
+        std::vector<std::wstring> targetPaths = { PathV1, PathV2 };
 
-         for (const auto& entry : fs::recursive_directory_iterator(ConfigPath)) {
-            if (entry.is_regular_file()) {
-                std::wstring filepath = entry.path().wstring();
-                std::wstring filename = entry.path().filename().wstring();
+        for (const auto& targetPath : targetPaths) {
+            if (!std::filesystem::exists(targetPath)) continue;
 
-                if (entry.path().extension() == L".json") {
-                    if (filename.rfind(L"_", 0) == 0 || filename.find(L"Template") != std::wstring::npos) {
-                        continue;
-                    }
+            for (const auto& entry : fs::recursive_directory_iterator(targetPath)) {
+                if (entry.is_regular_file()) {
+                    std::wstring filepath = entry.path().wstring();
+                    std::wstring filename = entry.path().filename().wstring();
 
-                    std::string fileContent = Utils::ReadFileToString(filepath);
-                    if (fileContent.empty()) continue;
-
-                    try {
-                        nlohmann::json configData = nlohmann::json::parse(fileContent, nullptr, true, true);
-                        
-                        if (!configData.is_object()) {
-                            DP_LOG(Warning, "Skipping invalid config (not a JSON Object): '{}'\n", filename);
+                    if (entry.path().extension() == L".json") {
+                        if (filename.rfind(L"_", 0) == 0 || filename.find(L"Template") != std::wstring::npos) {
                             continue;
                         }
 
-                        // Support both PackName (v1) and ModelPack (v2) naming conventions
-                        std::wstring packName = L"Default Pack";
-                        if (configData.contains("PackName") && configData.at("PackName").is_string()) {
-                            packName = Utils::StringToWString(configData.at("PackName").get<std::string>());
-                        } else if (configData.contains("ModelPack") && configData.at("ModelPack").is_string()) {
-                            packName = Utils::StringToWString(configData.at("ModelPack").get<std::string>());
-                        } else {
-                            packName = entry.path().stem().wstring();
-                        }
+                        std::string fileContent = Utils::ReadFileToString(filepath);
+                        if (fileContent.empty()) continue;
 
-                        // Smart format detection
-                        if (configData.contains("SkelMeshSwap") && configData.at("SkelMeshSwap").is_array()) {
-                            ParseSwaps(packName, configData.at("SkelMeshSwap"));
-                            loadedPacksCount++;
-                        } else if (configData.contains("SkinList") && configData.at("SkinList").is_object()) {
-                            ParseSwapsV2(packName, configData.at("SkinList"));
-                            loadedPacksCount++;
-                        } else {
-                            DP_LOG(Warning, "Skipping config (missing 'SkelMeshSwap' or 'SkinList' root): '{}'\n", filename);
-                        }
+                        try {
+                            nlohmann::json configData = nlohmann::json::parse(fileContent, nullptr, true, true);
+                            
+                            if (!configData.is_object()) {
+                                DP_LOG(Warning, "Skipping invalid config (not a JSON Object): '{}'\n", filename);
+                                continue;
+                            }
 
-                    } catch (const std::exception& e) {
-                        DP_LOG(Error, "Failed to parse JSON file '{}': {}\n", filename, Utils::StringToWString(e.what()));
+                            // Support both PackName (v1) and ModelPack (v2) naming conventions
+                            std::wstring packName = L"Default Pack";
+                            if (configData.contains("PackName") && configData.at("PackName").is_string()) {
+                                packName = Utils::StringToWString(configData.at("PackName").get<std::string>());
+                            } else if (configData.contains("ModelPack") && configData.at("ModelPack").is_string()) {
+                                packName = Utils::StringToWString(configData.at("ModelPack").get<std::string>());
+                            } else {
+                                packName = entry.path().stem().wstring();
+                            }
+
+                            // Smart format detection
+                            if (configData.contains("SkelMeshSwap") && configData.at("SkelMeshSwap").is_array()) {
+                                ParseSwaps(packName, configData.at("SkelMeshSwap"));
+                                loadedPacksCount++;
+                            } else if (configData.contains("SkinList") && configData.at("SkinList").is_object()) {
+                                ParseSwapsV2(packName, configData.at("SkinList"));
+                                loadedPacksCount++;
+                            } else {
+                                DP_LOG(Warning, "Skipping config (missing 'SkelMeshSwap' or 'SkinList' root): '{}'\n", filename);
+                            }
+
+                        } catch (const std::exception& e) {
+                            DP_LOG(Error, "Failed to parse JSON file '{}': {}\n", filename, Utils::StringToWString(e.what()));
+                        }
                     }
                 }
             }
@@ -163,6 +169,7 @@ namespace DynPals {
 
         DP_LOG(Normal, "Successfully loaded {} skin packs dynamically.\n", loadedPacksCount);
         DP_LOG(Normal, "Complete matchmaking table compiled with {} swaps.\n", Configs.size());
+    
     }
 
 
