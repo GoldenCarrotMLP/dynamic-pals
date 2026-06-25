@@ -20,6 +20,32 @@ namespace DynPals::Utils {
         if (!Field) return nullptr;
         return *reinterpret_cast<FField**>(reinterpret_cast<uint8_t*>(Field) + 0x20);
     }
+    // Generates a stable structural fallback label for configs lacking explicit SkinLabels [1]
+    inline std::wstring GenerateFallbackLabel(const std::wstring& SkelMeshPath, const std::vector<MatReplace>& MatReplaceList, const std::vector<MorphTarget>& MorphTargetList) {
+        std::wstring meshName = SkelMeshPath;
+        size_t lastSlash = meshName.find_last_of(L'/');
+        if (lastSlash != std::wstring::npos) {
+            meshName = meshName.substr(lastSlash + 1);
+        }
+        size_t lastDot = meshName.find_last_of(L'.');
+        if (lastDot != std::wstring::npos) {
+            meshName = meshName.substr(0, lastDot);
+        }
+
+        // Compute a stable structural hash based on materials and morphs [2]
+        size_t hashVal = std::hash<std::wstring>{}(SkelMeshPath);
+        for (const auto& mat : MatReplaceList) {
+            hashVal ^= std::hash<std::string>{}(mat.index) + 0x9e3779b9 + (hashVal << 6) + (hashVal >> 2);
+            hashVal ^= std::hash<std::wstring>{}(mat.matPath) + 0x9e3779b9 + (hashVal << 6) + (hashVal >> 2);
+        }
+        for (const auto& morph : MorphTargetList) {
+            hashVal ^= std::hash<std::wstring>{}(morph.target) + 0x9e3779b9 + (hashVal << 6) + (hashVal >> 2);
+        }
+
+        wchar_t buf[32];
+        swprintf(buf, 32, L" (%08X)", static_cast<unsigned int>(hashVal & 0xFFFFFFFF));
+        return meshName + buf;
+    }
 
     inline std::wstring StringToWString(const std::string& str) {
         std::wstring wstr;

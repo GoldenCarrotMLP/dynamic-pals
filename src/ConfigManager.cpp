@@ -204,8 +204,8 @@ namespace DynPals {
             }
         }
 
-        DP_LOG(Normal, "Successfully loaded {} skin packs dynamically.\n", loadedPacksCount);
-        DP_LOG(Normal, "Complete matchmaking table compiled with {} swaps.\n", Configs.size());
+        DP_LOG(Default, "Successfully loaded {} skin packs dynamically.\n", loadedPacksCount);
+        DP_LOG(Default, "Complete matchmaking table compiled with {} swaps.\n", Configs.size());
     }
 
 
@@ -328,6 +328,9 @@ namespace DynPals {
                     sc.MorphTargetList.push_back(mt);
                 }
             }
+            if (sc.SwapLabel.empty()) {
+                sc.SwapLabel = Utils::GenerateFallbackLabel(sc.SkelMeshPath, sc.MatReplaceList, sc.MorphTargetList);
+            }
             Configs.push_back(sc);
         }
     }
@@ -441,7 +444,9 @@ namespace DynPals {
                         sc.Extra = Utils::StringToWString(extraNode.get<std::string>());
                     }
                 }
-                
+                if (sc.SwapLabel.empty()) {
+                    sc.SwapLabel = Utils::GenerateFallbackLabel(sc.SkelMeshPath, sc.MatReplaceList, sc.MorphTargetList);
+                }
                 Configs.push_back(sc);
             }
         }
