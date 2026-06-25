@@ -105,9 +105,9 @@ namespace DynPals {
         TargetInstanceID = L"";
         TargetCharID = L"";
 
-         if (!CurrentPlayerController) {
-            CurrentPlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-        }
+        // Always find the active PlayerController to prevent Use-After-Free crashes!
+        CurrentPlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+        
 
         if (!CurrentPlayerController) {
             DP_LOG(Warning, "UpdateTarget cancelled: CurrentPlayerController is NULL!");

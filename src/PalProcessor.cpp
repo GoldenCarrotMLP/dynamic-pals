@@ -659,29 +659,31 @@ namespace DynPals {
 
             // 1. Is this a wildcard folder path?
             if (mat.matPath.length() >= 2 && mat.matPath.substr(mat.matPath.length() - 2) == L"/*") {
-                DP_LOG(Normal, "[Slot {}] Wildcard folder detected. Verifying persistent cache...", WideIndex);
-                
-                // 2. Do we already have a saved material for this specific slot?
+                std::wstring VirtualFolder = mat.matPath.substr(0, mat.matPath.length() - 2);
+
+                DP_LOG(Normal, "[Slot {}] Wildcard folder detected. Querying Asset Registry for folder: '{}'", WideIndex, VirtualFolder);
+
+                // ALWAYS call GetAssetsInVirtualFolder first. This forces the Engine to run 
+                // ScanPathsSynchronous on the .pak file so it actually knows the materials exist!
+                std::vector<std::wstring> AvailableMats = Utils::GetAssetsInVirtualFolder(VirtualFolder);
+                DP_LOG(Normal, "[Slot {}] Asset Registry returned {} valid material files.", WideIndex, AvailableMats.size());
+
+                // Verbose: Dump every discovered asset inside the target folder
+                for (size_t i = 0; i < AvailableMats.size(); ++i) {
+                    DP_LOG(Normal, "  -> Discovered [{}]: '{}'", i, AvailableMats[i]);
+                }
+
+                // 2. NOW check if we already have a saved material for this specific slot
                 auto savedMatIt = persist.MatSet.find(mat.index);
                 if (savedMatIt != persist.MatSet.end() && !savedMatIt->second.empty()) {
                     ChosenPath = savedMatIt->second;
                     DP_LOG(Normal, "[Slot {}] Persistent cache HIT. Using saved material path: '{}'", WideIndex, ChosenPath);
                 } 
                 else {
-                    // 3. Resolve the virtual folder natively
-                    std::wstring VirtualFolder = mat.matPath.substr(0, mat.matPath.length() - 2);
-                    DP_LOG(Normal, "[Slot {}] Persistent cache MISS. Querying Asset Registry for folder: '{}'", WideIndex, VirtualFolder);
+                    DP_LOG(Normal, "[Slot {}] Persistent cache MISS. Picking from available materials.", WideIndex);
 
-                    std::vector<std::wstring> AvailableMats = Utils::GetAssetsInVirtualFolder(VirtualFolder);
-                    DP_LOG(Normal, "[Slot {}] Asset Registry returned {} valid material files.", WideIndex, AvailableMats.size());
-
-                    // Verbose: Dump every discovered asset inside the target folder
-                    for (size_t i = 0; i < AvailableMats.size(); ++i) {
-                        DP_LOG(Normal, "  -> Discovered [{}]: '{}'", i, AvailableMats[i]);
-                    }
-                    
                     if (!AvailableMats.empty()) {
-                        // 4. Pick randomly and persist the choice
+                        // 3. Pick randomly and persist the choice
                         static std::random_device rd;
                         static std::mt19937 gen(rd());
                         std::uniform_int_distribution<int> dis(0, (int)(AvailableMats.size() - 1));

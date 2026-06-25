@@ -183,7 +183,6 @@ namespace DynPals {
             if (ContainsKey(swapJson, "AnimTarget")) sc.AnimTarget = Utils::StringToWString(GetValue(swapJson, "AnimTarget").get<std::string>());
             if (ContainsKey(swapJson, "Gender")) sc.Gender = Utils::StringToWString(GetValue(swapJson, "Gender").get<std::string>());
             if (ContainsKey(swapJson, "SkinName")) sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());
-            if (ContainsKey(swapJson, "SkinName")) sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());
             
             // Parse explicit UI friendly display labels into SwapLabel
             if (ContainsKey(swapJson, "SkinLabel")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SkinLabel").get<std::string>());
@@ -309,12 +308,11 @@ namespace DynPals {
                 SwapConfig sc;
                 sc.PackName = PackName;
                 sc.CharacterID = charID;
-                sc.SkinName = Utils::StringToWString(skinLabelStr); 
                 sc.SwapLabel = Utils::StringToWString(skinLabelStr); 
 
-                      
                 
                 // Core Translations
+                if (ContainsKey(swapJson, "SkinName")) {sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());}
                 if (ContainsKey(swapJson, "SkinPath")) sc.SkelMeshPath = Utils::StringToWString(GetValue(swapJson, "SkinPath").get<std::string>());
                 if (ContainsKey(swapJson, "AnimTarget")) sc.AnimTarget = Utils::StringToWString(GetValue(swapJson, "AnimTarget").get<std::string>());
                 if (ContainsKey(swapJson, "Gender")) sc.Gender = Utils::StringToWString(GetValue(swapJson, "Gender").get<std::string>());
