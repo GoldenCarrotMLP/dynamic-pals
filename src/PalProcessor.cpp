@@ -187,6 +187,11 @@ namespace DynPals {
             ExistingData->SkinName = config.SkinName;
             ExistingData->SwapLabel = config.SwapLabel;
             ExistingData->SkelMeshPath = config.SkelMeshPath;
+            
+            // FIX: Wipe the persistent materials and morphs so the new skin rolls fresh ones!
+            ExistingData->MorphSet.clear();
+            ExistingData->MatSet.clear();
+            
             SaveManager::Get().SetPersistData(InstanceID, *ExistingData, true); 
         }
 
@@ -199,8 +204,6 @@ namespace DynPals {
             });
         }).detach();
     }
-
-
     int PalProcessor::EvaluateIdealSwapIndex(UObject* Character, std::wstring& OutInstanceID) {
         return -1; 
     }
@@ -398,8 +401,9 @@ namespace DynPals {
                 newData.SwapLabel = finalConfig.SwapLabel;
                 newData.SkelMeshPath = finalConfig.SkelMeshPath;
 
-                // Clear old morphs on reroll so ApplySwap is forced to roll brand new ones!
-                if (ForceReroll) {
+                // FIX: Clear old morphs & materials on Reroll, Manual Swap, OR when the game naturally upgrades the skin.
+                // This ensures it rolls brand new random values and ignores the savefile.
+                if (ForceReroll || ExplicitSwapIndex != -1 || finalSwap != currentSwap) {
                     newData.MorphSet.clear();
                     newData.MatSet.clear();
                 }
@@ -416,6 +420,7 @@ namespace DynPals {
                 SwappedInstances.insert(InstanceID);
             }
         }
+    
     }
     void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
         std::wstring BPName;
