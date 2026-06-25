@@ -49,7 +49,7 @@ namespace DynPals {
         
         void ExecuteSwap(RC::Unreal::UObject* Character, bool ForceReroll, int ExplicitSwapIndex = -1);
 
-        std::set<std::wstring> SwappedInstances;
+        std::map<std::wstring, RC::Unreal::UObject*> SwappedInstances;
         std::map<std::wstring, PalRuntimeStats> RuntimeStatsCache;
 
         std::set<RC::Unreal::UObject*> ProcessedPals; 

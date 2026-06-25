@@ -250,6 +250,9 @@ namespace DynPals {
 
         if (RawCharID.rfind(L"GYM_", 0) == 0 || RawCharID.find(L"_Gym_") != std::wstring::npos) return;
 
+        // --- DEBUG 1: FUNCTION ENTRANCE ---
+        DP_LOG(Normal, "[Debug Swap] ExecuteSwap called for Pal '{}' (ID: {}).", RawCharID, InstanceID);
+
         SaveManager::Get().LoadWorldData(World);
         PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
 
@@ -265,7 +268,7 @@ namespace DynPals {
 
         struct { uint8_t RetVal; } GenderParams{0};
         Utils::CallFunction(IndivParam, STR("GetGenderType"), &GenderParams);
-        std::wstring GenderStr = (GenderParams.RetVal == 1) ? L"Male" : (GenderParams.RetVal == 2) ? L"Female" : L"None";
+        std::wstring GenderStr = (GenderParams.RetVal == 1) ? L"Male" : ((GenderParams.RetVal == 2) ? L"Female" : L"None");
 
         struct { int32_t RetVal; } LevelParams{1};
         Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
@@ -293,7 +296,6 @@ namespace DynPals {
 
         PalRuntimeStats& CachedStats = RuntimeStatsCache[InstanceID];
         
-        // 1. FIX: Differentiate between first-time overworld load and live gameplay stat-changes
         bool bLiveEventTriggered = (CachedStats.Level != -1); 
         bool bBucketChanged = false;
 
@@ -312,27 +314,25 @@ namespace DynPals {
             }
         }
 
-        // Cache current stats for future live events
         CachedStats.Level = LevelNum;
         CachedStats.Rank = RankNum;
         CachedStats.Friendship = FriendshipNum;
 
-        // Resolve current active swap from database strings
         int currentSwap = -1;
         if (ExistingData && ExistingData->HasSavedSwap()) {
             currentSwap = ConfigManager::Get().FindConfigIndex(ExistingData->PackName, ExistingData->SkinName, ExistingData->SwapLabel, ExistingData->SkelMeshPath);
-
         }
 
         int finalSwap = -1;
 
-        // Strict manual override logic
         if (ExplicitSwapIndex != -1) {
             finalSwap = ExplicitSwapIndex;
         } 
         else {
-            // Guard: If it's a normal update but we already processed it in memory, skip
-            if (!ForceReroll && !bBucketChanged && SwappedInstances.find(InstanceID) != SwappedInstances.end()) {
+            // --- DEBUG 2: DUPLICATE GUARD BLOCK ---
+            auto it = SwappedInstances.find(InstanceID);
+            if (!ForceReroll && !bBucketChanged && it != SwappedInstances.end() && it->second == Character) {
+                DP_LOG(Normal, "[Debug Swap] Blocked Duplicate: Pal '{}' (ID: '{}') already processed on Actor {}. Skipping.", RawCharID, InstanceID, (void*)Character);
                 return; 
             }
 
@@ -344,9 +344,7 @@ namespace DynPals {
             if (ForceReroll) {
                 finalSwap = newBestSwap;
             } else if (currentSwap != -1) {
-                
                 if (bLiveEventTriggered) {
-                    // A. LIVE EVENT RE-EVALUATION: Stats shifted or traits changed. Check if we need to upgrade.
                     const SwapEvaluation* currentEval = nullptr;
                     for (const auto& ev : evaluations) {
                         if (ev.ConfigIndex == currentSwap) {
@@ -374,54 +372,54 @@ namespace DynPals {
                             finalSwap = currentSwap;
                         }
                     } else {
-                        // Saved skin config is no longer loaded/valid, fallback to best match
                         finalSwap = newBestSwap;
                     }
                 } else {
-                    // B. UNCONDITIONAL LOAD: It's an overworld spawn, login, or world load. 
-                    // We unconditionally load whatever was saved in the file! [2]
                     finalSwap = currentSwap;
                 }
             } else {
-                // No saved skin, load the best evaluated match
                 finalSwap = newBestSwap;
             }
         }
 
         if (finalSwap != -1) {
-            bool bNeedsApply = (ExplicitSwapIndex != -1) || ForceReroll || (finalSwap != currentSwap) || (SwappedInstances.find(InstanceID) == SwappedInstances.end());
+            auto activeIt = SwappedInstances.find(InstanceID);
+            bool bIsNewActor = (activeIt == SwappedInstances.end()) || (activeIt->second != Character);
+
+            bool bNeedsApply = (ExplicitSwapIndex != -1) || ForceReroll || (finalSwap != currentSwap) || bIsNewActor;
             
             if (bNeedsApply) {
+                // --- DEBUG 3: PROCEEDING WITH SWAP ---
+                DP_LOG(Normal, "[Debug Swap] Proceeding to Swap Pal '{}' (ID: '{}', Actor: {}). Reason: {}", 
+                    RawCharID, InstanceID, (void*)Character,
+                    (ExplicitSwapIndex != -1) ? L"Explicit Selection" : 
+                    (ForceReroll) ? L"Force Reroll" : 
+                    (finalSwap != currentSwap) ? L"Skin Changed" : L"New Actor Spawned");
+
                 PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ InstanceID, L"", L"", L"", {} };
                 
-                // Fetch the config and assign the database strings cleanly
                 auto& finalConfig = ConfigManager::Get().GetConfigs()[finalSwap];
                 newData.PackName = finalConfig.PackName;
                 newData.SkinName = finalConfig.SkinName;
                 newData.SwapLabel = finalConfig.SwapLabel;
                 newData.SkelMeshPath = finalConfig.SkelMeshPath;
 
-                // FIX: Clear old morphs & materials on Reroll, Manual Swap, OR when the game naturally upgrades the skin.
-                // This ensures it rolls brand new random values and ignores the savefile.
                 if (ForceReroll || ExplicitSwapIndex != -1 || finalSwap != currentSwap) {
                     newData.MorphSet.clear();
                     newData.MatSet.clear();
                 }
 
-                // Run ApplySwap FIRST to apply the meshes and generate the new morphs inside 'newData'
                 ApplySwap(Character, finalConfig, newData);
 
-                // Only save to disk instantly if this is a manual UI action (Rerolling or picking from dropdown)
                 bool bIsManualAction = (ExplicitSwapIndex != -1) || ForceReroll;
-
-                // Save AFTER ApplySwap has fully generated the new morph values!
                 SaveManager::Get().SetPersistData(InstanceID, newData, bIsManualAction);
 
-                SwappedInstances.insert(InstanceID);
+                SwappedInstances[InstanceID] = Character;
             }
         }
-    
     }
+    
+    
     void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
         std::wstring BPName;
         if (!IsPalBlueprintValid(Character, BPName)) return;
