@@ -9,10 +9,10 @@ Unlike traditional `.pak` replacements which statically overwrite game-wide asse
 ## Features
 * **Native Execution:** Written completely in C++ for maximum performance and minimal frame-time overhead.
 * **Two JSON Formats Supported:** Seamlessly parses both Version 1 (Altermatic) and Version 2 (PalMagic) configuration schemas.
-* **Matchmaking Engine:** Evaluates Pals' traits, gender, level, and rarity against configured weights to assign the most specific skin.
+* **Matchmaking Engine:** Evaluates Pals' traits, gender, level, and rarity against configured weights to assign the most specific skin. (thanks to spam for helping polish it)
 * **UI Integration:** Utilize the `SwapLabel` property to give your replacement skins clean, readable names inside supported in-game menus.
 * **Dynamic Morph Target Engine:** Randomized or absolute morph targets (blendshapes) applied cleanly per-instance.
-* **Advanced Material Instancing:** Swap textures and materials dynamically per-slot without duplicating mesh files. Now features wildcard targeting (`/*`) for rapid material folder overrides!
+* **Advanced Material Instancing:** Swap textures and materials dynamically per-slot without duplicating mesh files. Now features wildcard targeting (`/*`) for rapid material folder overrides! (thanks for Raeil for the idea)
 * **Overworld Settle Quarantine:** Pauses swaps for 5 seconds during initial level loads to prevent spawning performance spikes.
 
 ---
