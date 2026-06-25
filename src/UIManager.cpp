@@ -492,62 +492,184 @@ namespace DynPals {
                 totalTiedWeight += ConfigManager::Get().GetConfigs()[eval.ConfigIndex].SpawnWeight;
             }
         }
-        std::map<std::wstring, std::vector<SwapEvaluation>> groupedPacks;
+        // 1. First, gather all valid evals per PackName
+        std::map<std::wstring, std::vector<SwapEvaluation>> rawPacks;
         for (const auto& eval : evaluations) {
             if (bHideInvalidSwaps && !eval.IsValid) continue;
-            groupedPacks[ConfigManager::Get().GetConfigs()[eval.ConfigIndex].PackName].push_back(eval);
+            rawPacks[ConfigManager::Get().GetConfigs()[eval.ConfigIndex].PackName].push_back(eval);
         }
 
-        // --- COMBO BOX (Clean Names Only) ---
+        // 2. Process each pack to find groups and generate display names
+        std::map<std::wstring, std::vector<std::pair<int, std::wstring>>> uiGroupedPacks;
+
+        for (auto& [packName, evals] : rawPacks) {
+            struct ParsedSkin {
+                SwapEvaluation eval;
+                std::wstring cleanName;
+                std::vector<std::wstring> tokens;
+                bool isManualLabel = false;
+            };
+            
+            std::vector<ParsedSkin> parsedSkins;
+            std::map<std::wstring, int> prefixCounts; 
+
+            for (auto& eval : evals) {
+                auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
+                ParsedSkin ps;
+                ps.eval = eval;
+                
+                std::wstring labelName = cfg.SwapLabel;
+                if (labelName.empty()) labelName = cfg.SkinName;
+                if (labelName.empty()) {
+                    std::wstring filename = cfg.SkelMeshPath;
+                    size_t lastSlash = filename.find_last_of(L'/');
+                    if (lastSlash != std::wstring::npos) filename = filename.substr(lastSlash + 1);
+                    size_t dotPos = filename.find(L'.');
+                    if (dotPos != std::wstring::npos) filename = filename.substr(0, dotPos);
+                    labelName = filename;
+                }
+                
+                // If it looks like a raw filename (contains _ or starts with SK_)
+                if (labelName.rfind(L"SK_", 0) == 0 || labelName.rfind(L"sk_", 0) == 0 || labelName.find(L'_') != std::wstring::npos) {
+                    ps.isManualLabel = false;
+                    std::wstring clean = labelName;
+                    
+                    if (clean.rfind(L"SK_", 0) == 0 || clean.rfind(L"sk_", 0) == 0) {
+                        clean = clean.substr(3);
+                    }
+                    
+                    // Case-insensitive strip of TargetCharID
+                    std::wstring lowerClean = clean;
+                    std::transform(lowerClean.begin(), lowerClean.end(), lowerClean.begin(), ::towlower);
+                    std::wstring lowerCharID = TargetCharID;
+                    std::transform(lowerCharID.begin(), lowerCharID.end(), lowerCharID.begin(), ::towlower);
+                    
+                    if (lowerClean.rfind(lowerCharID + L"_", 0) == 0) {
+                        clean = clean.substr(TargetCharID.length() + 1);
+                    } else if (lowerClean.rfind(lowerCharID, 0) == 0) {
+                        clean = clean.substr(TargetCharID.length());
+                        if (!clean.empty() && clean[0] == L'_') clean = clean.substr(1);
+                    }
+                    if (clean.empty()) {
+                        clean = L"(Vanilla Mesh)";
+                        ps.isManualLabel = true;
+                    }
+                    ps.cleanName = clean;
+                    
+                    size_t start = 0, end;
+                    while ((end = clean.find(L'_', start)) != std::wstring::npos) {
+                        if (end != start) ps.tokens.push_back(clean.substr(start, end - start));
+                        start = end + 1;
+                    }
+                    if (start < clean.length()) ps.tokens.push_back(clean.substr(start));
+                    
+                    if (ps.tokens.size() >= 3) prefixCounts[ps.tokens[0] + L"_" + ps.tokens[1]]++;
+                    if (ps.tokens.size() >= 2) prefixCounts[ps.tokens[0]]++;
+                } else {
+                    ps.isManualLabel = true;
+                    ps.cleanName = labelName.empty() ? L"(Vanilla Mesh)" : labelName;
+                }
+                parsedSkins.push_back(ps);
+            }
+            
+            for (auto& ps : parsedSkins) {
+                std::wstring header = L"[ " + packName + L" ]";
+                std::wstring display = ps.cleanName;
+                
+                if (!ps.isManualLabel) {
+                    std::wstring bestPrefix = L"";
+                    int prefixTokens = 0;
+                    
+                    if (ps.tokens.size() >= 3) {
+                        std::wstring cand = ps.tokens[0] + L"_" + ps.tokens[1];
+                        if (prefixCounts[cand] >= 2) {
+                            bestPrefix = cand;
+                            prefixTokens = 2;
+                        }
+                    }
+                    if (bestPrefix.empty() && ps.tokens.size() >= 2) {
+                        std::wstring cand = ps.tokens[0];
+                        if (prefixCounts[cand] >= 2) {
+                            bestPrefix = cand;
+                            prefixTokens = 1;
+                        }
+                    }
+                    
+                    if (!bestPrefix.empty()) {
+                        // Clean up the sub-category prefix and replace underscores with spaces
+                        std::wstring cleanPrefix = bestPrefix;
+                        std::replace(cleanPrefix.begin(), cleanPrefix.end(), L'_', L' ');
+                        
+                        // Split CamelCase inside the prefix if present
+                        std::wstring splitPrefix = L"";
+                        if (!cleanPrefix.empty()) {
+                            splitPrefix.push_back(cleanPrefix[0]);
+                            for (size_t i = 1; i < cleanPrefix.size(); ++i) {
+                                if ((cleanPrefix[i - 1] >= L'a' && cleanPrefix[i - 1] <= L'z') && 
+                                    (cleanPrefix[i] >= L'A' && cleanPrefix[i] <= L'Z')) {
+                                    splitPrefix.push_back(L' ');
+                                }
+                                splitPrefix.push_back(cleanPrefix[i]);
+                            }
+                        }
+                        
+                        header += L" - " + splitPrefix;
+                        
+                        display = L"";
+                        for(size_t i = prefixTokens; i < ps.tokens.size(); ++i) {
+                            display += ps.tokens[i];
+                            if (i < ps.tokens.size() - 1) display += L" ";
+                        }
+                    } else {
+                        std::replace(display.begin(), display.end(), L'_', L' ');
+                    }
+                    
+                    // CamelCase / PascalCase Splitting: Insert a space if a lowercase letter is followed by an uppercase letter
+                    std::wstring splitDisplay = L"";
+                    if (!display.empty()) {
+                        splitDisplay.push_back(display[0]);
+                        for (size_t i = 1; i < display.size(); ++i) {
+                            if ((display[i - 1] >= L'a' && display[i - 1] <= L'z') && 
+                                (display[i] >= L'A' && display[i] <= L'Z')) {
+                                splitDisplay.push_back(L' ');
+                            }
+                            splitDisplay.push_back(display[i]);
+                        }
+                        display = splitDisplay;
+                    }
+                }
+                
+                uiGroupedPacks[header].push_back({ps.eval.ConfigIndex, display});
+            }
+        }
+
+        // --- COMBO BOX (Smart Grouped Names) ---
         ComboBoxWidget = ConstructElement(ComboBoxClass);
         if (ComboBoxWidget) {
             GDropdownMapping.clear();
             LastSelectedOption = L"";
             StyleComboBox(ComboBoxWidget);
 
-            for (auto& [packName, evals] : groupedPacks) {
-                std::wstring headerStr = L"[ " + packName + L" ]";
+            for (auto& [headerStr, items] : uiGroupedPacks) {
                 struct { FString Option; } AddHeaderP{ FString(headerStr.c_str()) };
                 Utils::CallFunction(ComboBoxWidget, STR("AddOption"), &AddHeaderP);
                 GDropdownMapping[headerStr] = -1; 
 
-                for (const auto& eval : evals) {
-                    auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
-                    
-                    // 1. Try to use the friendly UI display name (SwapLabel)
-                    std::wstring labelName = cfg.SwapLabel;
-                    
-                    // 2. Fallback to native SkinName if SwapLabel is empty
-                    if (labelName.empty()) {
-                        labelName = cfg.SkinName;
-                    }
-                    
-                    // 3. Fallback to parsing the file path if both are empty
-                    if (labelName.empty()) {
-                        std::wstring filename = cfg.SkelMeshPath;
-                        size_t lastSlash = filename.find_last_of(L'/');
-                        if (lastSlash != std::wstring::npos) filename = filename.substr(lastSlash + 1);
-                        
-                        size_t dotPos = filename.find(L'.');
-                        if (dotPos != std::wstring::npos) filename = filename.substr(0, dotPos);
+                for (const auto& item : items) {
+                    int evalConfigIndex = item.first;
+                    std::wstring displayLabel = item.second;
 
-                        if (filename.rfind(L"SK_", 0) == 0 || filename.rfind(L"sk_", 0) == 0) filename = filename.substr(3);
-                        for (wchar_t& c : filename) { if (c == L'_') c = L' '; }
-                        labelName = filename;
-                    }
-
-                    std::wstring optName = L"   " + labelName; 
+                    std::wstring optName = L"   " + displayLabel; 
                     while (GDropdownMapping.find(optName) != GDropdownMapping.end()) optName += L" "; 
 
                     struct { FString Option; } AddOptP{ FString(optName.c_str()) };
                     Utils::CallFunction(ComboBoxWidget, STR("AddOption"), &AddOptP);
-                    GDropdownMapping[optName] = eval.ConfigIndex;
+                    GDropdownMapping[optName] = evalConfigIndex;
 
                     PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
                     
-                    // Database lookup remains 100% collision-free using the unique SkelMeshPath
                     int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SwapLabel, persist->SkelMeshPath) : -1;
-                    if (persistConfigIndex == eval.ConfigIndex) {
+                    if (persistConfigIndex == evalConfigIndex) {
                         LastSelectedOption = optName;
                     }
                 }
