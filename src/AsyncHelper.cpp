@@ -59,7 +59,7 @@ namespace DynPals {
         AsyncTaskPtr = FindPattern("48 8B C4 41 54 41 57 48 81 EC B8 00 00 00 48 89 58 08");
 
         if (AsyncTaskPtr) {
-            DP_LOG(Normal,"Successfully resolved native AsyncTask pipeline.\n");
+            DP_LOG(Default,"Successfully resolved native AsyncTask pipeline.\n");
         } else {
             DP_LOG(Error,"CRITICAL: Failed to find AsyncTask signature!\n");
         }

@@ -9,8 +9,8 @@ namespace DynPals {
 
     struct PendingToast {
         std::wstring Message;
-        EPalLogPriority Priority;       // Added Priority
-        EPalLogContentToneType Tone;    // Keep Tone
+        EPalLogPriority Priority;
+        EPalLogContentToneType Tone;
     };
 
     class NotificationManager {
@@ -20,9 +20,13 @@ namespace DynPals {
             return instance;
         }
 
-        // Now accepts both Priority and Tone
         void EnqueueToast(const std::wstring& Message, EPalLogPriority Priority = EPalLogPriority::Normal, EPalLogContentToneType Tone = EPalLogContentToneType::Normal);
-        void ProcessToasts(RC::Unreal::UObject* WorldContext);
+        
+        // Flushes startup/menu warnings once in-game
+        void FlushQueuedToasts(); 
+
+        // Controls whether toasts queue up or fire immediately
+        void SetReady(bool bReady) { bIsReadyForToasts = bReady; }
 
     private:
         NotificationManager() = default;
@@ -31,5 +35,6 @@ namespace DynPals {
 
         std::mutex ToastMutex;
         std::vector<PendingToast> ToastQueue;
+        bool bIsReadyForToasts = false; // Locked to false by default!
     };
 }

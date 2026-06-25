@@ -226,7 +226,7 @@ namespace DynPals::Utils {
             return Results;
         }
 
-        DP_LOG(Normal, "[Asset Scanner] Initializing search for folder: '{}'", FolderPath);
+        DP_LOG(Default, "[Asset Scanner] Initializing search for folder: '{}'", FolderPath);
 
         // 1. Force the Engine to parse the .pak file for this specific folder before we query it
         UFunction* ScanFunc = AssetRegistry->GetFunctionByNameInChain(STR("ScanPathsSynchronous"));
@@ -245,7 +245,7 @@ namespace DynPals::Utils {
             FBoolProperty* ForceRescanProp = CastField<FBoolProperty>(ScanFunc->GetPropertyByNameInChain(STR("bForceRescan")));
             if (ForceRescanProp) ForceRescanProp->SetPropertyValue(ForceRescanProp->ContainerPtrToValuePtr<void>(ScanBuffer), true);
             
-            DP_LOG(Normal, "[Asset Scanner] Forcing synchronous rescan of folder to register modded .pak assets...");
+            DP_LOG(Default, "[Asset Scanner] Forcing synchronous rescan of folder to register modded .pak assets...");
             AssetRegistry->ProcessEvent(ScanFunc, ScanBuffer);
         } else {
             DP_LOG(Warning, "[Asset Scanner] ScanPathsSynchronous function missing. Unregistered .pak assets may not be found.");
@@ -282,7 +282,7 @@ namespace DynPals::Utils {
 
             if (ScriptArray && InnerProp) {
                 int32_t NumAssets = ScriptArray->Num();
-                DP_LOG(Normal, "[Asset Scanner] Search complete. Discovered {} total assets in folder.", NumAssets);
+                DP_LOG(Default, "[Asset Scanner] Search complete. Discovered {} total assets in folder.", NumAssets);
 
                 int32_t ElementSize = InnerProp->GetSize();
                 uint8_t* ArrayData = static_cast<uint8_t*>(ScriptArray->GetData());
@@ -315,9 +315,9 @@ namespace DynPals::Utils {
                                     // Strictly filter for Materials and MaterialInstances
                                     if (ClassName.find(L"Material") != std::wstring::npos) {
                                         Results.push_back(Path);
-                                        DP_LOG(Normal, "  -> [Accepted Material] Class: '{}', Path: '{}'", ClassName, Path);
+                                        DP_LOG(Default, "  -> [Accepted Material] Class: '{}', Path: '{}'", ClassName, Path);
                                     } else {
-                                        DP_LOG(Normal, "  -> [Rejected Asset] Class: '{}', Path: '{}'", ClassName, Path);
+                                        DP_LOG(Default, "  -> [Rejected Asset] Class: '{}', Path: '{}'", ClassName, Path);
                                     }
                                 } else {
                                     Results.push_back(FullName);

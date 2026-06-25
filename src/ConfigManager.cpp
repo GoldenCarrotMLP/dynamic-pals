@@ -109,7 +109,7 @@ namespace DynPals {
         }
 
         int loadedPacksCount = 0;
-        DP_LOG(Normal, "ConfigManager: Scanning recursively for Swap/Model JSONs...");
+        DP_LOG(Default, "ConfigManager: Scanning recursively for Swap/Model JSONs...");
 
         // Only scan within these two target folders
         std::vector<std::wstring> targetPaths = { PathV1, PathV2 };
@@ -167,9 +167,45 @@ namespace DynPals {
             }
         }
 
+        
+
+        // --- VALIDATION: Check for Save-Breaking Collisions ---
+        std::map<std::wstring, std::vector<size_t>> collisionMap;
+        for (size_t i = 0; i < Configs.size(); ++i) {
+            auto& cfg = Configs[i];
+            
+            // If the entry lacks a unique SwapLabel/SkinLabel AND lacks a game-native SkinName
+            if (cfg.SwapLabel.empty() && (cfg.SkinName.empty() || cfg.SkinName == L"None")) {
+                // Group them by Pack Name + CharacterID + SkelMeshPath [1]
+                std::wstring key = cfg.PackName + L"|" + ToLower(cfg.CharacterID) + L"|" + cfg.SkelMeshPath;
+                collisionMap[key].push_back(i);
+            }
+        }
+
+        for (const auto& [key, indices] : collisionMap) {
+            if (indices.size() > 1) { // If more than 1 entry shares the exact same fingerprint
+                auto& cfg = Configs[indices[0]];
+                
+                // Extract just the skeletal mesh name from the full path (e.g., SK_AmaterasuWolf_M)
+                std::wstring meshName = cfg.SkelMeshPath;
+                size_t lastSlash = meshName.find_last_of(L'/');
+                if (lastSlash != std::wstring::npos) {
+                    meshName = meshName.substr(lastSlash + 1);
+                }
+                size_t lastDot = meshName.find_last_of(L'.');
+                if (lastDot != std::wstring::npos) {
+                    meshName = meshName.substr(0, lastDot);
+                }
+                
+                // Priority 3 (Error): Will queue up and persistently stay on the screen in-game!
+                DP_LOG(Error, "JSON ERROR in Pack '{}': Found {} variants for '{}'. Please add a 'SkinLabel' property to each or they won't be able to load properly!", 
+                    cfg.PackName, indices.size(), meshName);
+
+            }
+        }
+
         DP_LOG(Normal, "Successfully loaded {} skin packs dynamically.\n", loadedPacksCount);
         DP_LOG(Normal, "Complete matchmaking table compiled with {} swaps.\n", Configs.size());
-    
     }
 
 
@@ -529,7 +565,7 @@ namespace DynPals {
         return results;
     }
 
-    int ConfigManager::FindConfigIndex(const std::wstring& PackName, const std::wstring& SkinName, const std::wstring& SwapLabel, const std::wstring& SkelMeshPath) const {
+    int ConfigManager::FindConfigIndex(const std::wstring& PackName, const std::wstring& SkinName, const std::wstring& SwapLabel, const std::wstring& SkelMeshPath, const std::wstring& CharID) const {
         
         // Tier 1: Exact Match by PackName + SwapLabel (Safely resolves identical meshes with different materials)
         if (!SwapLabel.empty()) {
@@ -545,12 +581,21 @@ namespace DynPals {
             }
         }
         
-        // Tier 3: Exact Match by PackName + unique SkelMeshPath
+        // Tier 3: Match by PackName + SkelMeshPath + CharacterID (Resolves same mesh on different Pals!) [2]
+        if (!CharID.empty()) {
+            for (size_t i = 0; i < Configs.size(); ++i) {
+                if (Configs[i].PackName == PackName && 
+                    Configs[i].SkelMeshPath == SkelMeshPath && 
+                    ToLower(Configs[i].CharacterID) == ToLower(CharID)) return (int)i;
+            }
+        }
+
+        // Tier 4: Match by PackName + unique SkelMeshPath (Legacy fallback)
         for (size_t i = 0; i < Configs.size(); ++i) {
             if (Configs[i].PackName == PackName && Configs[i].SkelMeshPath == SkelMeshPath) return (int)i;
         }
 
-        // Tier 4: Path fallback (if pack folder or json was renamed by the user)
+        // Tier 5: Path fallback (if pack folder or json was renamed by the user)
         for (size_t i = 0; i < Configs.size(); ++i) {
             if (Configs[i].SkelMeshPath == SkelMeshPath) return (int)i;
         }

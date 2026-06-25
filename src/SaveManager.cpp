@@ -144,7 +144,7 @@ namespace DynPals {
         std::ofstream file(persistPath);
         if (file.is_open()) {
             file << out.dump(4);
-            DP_LOG(Normal, "Saved world persistence data cleanly to disk.\n");
+            DP_LOG(Default, "Saved world persistence data cleanly to disk.\n");
         }
     }
     

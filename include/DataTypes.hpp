@@ -25,13 +25,23 @@ namespace DynPals {
 #define DP_LOG(Level, Format, ...) \
     do { \
         RC::Output::send<RC::LogLevel::Level>(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__); \
-        if constexpr (RC::LogLevel::Level == RC::LogLevel::Error || RC::LogLevel::Level == RC::LogLevel::Warning) { \
-            uint8_t priority = (RC::LogLevel::Level == RC::LogLevel::Error) ? 2 : 1; \
-            uint8_t tone = 1; \
+        if constexpr (RC::LogLevel::Level == RC::LogLevel::Error) { \
             DynPals::EnqueueUIToast( \
                 fmt::format(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__), \
-                priority, \
-                tone \
+                3, \
+                1 \
+            ); \
+        } else if constexpr (RC::LogLevel::Level == RC::LogLevel::Warning) { \
+            DynPals::EnqueueUIToast( \
+                fmt::format(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__), \
+                2, \
+                1 \
+            ); \
+        } else if constexpr (RC::LogLevel::Level == RC::LogLevel::Normal) { \
+            DynPals::EnqueueUIToast( \
+                fmt::format(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__), \
+                1, \
+                1 \
             ); \
         } \
     } while(0)

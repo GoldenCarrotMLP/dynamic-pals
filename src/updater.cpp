@@ -49,7 +49,7 @@ namespace DynPals {
     }
 
     void Updater::CheckForUpdates() {
-        DP_LOG(Normal, "Auto-Updater: Checking GitHub for updates...");
+        DP_LOG(Default, "Auto-Updater: Checking GitHub for updates...");
 
         std::wstring currentDllPath = GetCurrentDllPath();
         std::wstring oldDllPath = currentDllPath + L".old";
@@ -88,7 +88,7 @@ namespace DynPals {
         remoteVersion = Trim(remoteVersion);
 
         if (remoteVersion.empty()) {
-            DP_LOG(Warning, "Auto-Updater: Failed to fetch remote version.txt");
+            DP_LOG(Warning, "Auto-Updater: Failed to fetch remote version.txt, auto updates is disabled");
             InternetCloseHandle(hInternet);
             return;
         }
@@ -102,7 +102,7 @@ namespace DynPals {
             if (remoteVal > localVal) {
                 bShouldUpdate = true;
             } else {
-                DP_LOG(Normal, "Auto-Updater: Local version ({}) is up-to-date or newer than remote ({}). Skipping update.", 
+                DP_LOG(Default, "Auto-Updater: Local version ({}) is up-to-date or newer than remote ({}). Skipping update.", 
                     Utils::StringToWString(localVersion), Utils::StringToWString(remoteVersion));
             }
         } catch (...) {
@@ -112,9 +112,9 @@ namespace DynPals {
         }
 
         if (bShouldUpdate) {
-            DP_LOG(Normal, "Auto-Updater: Update found! Local: [{}] | Remote: [{}]", 
+            DP_LOG(Default, "Auto-Updater: Update found! Local: [{}] | Remote: [{}]", 
                 Utils::StringToWString(localVersion), Utils::StringToWString(remoteVersion));
-            DP_LOG(Normal, "Auto-Updater: Downloading new main.dll...");
+            DP_LOG(Default, "Auto-Updater: Downloading new main.dll...");
 
             std::string dllUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/main/dlls/main.dll";
             HINTERNET hDownload = InternetOpenUrlA(hInternet, dllUrl.c_str(), NULL, 0, INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE, 0);
@@ -138,25 +138,24 @@ namespace DynPals {
 
                             WriteFileStr(versionTxtPath, remoteVersion);
 
-                            DP_LOG(Warning, "=========================================================");
-                            DP_LOG(Warning, "DynPals has been auto-updated to version: {}", Utils::StringToWString(remoteVersion));
-                            DP_LOG(Warning, "Please restart Palworld to apply the new update.");
-                            DP_LOG(Warning, "=========================================================");
+                            DP_LOG(Default, "=========================================================");
+                            DP_LOG(Normal, "DynPals has been auto-updated to version: {} \nPlease restart Palworld to apply the new update", Utils::StringToWString(remoteVersion));
+                            DP_LOG(Default, "=========================================================");
                         } else {
                             MoveFileExW(oldDllPath.c_str(), currentDllPath.c_str(), MOVEFILE_REPLACE_EXISTING);
-                            DP_LOG(Error, "Auto-Updater: Failed to write new main.dll to disk!");
+                            DP_LOG(Warning, "Auto-Updater: Failed to write new main.dll to disk!");
                         }
                     } else {
-                        DP_LOG(Error, "Auto-Updater: Failed to rename the locked main.dll. File might be hard-locked.");
+                        DP_LOG(Warning, "Auto-Updater: Failed to rename the locked main.dll. File might be hard-locked.");
                     }
                 } else {
-                    DP_LOG(Error, "Auto-Updater: Downloaded DLL was empty.");
+                    DP_LOG(Warning, "Auto-Updater: Downloaded DLL was empty.");
                 }
             } else {
-                DP_LOG(Error, "Auto-Updater: Failed to connect to download URL.");
+                DP_LOG(Warning, "Auto-Updater: Failed to connect to download URL.");
             }
         } else {
-            DP_LOG(Normal, "Auto-Updater: Mod is up to date (Version: {})", Utils::StringToWString(localVersion));
+            DP_LOG(Default, "Auto-Updater: Mod is up to date (Version: {})", Utils::StringToWString(localVersion));
         }
 
         InternetCloseHandle(hInternet);

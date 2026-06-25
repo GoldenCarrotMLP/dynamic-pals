@@ -251,7 +251,7 @@ namespace DynPals {
         if (RawCharID.rfind(L"GYM_", 0) == 0 || RawCharID.find(L"_Gym_") != std::wstring::npos) return;
 
         // --- DEBUG 1: FUNCTION ENTRANCE ---
-        DP_LOG(Normal, "[Debug Swap] ExecuteSwap called for Pal '{}' (ID: {}).", RawCharID, InstanceID);
+        //DP_LOG(Default, "[Debug Swap] ExecuteSwap called for Pal '{}' (ID: {}).", RawCharID, InstanceID);
 
         SaveManager::Get().LoadWorldData(World);
         PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
@@ -320,7 +320,8 @@ namespace DynPals {
 
         int currentSwap = -1;
         if (ExistingData && ExistingData->HasSavedSwap()) {
-            currentSwap = ConfigManager::Get().FindConfigIndex(ExistingData->PackName, ExistingData->SkinName, ExistingData->SwapLabel, ExistingData->SkelMeshPath);
+            // Pass CharID to allow different characters to share the same mesh without collision [1]
+            currentSwap = ConfigManager::Get().FindConfigIndex(ExistingData->PackName, ExistingData->SkinName, ExistingData->SwapLabel, ExistingData->SkelMeshPath, CharID);
         }
 
         int finalSwap = -1;
@@ -332,7 +333,7 @@ namespace DynPals {
             // --- DEBUG 2: DUPLICATE GUARD BLOCK ---
             auto it = SwappedInstances.find(InstanceID);
             if (!ForceReroll && !bBucketChanged && it != SwappedInstances.end() && it->second == Character) {
-                DP_LOG(Normal, "[Debug Swap] Blocked Duplicate: Pal '{}' (ID: '{}') already processed on Actor {}. Skipping.", RawCharID, InstanceID, (void*)Character);
+                //DP_LOG(Default, "[Debug Swap] Blocked Duplicate: Pal '{}' (ID: '{}') already processed on Actor {}. Skipping.", RawCharID, InstanceID, (void*)Character);
                 return; 
             }
 
@@ -390,7 +391,7 @@ namespace DynPals {
             
             if (bNeedsApply) {
                 // --- DEBUG 3: PROCEEDING WITH SWAP ---
-                DP_LOG(Normal, "[Debug Swap] Proceeding to Swap Pal '{}' (ID: '{}', Actor: {}). Reason: {}", 
+                DP_LOG(Verbose, "[Debug Swap] Proceeding to Swap Pal '{}' (ID: '{}', Actor: {}). Reason: {}", 
                     RawCharID, InstanceID, (void*)Character,
                     (ExplicitSwapIndex != -1) ? L"Explicit Selection" : 
                     (ForceReroll) ? L"Force Reroll" : 
@@ -461,7 +462,7 @@ namespace DynPals {
             if (ResolvePalBlueprintPath(Character, AnimPath, ResolvedPath)) {
                 TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(ResolvedPath));
                 if (TargetBPClass) {
-                    //DP_LOG(Normal, "[DEBUG] Successfully resolved Pal '{}' natively to path: '{}'\n", AnimPath, ResolvedPath);
+                    //DP_LOG(Default, "[DEBUG] Successfully resolved Pal '{}' natively to path: '{}'\n", AnimPath, ResolvedPath);
                     size_t dotPos = ResolvedPath.find(L'.');
                     if (dotPos != std::wstring::npos) {
                         TargetPackagePath = ResolvedPath.substr(0, dotPos);
@@ -472,7 +473,7 @@ namespace DynPals {
 
             // 2. Secondary Fallback: Guess paths if the ID isn't registered in the native Database
             if (!TargetBPClass) {
-                DP_LOG(Warning, "[DEBUG] Pal '{}' not found in native Database. Falling back to path-guessing...\n", AnimPath);
+                DP_LOG(Normal, "Pal '{}' not found in native Database. Falling back to path-guessing...\n", AnimPath);
                 
                 std::wstring TryPath1 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
                 TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath1));
@@ -498,7 +499,7 @@ namespace DynPals {
         } else {
             TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
             if (!TargetBPClass) {
-                DP_LOG(Error, "Failed to load Animation Target Blueprint for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, AnimPath);
+                DP_LOG(Warning, "Failed to load Animation Target Blueprint for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, AnimPath);
             }
             size_t dotPos = AnimPath.find(L'.');
             if (dotPos != std::wstring::npos) {
@@ -649,38 +650,38 @@ namespace DynPals {
         }
 
         // Apply material overrides safely
-        DP_LOG(Normal, "=== MATERIAL OVERRIDE PROCESS START (Count: {}) ===", swap.MatReplaceList.size());
+        //DP_LOG(Default, "=== MATERIAL OVERRIDE PROCESS START (Count: {}) ===", swap.MatReplaceList.size());
 
         for (auto& mat : swap.MatReplaceList) {
             std::wstring ChosenPath = mat.matPath;
             std::wstring WideIndex = Utils::StringToWString(mat.index);
 
-            DP_LOG(Normal, "[Slot {}] Target Config Path: '{}'", WideIndex, mat.matPath);
+            //DP_LOG(Default, "[Slot {}] Target Config Path: '{}'", WideIndex, mat.matPath);
 
             // 1. Is this a wildcard folder path?
             if (mat.matPath.length() >= 2 && mat.matPath.substr(mat.matPath.length() - 2) == L"/*") {
                 std::wstring VirtualFolder = mat.matPath.substr(0, mat.matPath.length() - 2);
 
-                DP_LOG(Normal, "[Slot {}] Wildcard folder detected. Querying Asset Registry for folder: '{}'", WideIndex, VirtualFolder);
+                DP_LOG(Default, "[Slot {}] Wildcard folder detected. Querying Asset Registry for folder: '{}'", WideIndex, VirtualFolder);
 
                 // ALWAYS call GetAssetsInVirtualFolder first. This forces the Engine to run 
                 // ScanPathsSynchronous on the .pak file so it actually knows the materials exist!
                 std::vector<std::wstring> AvailableMats = Utils::GetAssetsInVirtualFolder(VirtualFolder);
-                DP_LOG(Normal, "[Slot {}] Asset Registry returned {} valid material files.", WideIndex, AvailableMats.size());
+                DP_LOG(Default, "[Slot {}] Asset Registry returned {} valid material files.", WideIndex, AvailableMats.size());
 
                 // Verbose: Dump every discovered asset inside the target folder
                 for (size_t i = 0; i < AvailableMats.size(); ++i) {
-                    DP_LOG(Normal, "  -> Discovered [{}]: '{}'", i, AvailableMats[i]);
+                    DP_LOG(Default, "  -> Discovered [{}]: '{}'", i, AvailableMats[i]);
                 }
 
                 // 2. NOW check if we already have a saved material for this specific slot
                 auto savedMatIt = persist.MatSet.find(mat.index);
                 if (savedMatIt != persist.MatSet.end() && !savedMatIt->second.empty()) {
                     ChosenPath = savedMatIt->second;
-                    DP_LOG(Normal, "[Slot {}] Persistent cache HIT. Using saved material path: '{}'", WideIndex, ChosenPath);
+                    DP_LOG(Verbose, "[Slot {}] Persistent cache HIT. Using saved material path: '{}'", WideIndex, ChosenPath);
                 } 
                 else {
-                    DP_LOG(Normal, "[Slot {}] Persistent cache MISS. Picking from available materials.", WideIndex);
+                    DP_LOG(Verbose, "[Slot {}] Persistent cache MISS. Picking from available materials.", WideIndex);
 
                     if (!AvailableMats.empty()) {
                         // 3. Pick randomly and persist the choice
@@ -692,26 +693,26 @@ namespace DynPals {
                         ChosenPath = AvailableMats[RolledIndex];
                         persist.MatSet[mat.index] = ChosenPath;
                         
-                        DP_LOG(Normal, "[Slot {}] Rolled Index {} out of {}. Chosen: '{}'", WideIndex, RolledIndex, AvailableMats.size(), ChosenPath);
+                        DP_LOG(Verbose, "[Slot {}] Rolled Index {} out of {}. Chosen: '{}'", WideIndex, RolledIndex, AvailableMats.size(), ChosenPath);
                     } else {
                         DP_LOG(Warning, "[Slot {}] Wildcard folder '{}' has ZERO matching material files! Skipping slot.", WideIndex, VirtualFolder);
                         continue;
                     }
                 }
             } else {
-                DP_LOG(Normal, "[Slot {}] Static path detected. Direct apply.", WideIndex);
+                //DP_LOG(Default, "[Slot {}] Static path detected. Direct apply.", WideIndex);
                 persist.MatSet[mat.index] = ChosenPath;
             }
 
             // 5. Load and apply the chosen material
-            DP_LOG(Normal, "[Slot {}] Invoking LoadAssetSafely for: '{}'", WideIndex, ChosenPath);
+            //DP_LOG(Default, "[Slot {}] Invoking LoadAssetSafely for: '{}'", WideIndex, ChosenPath);
             UObject* NewMat = Utils::LoadAssetSafely(ChosenPath);
             
             if (!NewMat) {
                 DP_LOG(Warning, "[Slot {}] LoadAssetSafely FAILED for path: '{}'", WideIndex, ChosenPath);
                 continue;
             }
-            DP_LOG(Normal, "[Slot {}] Material loaded successfully: '{}' (Class: %s)", WideIndex, NewMat->GetName(), NewMat->GetClassPrivate()->GetName().c_str());
+            //DP_LOG(Default, "[Slot {}] Material loaded successfully: '{}' (Class: '{}')", WideIndex, NewMat->GetName(), NewMat->GetClassPrivate()->GetName().c_str());
 
             // 6. Verify mesh/blueprint targets are fully ready
             if (!IsPalBlueprintValid(Character, BPName)) {
@@ -725,19 +726,19 @@ namespace DynPals {
                 DP_LOG(Warning, "[Slot {}] GetMainMesh returned NULL. Aborting apply.", WideIndex);
                 return;
             }
-            DP_LOG(Normal, "[Slot {}] Successfully verified MainMesh component: '{}'", WideIndex, MeshComp->GetName());
+            //DP_LOG(Default, "[Slot {}] Successfully verified MainMesh component: '{}'", WideIndex, MeshComp->GetName());
 
             // 7. Execute native SetMaterial
             int idx = std::stoi(mat.index);
-            DP_LOG(Normal, "[Slot {}] Preparing to execute SetMaterial on index: {}.", WideIndex, idx);
+            //DP_LOG(Default, "[Slot {}] Preparing to execute SetMaterial on index: {}.", WideIndex, idx);
             
             struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
             Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
             
-            DP_LOG(Normal, "[Slot {}] SetMaterial execution completed successfully.", WideIndex);
+            //DP_LOG(Default, "[Slot {}] SetMaterial execution completed successfully.", WideIndex);
         }
 
-        DP_LOG(Normal, "=== MATERIAL OVERRIDE PROCESS END ===");
+        //DP_LOG(Default, "=== MATERIAL OVERRIDE PROCESS END ===");
 
 
         if (!swap.MorphTargetList.empty()) {
@@ -824,6 +825,6 @@ namespace DynPals {
         Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &UnpauseAnim);
 
         // NATIVE CONSOLE LOG (Kept as 'Normal' level so it stays out of the UI and doesn't clutter player gameplay screen)
-        //DP_LOG(Normal, "Successfully applied swap '{}' from Pack '{}' to Pal '{}'!\n", swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID);
+        //DP_LOG(Default, "Successfully applied swap '{}' from Pack '{}' to Pal '{}'!\n", swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID);
     }
 }

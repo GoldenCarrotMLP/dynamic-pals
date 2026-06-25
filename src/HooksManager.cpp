@@ -7,6 +7,7 @@
 #include "Utils.hpp"
 #include "AsyncHelper.hpp"
 #include "Updater.hpp"
+#include <fstream>
 
 #include <Unreal/CoreUObject/UObject/Class.hpp> 
 #include <Unreal/UObjectGlobals.hpp>
@@ -32,6 +33,52 @@ namespace DynPals {
         }
     }
 
+    // Helper function to safely read version.txt and format it like v0.0.56
+static std::wstring GetFormattedVersionString() {
+    HMODULE hModule = NULL;
+    // Get the handle of the module containing this function [1]
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        (LPCWSTR)&GetFormattedVersionString, &hModule);
+    wchar_t path[MAX_PATH];
+    GetModuleFileNameW(hModule, path, MAX_PATH);
+    std::wstring currentDllPath(path);
+    std::wstring dllDir = currentDllPath.substr(0, currentDllPath.find_last_of(L"\\/") + 1);
+    std::wstring versionTxtPath = dllDir + L"version.txt";
+
+    std::ifstream file(versionTxtPath);
+    if (!file.is_open()) {
+        return L"v0.0.56"; // Default/Fallback if the file doesn't exist yet [1]
+    }
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    
+    // Trim whitespaces and newlines
+    content.erase(0, content.find_first_not_of(" \t\r\n"));
+    size_t last = content.find_last_not_of(" \t\r\n");
+    if (last != std::string::npos) {
+        content.erase(last + 1);
+    }
+
+    if (content.empty()) {
+        return L"v0.0.56";
+    }
+
+    try {
+        int versionNum = std::stoi(content);
+        // Decimal-coded version mapping: 56 -> v0.0.56, 102 -> v0.1.02, 1234 -> v1.2.34
+        int major = versionNum / 1000;
+        int minor = (versionNum / 100) % 10;
+        int patch = versionNum % 100;
+        wchar_t buf[64];
+        swprintf(buf, 64, L"v%d.%d.%02d", major, minor, patch);
+        return std::wstring(buf);
+    } catch (...) {
+        // Safe string fallback in case of abnormal formatting in version.txt
+        std::wstring rawVersion;
+        rawVersion.assign(content.begin(), content.end());
+        return L"v" + rawVersion;
+    }
+}
+
     // --- LIVE STAT CHANGE DETECTOR ---
     static void OnPalStatChanged(UnrealScriptFunctionCallableContext& Context, void*) {
         if (!bCompletedInitReady) return; 
@@ -55,7 +102,7 @@ namespace DynPals {
     }
 
     static void OnStartedWorldAutoSave(UnrealScriptFunctionCallableContext&, void*) {
-        DP_LOG(Normal, "Auto-Save triggered! Synchronizing world persistence...\n");
+        DP_LOG(Default, "Auto-Save triggered! Synchronizing world persistence...\n");
         SaveManager::Get().SaveWorldData();
     }
 
@@ -122,9 +169,10 @@ namespace DynPals {
             bCompletedInitReady = false;
             
             SaveManager::Get().Reset();
+            NotificationManager::Get().SetReady(false); 
             PalProcessor::Get().ClearAllSwappedStatus();
             
-            DP_LOG(Normal, "Transitioned to Main Menu (Detected via %S). Mod entering standby mode...\n", WidgetName.c_str());
+            DP_LOG(Default, "Transitioned to Main Menu (Detected via %S). Mod entering standby mode...\n", WidgetName.c_str());
 
             // Execute the auto-updater safely on a background thread
             std::thread([]() {
@@ -138,6 +186,7 @@ namespace DynPals {
         // so that OnWidgetAddedToViewport will successfully trigger the updater again when the map finishes loading.
         bIsAtMenu = false;
         bCompletedInitReady = false;
+        NotificationManager::Get().SetReady(false); 
     }
 
     static void OnClientRestart(UnrealScriptFunctionCallableContext& Context, void*) {
@@ -163,6 +212,7 @@ namespace DynPals {
 
                 if (bIsMenu) {
                     bCompletedInitReady = false;
+                    NotificationManager::Get().SetReady(false);
                     SaveManager::Get().Reset();
                     PalProcessor::Get().ClearAllSwappedStatus();
                 } else {
@@ -170,17 +220,18 @@ namespace DynPals {
                     bIsAtMenu = false; 
                     bCompletedInitReady = false;
                     
+                    NotificationManager::Get().SetReady(false);
                     SaveManager::Get().Reset();
                     PalProcessor::Get().ClearAllSwappedStatus();
 
-                    DP_LOG(Normal, "New Session Detected (Map: '{}'). Spawning surge quarantine active. Pausing swaps for 5 seconds...\n", MapName);
+                    DP_LOG(Default, "New Session Detected (Map: '{}'). Spawning surge quarantine active. Pausing swaps for 5 seconds...\n", MapName);
 
                     // Fire and forget the 5-second settle period on a background thread
                     std::thread([]() {
-                        std::this_thread::sleep_for(std::chrono::seconds(5));
+                        std::this_thread::sleep_for(std::chrono::seconds(8));
 
                         AsyncHelper::AsyncTask(ENamedThreads::GameThread, []() {
-                            DP_LOG(Normal, "Settle period complete. Running overworld Pal reconciliation...\n");
+                            DP_LOG(Default, "Settle period complete. Running overworld Pal reconciliation...\n");
 
                             std::vector<UObject*> AllPals;
                             UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
@@ -191,7 +242,14 @@ namespace DynPals {
                             }
 
                             bCompletedInitReady = true; // Safe to process new spawns now!
-                            DP_LOG(Normal, "Reconciliation complete. Mod entering zero-overhead standby.\n");
+                            DP_LOG(Default, "Reconciliation complete. Mod entering zero-overhead standby.\n");
+
+                            // Grab the parsed version string and broadcast it to the player as a warning-level toast [1, 2]
+                            std::wstring verStr = GetFormattedVersionString();
+                            DP_LOG(Normal, "welcome to dynamic pals {}", verStr);
+
+                            // Flush any deferred startup errors or syntax issues safely [1, 2]
+                            NotificationManager::Get().FlushQueuedToasts();
                         });
                     }).detach();
                 }
@@ -204,7 +262,7 @@ namespace DynPals {
         UFunction* InitFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Pal.PalNPC:OnCompletedInitParam"));
         if (InitFunc) {
             InitFunc->RegisterPostHook(OnPalSpawnedReady, nullptr);
-            DP_LOG(Normal, "Successfully hooked OnCompletedInitParam (Native Pipeline Active!)\n");
+            DP_LOG(Default, "Successfully hooked OnCompletedInitParam (Native Pipeline Active!)\n");
         } else {
             DP_LOG(Error, "CRITICAL: Failed to hook PalNPC initialization!\n");
         }
@@ -213,7 +271,7 @@ namespace DynPals {
         UFunction* RestartFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Engine.PlayerController:ClientRestart"));
         if (RestartFunc) {
             RestartFunc->RegisterPostHook(OnClientRestart, nullptr);
-            DP_LOG(Normal, "Successfully hooked ClientRestart for map transitions.\n");
+            DP_LOG(Default, "Successfully hooked ClientRestart for map transitions.\n");
         } else {
             DP_LOG(Error, "CRITICAL: Failed to hook ClientRestart!\n");
         }
@@ -222,7 +280,7 @@ namespace DynPals {
         UFunction* ActorRotFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Engine.Actor:K2_GetActorRotation"));
         if (ActorRotFunc) {
             ActorRotFunc->RegisterPreHook(OnGameThreadTick, nullptr);
-            DP_LOG(Normal, "Successfully hooked K2_GetActorRotation on the Game Thread.\n");
+            DP_LOG(Default, "Successfully hooked K2_GetActorRotation on the Game Thread.\n");
         } else {
             DP_LOG(Error, "CRITICAL: Failed to hook K2_GetActorRotation!\n");
         }
@@ -231,7 +289,7 @@ namespace DynPals {
         UFunction* SaveFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Pal.PalSaveGameManager:StartWorldDataAutoSave"));
         if (SaveFunc) {
             SaveFunc->RegisterPostHook(OnStartedWorldAutoSave, nullptr);
-            DP_LOG(Normal, "Successfully hooked StartWorldDataAutoSave for auto-saving.\n");
+            DP_LOG(Default, "Successfully hooked StartWorldDataAutoSave for auto-saving.\n");
         } else {
             DP_LOG(Warning, "WARNING: Failed to hook StartWorldDataAutoSave. Auto-saves may not trigger.\n");
         }
@@ -257,7 +315,7 @@ namespace DynPals {
         UFunction* AddToViewportFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/UMG.UserWidget:AddToViewport"));
         if (AddToViewportFunc) {
             AddToViewportFunc->RegisterPostHook(OnWidgetAddedToViewport, nullptr);
-            DP_LOG(Normal, "Successfully hooked UserWidget:AddToViewport for menu detection.\n");
+            DP_LOG(Default, "Successfully hooked UserWidget:AddToViewport for menu detection.\n");
         }
         
         // 6B. Fallback for AddToPlayerScreen 
@@ -270,7 +328,7 @@ namespace DynPals {
         UFunction* OpenLevelFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Engine.GameplayStatics:OpenLevel"));
         if (OpenLevelFunc) {
             OpenLevelFunc->RegisterPreHook(OnOpenLevel, nullptr);
-            DP_LOG(Normal, "Successfully hooked GameplayStatics:OpenLevel.\n");
+            DP_LOG(Default, "Successfully hooked GameplayStatics:OpenLevel.\n");
         }
     }
 }
