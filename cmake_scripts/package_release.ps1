@@ -44,6 +44,16 @@ if (-not [string]::IsNullOrEmpty($DocsDir)) {
     Copy-Item -Path $DocsDir -Destination "$StageOffline/Docs" -Recurse -Force
 }
 
+# Locate vfx directory safely (handling potential casing differences)
+$VFXDir = ""
+if (Test-Path "$SourceDir/VFX") { $VFXDir = "$SourceDir/VFX" }
+elseif (Test-Path "$SourceDir/vfx") { $VFXDir = "$SourceDir/vfx" }
+
+if (-not [string]::IsNullOrEmpty($VFXDir)) {
+    Copy-Item -Path $VFXDir -Destination "$StageAuto/vfx" -Recurse -Force
+    Copy-Item -Path $VFXDir -Destination "$StageOffline/vfx" -Recurse -Force
+}
+
 # Distribute generated configs and version tracking
 foreach ($stage in @($StageAuto, $StageOffline)) {
     Copy-Item "$SourceDir/dlls/version.txt" -Destination "$stage/dlls/version.txt" -Force

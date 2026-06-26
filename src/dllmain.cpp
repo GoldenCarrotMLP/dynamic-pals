@@ -81,9 +81,10 @@ public:
             DynPals::Utils::CallFunction(KismetLib, STR("GetProjectContentDirectory"), &ContentDir);
             std::wstring BasePath = DynPals::Utils::FStringToWString(ContentDir);
 
-            DynPals::VFXManager::Get().Initialize();
+            
             DynPals::SaveManager::Get().Initialize(BasePath);
             DynPals::ConfigManager::Get().Initialize(BasePath);
+            DynPals::VFXManager::Get().Initialize(); 
             DynPals::HooksManager::RegisterHooks();
         }
     }

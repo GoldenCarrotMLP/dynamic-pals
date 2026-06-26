@@ -3,6 +3,7 @@
 #include "SaveManager.hpp"
 #include "Utils.hpp"
 #include "AsyncHelper.hpp"
+#include "VFXManager.hpp"
 #include <random>
 #include <thread>
 
@@ -151,6 +152,34 @@ namespace DynPals {
                 ProcessPal(Pal, false);
             }
         }
+    }
+
+
+    void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
+        if (!Character) return;
+        
+        // 1. Play the visual composition instantly and get the JSON-defined swap delay
+        float DelaySeconds = VFXManager::Get().PlayComposition(Character, CompName);
+        
+        // 2. Schedule the physical swap for later
+        int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
+        ForceSwap(Character, SwapIndex, DelayMs);
+    }
+
+    void PalProcessor::DelayedReroll(UObject* Character, const std::wstring& CompName) {
+        if (!Character) return;
+        
+        // 1. Play the visual composition instantly
+        float DelaySeconds = VFXManager::Get().PlayComposition(Character, CompName);
+
+        // 2. Schedule a randomized evaluation for later
+        int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
+        std::thread([Character, DelayMs]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
+            AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Character]() {
+                PalProcessor::Get().ProcessPal(Character, true);
+            });
+        }).detach();
     }
 
 
@@ -391,11 +420,27 @@ namespace DynPals {
             
             if (bNeedsApply) {
                 // --- DEBUG 3: PROCEEDING WITH SWAP ---
-                DP_LOG(Verbose, "[Debug Swap] Proceeding to Swap Pal '{}' (ID: '{}', Actor: {}). Reason: {}", 
+                DP_LOG(Default, "[Debug Swap] Proceeding to Swap Pal '{}' (ID: '{}', Actor: {}). Reason: {}", 
                     RawCharID, InstanceID, (void*)Character,
                     (ExplicitSwapIndex != -1) ? L"Explicit Selection" : 
                     (ForceReroll) ? L"Force Reroll" : 
                     (finalSwap != currentSwap) ? L"Skin Changed" : L"New Actor Spawned");
+
+                // ==========================================
+                // LIVE EVOLUTION INTERCEPT
+                // If this swap is triggered by an organic, in-game stat change (not a UI click or a fresh spawn), 
+                // we abort the instant swap and route it through the Composer for a visual evolution!
+                // ==========================================
+                bool bIsLiveEvolution = bLiveEventTriggered && !bIsNewActor && (finalSwap != currentSwap) && (ExplicitSwapIndex == -1) && !ForceReroll;
+
+                if (bIsLiveEvolution) {
+                    DP_LOG(Default, "Live Evolution Triggered! Deferring physical swap for visual composition...");
+                    
+                    // Plays evolve_1 and schedules the physical swap to happen after the JSON delay passes!
+                    DelayedSwap(Character, finalSwap, L"evolve_1");
+                    
+                    return; // Abort immediate swap execution!
+                }
 
                 PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ InstanceID, L"", L"", L"", {} };
                 
@@ -416,7 +461,14 @@ namespace DynPals {
                 SaveManager::Get().SetPersistData(InstanceID, newData, bIsManualAction);
 
                 SwappedInstances[InstanceID] = Character;
+
+                // Play the modular fast swap effect on forced/manual UI swaps
+                if (bIsManualAction) {
+                    VFXManager::Get().PlaySwapEffect(Character, L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
+
+                }
             }
+
         }
     }
     

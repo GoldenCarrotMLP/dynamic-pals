@@ -33,7 +33,9 @@ namespace DynPals {
         void ProcessPal(RC::Unreal::UObject* Character, bool ForceReroll);
         void CheckAndTriggerUpdate(RC::Unreal::UObject* Character);
         void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex, int DelayMs = 10);
-        
+        // Swaps the Pal after a specified delay while playing a visual effect immediately
+        void DelayedSwap(RC::Unreal::UObject* Character, int SwapIndex, const std::wstring& CompName);
+        void DelayedReroll(RC::Unreal::UObject* Character, const std::wstring& CompName);
         void ScanActivePals();
 
         void ClearAllSwappedStatus();

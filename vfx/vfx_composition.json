@@ -1,0 +1,24 @@
+{
+    "hotReload": true,
+    "compositions": {
+        "evolve_1": {
+            "swapTime": 5.0,
+            "events": [
+                {
+                    "time": 0.0,
+                    "vfxPath": "/Game/Pal/Effect/Skill/LegendDeer/RadiantPurge/NS_UniqueSkill_LegendDeer_RadiantPurge_Ball",
+                    "duration": 5.0,
+                    "scale": 1.0,
+                    "zOffset": 0.0
+                },
+                {
+                    "time": 5.0,
+                    "vfxPath": "/Game/Pal/Effect/Skill/LegendDeer/BarrierRelease/NS_UniqueSkill_LegendDeer_BarrierRelease_LastBreak",
+                    "duration": -1.0,
+                    "scale": 1.0,
+                    "zOffset": 0.0
+                }
+            ]
+        }
+    }
+}
