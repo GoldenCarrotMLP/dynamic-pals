@@ -16,6 +16,7 @@ set(COMMON_SRC_FILES
     "src/UIManager.cpp"
     "src/NotificationManager.cpp" 
     "src/AsyncHelper.cpp"
+    "src/VFXManager.cpp"
 )
 
 # -------------------------------------------------------------------------

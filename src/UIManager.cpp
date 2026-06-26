@@ -6,6 +6,7 @@
 #include "SaveManager.hpp"
 #include "PalProcessor.hpp"
 #include "Utils.hpp"
+#include "AsyncHelper.hpp"
 
 #include <Unreal/UObject.hpp>
 #include <Unreal/FString.hpp>
@@ -54,51 +55,46 @@ namespace DynPals {
     }
 
     void UIManager::LockInput(bool bLock) {
-    if (!CurrentPlayerController) return;
+        if (!CurrentPlayerController) return;
 
-    if (bLock) {
-        // 1. Show the mouse cursor and enable click events 
-        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bShowMouseCursor"), true);
-        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableClickEvents"), true);
-        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableMouseOverEvents"), true);
+        if (bLock) {
+            // 1. Show the mouse cursor and enable click events 
+            Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bShowMouseCursor"), true);
+            Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableClickEvents"), true);
+            Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableMouseOverEvents"), true);
 
-        // 2. Ignore camera movement
-        // Note: In Unreal Engine, this increments an internal "Ignore" counter!
-        struct { bool bNewLookInput; } LookParams{ true };
-        Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreLookInput"), &LookParams);
+            // 2. Ignore camera movement
+            struct { bool bNewLookInput; } LookParams{ true };
+            Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreLookInput"), &LookParams);
 
-        // 3. Ignore player/mount movement 
-        struct { bool bNewMoveInput; } MoveParams{ true };
-        Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreMoveInput"), &MoveParams);
+            // 3. Ignore player/mount movement 
+            struct { bool bNewMoveInput; } MoveParams{ true };
+            Utils::CallFunction(CurrentPlayerController, STR("SetIgnoreMoveInput"), &MoveParams);
 
-    } else {
-        // 1. Hide the mouse cursor AND disable click events! 
-        // (If not disabled, the PlayerController will intercept clicks meant for the game viewport)
-        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bShowMouseCursor"), false);
-        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableClickEvents"), false);
-        Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableMouseOverEvents"), false);
+        } else {
+            // 1. Hide the mouse cursor AND disable click events! 
+            Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bShowMouseCursor"), false);
+            Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableClickEvents"), false);
+            Utils::SetPropertyValue<bool>(CurrentPlayerController, STR("bEnableMouseOverEvents"), false);
 
-        // 2. Restore camera & movement
-        // CRITICAL FIX: Use Reset() instead of Set(false). 
-        // Because rebuilding the UI calls LockInput(true) multiple times, the ignore counters stack. 
-        // Resetting guarantees the counters drop to 0, completely unblocking the player.
-        Utils::CallFunction(CurrentPlayerController, STR("ResetIgnoreLookInput"));
-        Utils::CallFunction(CurrentPlayerController, STR("ResetIgnoreMoveInput"));
-        
-        // 3. Force focus back to game viewport
-        UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
-        if (WBL) {
-            Utils::CallFunction(WBL, STR("SetFocusToGameViewport"));
+            // 2. Restore camera & movement
+            Utils::CallFunction(CurrentPlayerController, STR("ResetIgnoreLookInput"));
+            Utils::CallFunction(CurrentPlayerController, STR("ResetIgnoreMoveInput"));
             
-            // 4. Safely return Input Mode to Game Only
-            UFunction* InputModeFunc = WBL->GetFunctionByNameInChain(STR("SetInputMode_GameOnly"));
-            if (InputModeFunc) {
-                struct { UObject* PC; bool bConsume; } InputModeParams{ CurrentPlayerController, false };
-                WBL->ProcessEvent(InputModeFunc, &InputModeParams);
+            // 3. Force focus back to game viewport
+            UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
+            if (WBL) {
+                Utils::CallFunction(WBL, STR("SetFocusToGameViewport"));
+                
+                // 4. Safely return Input Mode to Game Only
+                UFunction* InputModeFunc = WBL->GetFunctionByNameInChain(STR("SetInputMode_GameOnly"));
+                if (InputModeFunc) {
+                    struct { UObject* PC; bool bConsume; } InputModeParams{ CurrentPlayerController, false };
+                    WBL->ProcessEvent(InputModeFunc, &InputModeParams);
+                }
             }
         }
     }
-}
 
     void UIManager::UpdateTarget() {
         TargetPal = nullptr;
@@ -107,7 +103,6 @@ namespace DynPals {
 
         // Always find the active PlayerController to prevent Use-After-Free crashes!
         CurrentPlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-        
 
         if (!CurrentPlayerController) {
             DP_LOG(Warning, "UpdateTarget cancelled: CurrentPlayerController is NULL!");
@@ -121,7 +116,6 @@ namespace DynPals {
             return;
         }
 
-        // 1. Get the actual 3D camera location and rotation natively (resolves third-person camera offset)
         struct FRotator_UE5 { double Pitch, Yaw, Roll; };
         struct { FVector_UE5 Location; FRotator_UE5 Rotation; } ViewPointParams;
         Utils::CallFunction(CurrentPlayerController, STR("GetPlayerViewPoint"), &ViewPointParams);
@@ -129,8 +123,7 @@ namespace DynPals {
         FVector_UE5 CameraLoc = ViewPointParams.Location;
         FRotator_UE5 CameraRot = ViewPointParams.Rotation;
 
-        // 2. Convert Camera Rotation to a 3D Forward Unit Vector
-        double PitchRad = CameraRot.Pitch * 0.01745329251; // Degrees to Radians
+        double PitchRad = CameraRot.Pitch * 0.01745329251; 
         double YawRad = CameraRot.Yaw * 0.01745329251;
         double CosPitch = std::cos(PitchRad);
 
@@ -144,11 +137,8 @@ namespace DynPals {
 
         UObject* aimedPal = nullptr;
         double highestDot = -1.0;
-
         UObject* closestPal = nullptr;
         double closestDistSq = 999999999.0;
-
-        //DP_LOG(Default, "=== DYN_PALS TARGET SCAN START (Origin: Camera Viewpoint) ===");
 
         for (UObject* Pal : AllPals) {
             if (Pal == PlayerPawn || !Pal) continue;
@@ -164,21 +154,12 @@ namespace DynPals {
 
             double distSq = (Dir.X * Dir.X) + (Dir.Y * Dir.Y) + (Dir.Z * Dir.Z);
             double dist = std::sqrt(distSq);
-            double distMeters = dist / 100.0; // Convert Unreal units (cm) to meters
 
-            // Ignore Pals outside our 50m scanning radius
-            if (dist > 5000.0) {
-                continue;
-            }
+            if (dist > 5000.0) continue;
 
-            // Calculate alignment dot product (1.0 = perfect center-screen crosshair alignment)
             FVector_UE5 DirNorm = { Dir.X / dist, Dir.Y / dist, Dir.Z / dist };
             double dot = CameraForward.X * DirNorm.X + CameraForward.Y * DirNorm.Y + CameraForward.Z * DirNorm.Z;
 
-            // Verbose diagnostics: print details for every nearby candidate being scanned
-            //DP_LOG(Default, "[AIM SCAN] Candidate: '{}' | Dist: {:.1f}m | Crosshair Alignment (Dot): {:.4f} (Cone req: >= 0.9700)\n", Pal->GetName(), distMeters, dot);
-
-            // If the Pal is inside our 14-degree crosshair aiming cone (dot >= 0.97)
             if (dot >= 0.97) {
                 if (dot > highestDot) {
                     highestDot = dot;
@@ -186,24 +167,18 @@ namespace DynPals {
                 }
             }
 
-            // Tracker for the closest fallback Pal
             if (distSq < closestDistSq) {
                 closestDistSq = distSq;
                 closestPal = Pal;
             }
         }
 
-        // 3. Selection Resolution
         UObject* selectedPal = nullptr;
         if (aimedPal) {
             selectedPal = aimedPal;
-            //DP_LOG(Default, "===> SELECTED AIMED TARGET: '{}' (Crosshair Alignment: {:.4f})\n", selectedPal->GetName(), highestDot);
         } else if (closestPal) {
             selectedPal = closestPal;
-            //DP_LOG(Default, "===> NO PAL AIMED AT. FALLING BACK TO CLOSEST: '{}' (Distance: {:.1f}m)\n", selectedPal->GetName(), std::sqrt(closestDistSq) / 100.0);
         }
-
-        //DP_LOG(Default, "=== DYN_PALS TARGET SCAN END ===");
 
         if (selectedPal) {
             TargetPal = selectedPal;
@@ -229,6 +204,7 @@ namespace DynPals {
             DP_LOG(Warning, "Target Scan completed: No valid PalCharacters were found in 50-meter range.");
         }
     }
+    
     void UIManager::BuildWidget() {
         if (!CurrentPlayerController) return;
 
@@ -259,7 +235,7 @@ namespace DynPals {
         auto ConstructElement = [&](UClass* ElementClass) -> UObject* {
             if (!ElementClass) return nullptr;
             FStaticConstructObjectParameters Params{ElementClass, MyWidget};
-            Params.Name = FName(); // Leave empty for safe engine generation
+            Params.Name = FName(); 
             return UObjectGlobals::StaticConstructObject(Params);
         };
 
@@ -279,6 +255,8 @@ namespace DynPals {
         UObject* BackgroundBorder = ConstructElement(BorderClass);
         UObject* ScrollBox = ConstructElement(ScrollBoxClass);
         UObject* VBox = ConstructElement(VerticalBoxClass);
+
+        ScrollBoxWidget = ScrollBox; // Cache natively to allow reading/writing the scroll position!
 
         auto* RootProp = Utils::GetProperty(WidgetTree, STR("RootWidget"));
         if (RootProp) {
@@ -420,7 +398,6 @@ namespace DynPals {
 
         AddSpacer(5.0);
 
-        // Fetch Live Attributes for Evaluation
         bool IsRare = false, IsWild = false;
         std::wstring GenderStr = L"None", SkinName = L"";
         int LevelNum = 1, RankNum = 0, FriendshipNum = 0;
@@ -492,14 +469,13 @@ namespace DynPals {
                 totalTiedWeight += ConfigManager::Get().GetConfigs()[eval.ConfigIndex].SpawnWeight;
             }
         }
-        // 1. First, gather all valid evals per PackName
+        
         std::map<std::wstring, std::vector<SwapEvaluation>> rawPacks;
         for (const auto& eval : evaluations) {
             if (bHideInvalidSwaps && !eval.IsValid) continue;
             rawPacks[ConfigManager::Get().GetConfigs()[eval.ConfigIndex].PackName].push_back(eval);
         }
 
-        // 2. Process each pack to find groups and generate display names
         std::map<std::wstring, std::vector<std::pair<int, std::wstring>>> uiGroupedPacks;
 
         for (auto& [packName, evals] : rawPacks) {
@@ -519,6 +495,15 @@ namespace DynPals {
                 ps.eval = eval;
                 
                 std::wstring labelName = cfg.SwapLabel;
+                
+                // Strip the programmatic fallback hash (e.g. " (A1B2C3D4)") for clean visual display! [3]
+                if (labelName.length() > 11) {
+                    size_t len = labelName.length();
+                    if (labelName[len - 1] == L')' && labelName[len - 10] == L'(' && labelName[len - 11] == L' ') {
+                        labelName = labelName.substr(0, len - 11);
+                    }
+                }
+                
                 if (labelName.empty()) labelName = cfg.SkinName;
                 if (labelName.empty()) {
                     std::wstring filename = cfg.SkelMeshPath;
@@ -529,7 +514,6 @@ namespace DynPals {
                     labelName = filename;
                 }
                 
-                // If it looks like a raw filename (contains _ or starts with SK_)
                 if (labelName.rfind(L"SK_", 0) == 0 || labelName.rfind(L"sk_", 0) == 0 || labelName.find(L'_') != std::wstring::npos) {
                     ps.isManualLabel = false;
                     std::wstring clean = labelName;
@@ -538,7 +522,6 @@ namespace DynPals {
                         clean = clean.substr(3);
                     }
                     
-                    // Case-insensitive strip of TargetCharID
                     std::wstring lowerClean = clean;
                     std::transform(lowerClean.begin(), lowerClean.end(), lowerClean.begin(), ::towlower);
                     std::wstring lowerCharID = TargetCharID;
@@ -596,11 +579,9 @@ namespace DynPals {
                     }
                     
                     if (!bestPrefix.empty()) {
-                        // Clean up the sub-category prefix and replace underscores with spaces
                         std::wstring cleanPrefix = bestPrefix;
                         std::replace(cleanPrefix.begin(), cleanPrefix.end(), L'_', L' ');
                         
-                        // Split CamelCase inside the prefix if present
                         std::wstring splitPrefix = L"";
                         if (!cleanPrefix.empty()) {
                             splitPrefix.push_back(cleanPrefix[0]);
@@ -624,7 +605,6 @@ namespace DynPals {
                         std::replace(display.begin(), display.end(), L'_', L' ');
                     }
                     
-                    // CamelCase / PascalCase Splitting: Insert a space if a lowercase letter is followed by an uppercase letter
                     std::wstring splitDisplay = L"";
                     if (!display.empty()) {
                         splitDisplay.push_back(display[0]);
@@ -643,7 +623,7 @@ namespace DynPals {
             }
         }
 
-        // --- COMBO BOX (Smart Grouped Names) ---
+        // --- COMBO BOX ---
         ComboBoxWidget = ConstructElement(ComboBoxClass);
         if (ComboBoxWidget) {
             GDropdownMapping.clear();
@@ -668,7 +648,7 @@ namespace DynPals {
 
                     PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
                     
-                    int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SwapLabel, persist->SkelMeshPath) : -1;
+                    int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SwapLabel, persist->SkelMeshPath, TargetCharID) : -1;
                     if (persistConfigIndex == evalConfigIndex) {
                         LastSelectedOption = optName;
                     }
@@ -700,13 +680,12 @@ namespace DynPals {
             }
 
             UObject* CheckLabel = ConstructElement(TextBlockClass);
-          if (CheckLabel) {
+            if (CheckLabel) {
                 FText labelVal = ConvStringToText(L" Hide Invalid Matches");
                 struct { FText InText; } SetLabelParams{labelVal};
                 Utils::CallFunction(CheckLabel, STR("SetText"), &SetLabelParams);
                 SetTextColor(CheckLabel, OffWhite);
                 
-                // FIX: Pass the actual label widget as the content!
                 struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{CheckLabel, nullptr}; 
                 Utils::CallFunction(FilterHBox, STR("AddChild"), &AddLabelParams);
             }
@@ -724,13 +703,12 @@ namespace DynPals {
                 FText btnTextVal = ConvStringToText(L"Reroll");
                 struct { FText InText; } SetTextParams{btnTextVal};
                 Utils::CallFunction(ButtonText, STR("SetText"), &SetTextParams);
-                SetTextColor(ButtonText, {0.012f, 0.078f, 0.153f, 1.0f}); // Dark blue text
+                SetTextColor(ButtonText, {0.012f, 0.078f, 0.153f, 1.0f}); 
                 
                 struct { UObject* Content; UObject* ReturnValue; } AddTextParams{ButtonText, nullptr};
                 Utils::CallFunction(RandomizeButtonWidget, STR("AddChild"), &AddTextParams);
             }
 
-            // Style with cyan theme
             struct { FLinearColor InColor; } ColorParams{PalBakerCyan};
             Utils::CallFunction(RandomizeButtonWidget, STR("SetBackgroundColor"), &ColorParams);
 
@@ -739,6 +717,64 @@ namespace DynPals {
             
             AddSpacer(15.0);
         }
+
+        // --- SLIDERS (Moved above Evaluation Log) --- [1]
+        ActiveSliders.clear();
+        PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
+        int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SwapLabel, persist->SkelMeshPath, TargetCharID) : -1;
+
+        if (persist && persistConfigIndex != -1) {
+            auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
+
+            if (!activeCfg.MorphTargetList.empty()) {
+                UObject* MorphLabel = ConstructElement(TextBlockClass);
+                if (MorphLabel) {
+                    FText labelVal = ConvStringToText(L"Morph Targets");
+                    struct { FText InText; } SetLabelParams{labelVal};
+                    Utils::CallFunction(MorphLabel, STR("SetText"), &SetLabelParams);
+                    SetTextColor(MorphLabel, PalBakerEmerald); 
+
+                    struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{MorphLabel, nullptr};
+                    Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
+                }
+                AddSpacer(10.0);
+            }
+
+            for (auto& morph : activeCfg.MorphTargetList) {
+                if (morph.type != L"Restrict" && morph.minVal < morph.maxVal) {
+                    UObject* Label = ConstructElement(TextBlockClass);
+                    if (Label) {
+                        FText labelVal = ConvStringToText(morph.target);
+                        struct { FText InText; } SetLabelParams{labelVal};
+                        Utils::CallFunction(Label, STR("SetText"), &SetLabelParams);
+                        SetTextColor(Label, OffWhite); 
+
+                        struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{Label, nullptr};
+                        Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
+                    }
+
+                    UObject* Slider = ConstructElement(SliderClass);
+                    if (Slider) {
+                        struct { float InValue; } SetMinParams{(float)morph.minVal};
+                        Utils::CallFunction(Slider, STR("SetMinValue"), &SetMinParams);
+                        struct { float InValue; } SetMaxParams{(float)morph.maxVal};
+                        Utils::CallFunction(Slider, STR("SetMaxValue"), &SetMaxParams);
+
+                        float currentVal = (float)persist->MorphSet[morph.target];
+                        struct { float InValue; } SetValParams{currentVal};
+                        Utils::CallFunction(Slider, STR("SetValue"), &SetValParams);
+
+                        struct { UObject* Content; UObject* ReturnValue; } AddSliderParams{Slider, nullptr};
+                        Utils::CallFunction(VBox, STR("AddChild"), &AddSliderParams);
+
+                        ActiveSliders.push_back({morph.target, Slider, currentVal});
+                        AddSpacer(10.0);
+                    }
+                }
+            }
+        }
+
+        AddSpacer(15.0);
 
         // --- MATCHMAKER EVALUATION LOG ---
         UObject* EvalLogTitle = ConstructElement(TextBlockClass);
@@ -818,63 +854,6 @@ namespace DynPals {
         
         AddSpacer(15.0);
 
-        // --- SLIDERS ---
-        ActiveSliders.clear();
-        PalPersistData* persist = SaveManager::Get().GetPersistData(TargetInstanceID);
-        int persistConfigIndex = persist ? ConfigManager::Get().FindConfigIndex(persist->PackName, persist->SkinName, persist->SwapLabel, persist->SkelMeshPath) : -1;
-
-        if (persist && persistConfigIndex != -1) {
-            auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
-
-            
-            if (!activeCfg.MorphTargetList.empty()) {
-                UObject* MorphLabel = ConstructElement(TextBlockClass);
-                if (MorphLabel) {
-                    FText labelVal = ConvStringToText(L"Morph Targets");
-                    struct { FText InText; } SetLabelParams{labelVal};
-                    Utils::CallFunction(MorphLabel, STR("SetText"), &SetLabelParams);
-                    SetTextColor(MorphLabel, PalBakerEmerald); 
-
-                    struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{MorphLabel, nullptr};
-                    Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
-                }
-                AddSpacer(10.0);
-            }
-
-            for (auto& morph : activeCfg.MorphTargetList) {
-                if (morph.type != L"Restrict" && morph.minVal < morph.maxVal) {
-                    UObject* Label = ConstructElement(TextBlockClass);
-                    if (Label) {
-                        FText labelVal = ConvStringToText(morph.target);
-                        struct { FText InText; } SetLabelParams{labelVal};
-                        Utils::CallFunction(Label, STR("SetText"), &SetLabelParams);
-                        SetTextColor(Label, OffWhite); 
-
-                        struct { UObject* Content; UObject* ReturnValue; } AddLabelParams{Label, nullptr};
-                        Utils::CallFunction(VBox, STR("AddChild"), &AddLabelParams);
-                    }
-
-                    UObject* Slider = ConstructElement(SliderClass);
-                    if (Slider) {
-                        struct { float InValue; } SetMinParams{(float)morph.minVal};
-                        Utils::CallFunction(Slider, STR("SetMinValue"), &SetMinParams);
-                        struct { float InValue; } SetMaxParams{(float)morph.maxVal};
-                        Utils::CallFunction(Slider, STR("SetMaxValue"), &SetMaxParams);
-
-                        float currentVal = (float)persist->MorphSet[morph.target];
-                        struct { float InValue; } SetValParams{currentVal};
-                        Utils::CallFunction(Slider, STR("SetValue"), &SetValParams);
-
-                        struct { UObject* Content; UObject* ReturnValue; } AddSliderParams{Slider, nullptr};
-                        Utils::CallFunction(VBox, STR("AddChild"), &AddSliderParams);
-
-                        ActiveSliders.push_back({morph.target, Slider, currentVal});
-                        AddSpacer(10.0);
-                    }
-                }
-            }
-        }
-
         struct { uint8_t InVisibility; } VisParams{0}; 
         Utils::CallFunction(MyWidget, STR("SetVisibility"), &VisParams);
         Utils::CallFunction(Canvas, STR("SetVisibility"), &VisParams);
@@ -889,9 +868,8 @@ namespace DynPals {
     }
 
     void UIManager::TickUI(UObject* LocalPlayerController) {
-        CurrentPlayerController = LocalPlayerController; // Cache natively bound player
+        CurrentPlayerController = LocalPlayerController; 
 
-        // Process cross-thread toggle requests safely (such as Alt+N)
         if (bToggleRequested) {
             bToggleRequested = false;
             ToggleMenu();
@@ -899,7 +877,6 @@ namespace DynPals {
 
         if (!bIsMenuOpen || !MyWidget) return;
 
-        // Close the menu when Escape is pressed
         static bool bWasEscapeDown = false;
         if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
             if (!bWasEscapeDown) {
@@ -916,9 +893,20 @@ namespace DynPals {
             Utils::CallFunction(CheckBoxWidget, STR("IsChecked"), &IsCheckedParams);
             if (IsCheckedParams.ReturnValue != bHideInvalidSwaps) {
                 bHideInvalidSwaps = IsCheckedParams.ReturnValue;
+                
+                float savedScroll = 0.0f;
+                if (ScrollBoxWidget) {
+                    Utils::CallFunction(ScrollBoxWidget, STR("GetScrollOffset"), &savedScroll);
+                }
+
                 DestroyWidget();
                 BuildWidget();
                 LockInput(true);
+
+                if (ScrollBoxWidget) {
+                    struct { float NewScrollOffset; } ScrollParams{savedScroll};
+                    Utils::CallFunction(ScrollBoxWidget, STR("SetScrollOffset"), &ScrollParams);
+                }
                 return; 
             }
         }
@@ -940,16 +928,26 @@ namespace DynPals {
                         LastSelectedOption = selectedStr;
                         PalProcessor::Get().ForceSwap(TargetPal, it->second);
                         
+                        float savedScroll = 0.0f;
+                        if (ScrollBoxWidget) {
+                            Utils::CallFunction(ScrollBoxWidget, STR("GetScrollOffset"), &savedScroll);
+                        }
+
                         DestroyWidget();
                         BuildWidget();
                         LockInput(true); 
+
+                        if (ScrollBoxWidget) {
+                            struct { float NewScrollOffset; } ScrollParams{savedScroll};
+                            Utils::CallFunction(ScrollBoxWidget, STR("SetScrollOffset"), &ScrollParams);
+                        }
+
                         return; 
                     }
                 }
             }
         }
 
-        // --- BUTTON POLLING FOR RANDOMIZE ---
         if (RandomizeButtonWidget) {
             struct { bool ReturnValue; } IsPressedParams{false};
             Utils::CallFunction(RandomizeButtonWidget, STR("IsPressed"), &IsPressedParams);
@@ -961,9 +959,20 @@ namespace DynPals {
                     DP_LOG(Default, "Randomize button clicked. Rerolling swap and morphs...");
                     PalProcessor::Get().ProcessPal(TargetPal, true);
                     
+                    float savedScroll = 0.0f;
+                    if (ScrollBoxWidget) {
+                        Utils::CallFunction(ScrollBoxWidget, STR("GetScrollOffset"), &savedScroll);
+                    }
+
                     DestroyWidget();
                     BuildWidget();
                     LockInput(true);
+
+                    if (ScrollBoxWidget) {
+                        struct { float NewScrollOffset; } ScrollParams{savedScroll};
+                        Utils::CallFunction(ScrollBoxWidget, STR("SetScrollOffset"), &ScrollParams);
+                    }
+
                     return; 
                 }
             } else {
@@ -1008,6 +1017,7 @@ namespace DynPals {
         ComboBoxWidget = nullptr;
         CheckBoxWidget = nullptr;
         RandomizeButtonWidget = nullptr;
+        ScrollBoxWidget = nullptr;
         bWasRandomizePressed = false;
         ActiveSliders.clear();
     }

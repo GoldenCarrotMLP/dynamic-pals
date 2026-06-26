@@ -599,7 +599,7 @@ namespace DynPals {
                     Utils::CallFunction(NewMesh, STR("SetSkeleton"), &SkelParams);
                 }
 
-                struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
+                struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, false};
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
             } else {
                 // UI WARNING: Fails to load custom skeletal mesh asset (e.g. wrong path or missing mod files)

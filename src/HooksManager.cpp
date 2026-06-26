@@ -7,6 +7,7 @@
 #include "Utils.hpp"
 #include "AsyncHelper.hpp"
 #include "Updater.hpp"
+#include "VFXManager.hpp"
 #include <fstream>
 
 #include <Unreal/CoreUObject/UObject/Class.hpp> 
@@ -112,7 +113,11 @@ static std::wstring GetFormattedVersionString() {
         if (bIsReentrant) return;
         bIsReentrant = true;
 
+        // Simply Tick the manager - it will safely locate the active world natively
+        VFXManager::Get().Tick();
+
         if (!UIManager::Get().IsMenuOpen()) 
+
         {
             bIsReentrant = false;
             return;

@@ -10,6 +10,7 @@
 #include "UIManager.hpp"
 #include "Utils.hpp"
 #include "AsyncHelper.hpp"
+#include "VFXManager.hpp"
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -29,6 +30,28 @@ public:
 
     auto on_update() -> void override
     {
+        static bool bPrevKeyPressed = false;
+        static bool bNextKeyPressed = false;
+
+        if (GetAsyncKeyState(VK_MENU) & 0x8000) {
+            if (GetAsyncKeyState(VK_LEFT) & 0x8000) { // Alt + Left Arrow [1]
+                if (!bPrevKeyPressed) {
+                    bPrevKeyPressed = true;
+                    DynPals::VFXManager::Get().CyclePrevious();
+                }
+            } else { bPrevKeyPressed = false; }
+
+            if (GetAsyncKeyState(VK_RIGHT) & 0x8000) { // Alt + Right Arrow [1]
+                if (!bNextKeyPressed) {
+                    bNextKeyPressed = true;
+                    DynPals::VFXManager::Get().CycleNext();
+                }
+            } else { bNextKeyPressed = false; }
+        } else {
+            bPrevKeyPressed = false;
+            bNextKeyPressed = false;
+        }
+
         static bool bMenuKeyPressed = false;
         if ((GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(0x4E) & 0x8000)) {
             if (!bMenuKeyPressed) {
@@ -43,9 +66,11 @@ public:
             bMenuKeyPressed = false;
         }
     }
-
+    
     auto on_unreal_init() -> void override
     {
+        
+
         // 1. Initialize the independent scanner
         DynPals::AsyncHelper::Initialize();
 
@@ -56,6 +81,7 @@ public:
             DynPals::Utils::CallFunction(KismetLib, STR("GetProjectContentDirectory"), &ContentDir);
             std::wstring BasePath = DynPals::Utils::FStringToWString(ContentDir);
 
+            DynPals::VFXManager::Get().Initialize();
             DynPals::SaveManager::Get().Initialize(BasePath);
             DynPals::ConfigManager::Get().Initialize(BasePath);
             DynPals::HooksManager::RegisterHooks();
