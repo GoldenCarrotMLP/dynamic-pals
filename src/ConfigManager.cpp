@@ -122,7 +122,7 @@ namespace DynPals {
                     std::wstring filepath = entry.path().wstring();
                     std::wstring filename = entry.path().filename().wstring();
 
-                    if (entry.path().extension() == L".json") {
+                    if (ToLower(entry.path().extension().wstring()) == L".json") {
                         if (filename.rfind(L"_", 0) == 0 || filename.find(L"Template") != std::wstring::npos) {
                             continue;
                         }
@@ -347,9 +347,15 @@ namespace DynPals {
                 SwapConfig sc;
                 sc.PackName = PackName;
                 sc.CharacterID = charID;
+                
+                // Start with the JSON key as the default label
                 sc.SwapLabel = Utils::StringToWString(skinLabelStr); 
 
-                
+                // Apply explicit internal labels if defined (Fixes Issue 1)
+                if (ContainsKey(swapJson, "SkinLabel")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SkinLabel").get<std::string>());
+                else if (ContainsKey(swapJson, "SwapLabel")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SwapLabel").get<std::string>());
+                else if (ContainsKey(swapJson, "SwapName")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SwapName").get<std::string>());
+
                 // Core Translations
                 if (ContainsKey(swapJson, "SkinName")) {sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());}
                 if (ContainsKey(swapJson, "SkinPath")) sc.SkelMeshPath = Utils::StringToWString(GetValue(swapJson, "SkinPath").get<std::string>());
@@ -451,6 +457,7 @@ namespace DynPals {
             }
         }
     }
+    
     std::vector<SwapEvaluation> ConfigManager::EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild) const {
         std::vector<SwapEvaluation> results;
 
