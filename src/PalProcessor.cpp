@@ -876,6 +876,57 @@ namespace DynPals {
         struct { bool bPause; } UnpauseAnim{ false };
         Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &UnpauseAnim);
 
+        // -------------------------------------------------------------
+        // FIX: Re-initialize Facial UV Warping to prevent weird body stretching
+        // When materials or meshes change, the facial component needs to rescan 
+        // the material slots to find the new eye/mouth indices. If it doesn't, 
+        // it will warp the UVs of whatever new material happens to be at the old index!
+        // -------------------------------------------------------------
+        UObject* FacialComp = nullptr;
+        Utils::GetPropertyValue<UObject*>(Character, STR("PalFacial"), FacialComp);
+        
+        // If the PalFacial property wasn't found directly, try finding the component by class
+        if (!FacialComp) {
+            UClass* FacialClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Pal.PalFacialComponent"));
+            if (FacialClass) {
+                struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{FacialClass, nullptr};
+                Utils::CallFunction(Character, STR("GetComponentByClass"), &GetCompParams);
+                FacialComp = GetCompParams.ReturnValue;
+            }
+        }
+
+        // If we successfully found the Facial Component on this Pal, reset its tracking modules
+        if (FacialComp) {
+            UObject* MainModule = nullptr;
+            if (Utils::GetPropertyValue<UObject*>(FacialComp, STR("MainModule"), MainModule) && MainModule) {
+                struct { UObject* SkeletalMeshComponent; } SetupParams{ MeshComp };
+                UFunction* SetupFunc = MainModule->GetFunctionByNameInChain(STR("Setup_FacialModule"));
+                if (SetupFunc) {
+                    MainModule->ProcessEvent(SetupFunc, &SetupParams);
+
+                    
+                    // --- VERIFICATION LOGS ---
+                    int32_t EyeIdx = -2;
+                    int32_t MouthIdx = -2;
+                    int32_t BrowIdx = -2;
+                    
+                    Utils::GetPropertyValue<int32_t>(MainModule, STR("EyeMaterialIndex"), EyeIdx);
+                    Utils::GetPropertyValue<int32_t>(MainModule, STR("MouthMaterialIndex"), MouthIdx);
+                    Utils::GetPropertyValue<int32_t>(MainModule, STR("BrowMaterialIndex"), BrowIdx);
+                    
+                    //DP_LOG(Normal, "[Facial Fix] Re-indexed {} -> Eye: {}, Mouth: {}, Brow: {}", Character->GetName(), EyeIdx, MouthIdx, BrowIdx);
+
+                }
+            }
+            
+            // Force the face state to refresh visually to prevent it from getting stuck
+            UFunction* ChangeFacialFunc = FacialComp->GetFunctionByNameInChain(STR("ChangeDefaultFacial"));
+            if (ChangeFacialFunc) {
+                FacialComp->ProcessEvent(ChangeFacialFunc, nullptr);
+            }
+        }
+
+
         // NATIVE CONSOLE LOG (Kept as 'Normal' level so it stays out of the UI and doesn't clutter player gameplay screen)
         //DP_LOG(Default, "Successfully applied swap '{}' from Pack '{}' to Pal '{}'!\n", swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID);
     }
