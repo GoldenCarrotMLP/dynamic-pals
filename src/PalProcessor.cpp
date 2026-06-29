@@ -139,20 +139,57 @@ namespace DynPals {
     }
 
     void PalProcessor::ScanActivePals() {
-        auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - LastScanTime).count() < 1000) return;
-        LastScanTime = now;
+    auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - LastScanTime).count() < 1000) return;
+    LastScanTime = now;
 
-        std::vector<UObject*> AllPals;
-        UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+    std::vector<UObject*> AllPals;
+    UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
 
-        for (UObject* Pal : AllPals) {
-            if (Pal && ProcessedPals.find(Pal) == ProcessedPals.end()) {
+    for (UObject* Pal : AllPals) {
+        if (Pal) {
+            if (ProcessedPals.find(Pal) == ProcessedPals.end()) {
                 ProcessedPals.insert(Pal);
                 ProcessPal(Pal, false);
+            } else {
+                // FAST POLL: Lightweight check for level/rank/friendship changes in the background!
+                // This creates a safety-net just in case a native stat update bypassed the UE4SS hooks.
+                UObject* ParamComp = nullptr;
+                Utils::GetPropertyValue<UObject*>(Pal, STR("CharacterParameterComponent"), ParamComp);
+                if (ParamComp) {
+                    UObject* IndivParam = nullptr;
+                    Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
+                    if (IndivParam) {
+                        struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
+                        if (Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), IDStruct) && IDStruct.InstanceId.IsValid()) {
+                            std::wstring InstanceID = Utils::GuidToWString(IDStruct.InstanceId);
+                            auto it = RuntimeStatsCache.find(InstanceID);
+                            
+                            if (it != RuntimeStatsCache.end()) {
+                                struct { int32_t RetVal; } LevelParams{1};
+                                Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
+                                
+                                struct { int32_t RetVal; } RankParams{0};
+                                Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
+                                
+                                struct { int32_t RetVal; } FriendshipParams{0};
+                                Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &FriendshipParams);
+
+                                // If any dynamic stat changed under the hood, trigger the swap evaluation
+                                if (it->second.Level != LevelParams.RetVal || 
+                                    it->second.Rank != RankParams.RetVal || 
+                                    it->second.Friendship != FriendshipParams.RetVal) 
+                                {
+                                    ProcessPal(Pal, false);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
+}
 
 
     void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
