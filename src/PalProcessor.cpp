@@ -244,7 +244,7 @@ namespace DynPals {
                         UObject* IndivParam = nullptr;
                         Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
                         if (IndivParam) {
-                            struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
+                            FPalInstanceID IDStruct;
                             if (Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), IDStruct) && IDStruct.InstanceId.IsValid()) {
                                 std::wstring InstanceID = Utils::GuidToWString(IDStruct.InstanceId);
                                 auto it = RuntimeStatsCache.find(InstanceID);
@@ -307,7 +307,7 @@ namespace DynPals {
         Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
         if (!IndivParam) return;
 
-        struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } InstanceIDStruct;
+        FPalInstanceID InstanceIDStruct;
         if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct)) return;
         
         std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
@@ -376,7 +376,7 @@ namespace DynPals {
         Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
         if (!IndivParam) return;
 
-        struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } InstanceIDStruct;
+        FPalInstanceID InstanceIDStruct;
         if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct)) return;
         if (!InstanceIDStruct.InstanceId.IsValid()) return; 
 
@@ -561,7 +561,28 @@ namespace DynPals {
                 if (ForceReroll || ExplicitSwapIndex != -1 || finalSwap != currentSwap) {
                     newData.MorphSet.clear();
                     newData.MatSet.clear();
-                    newData.MatColorSet.clear();
+                    newData.MatColorSet.clear(); 
+
+                    // --- SAFE NATIVE NICKNAME ENGINE (100% Crash-Proof) ---
+                    if (!finalConfig.SetNickname.empty()) {
+                        UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+                        if (PlayerController) {
+                            UFunction* UpdateNameFunc = PlayerController->GetFunctionByNameInChain(STR("UpdateCharacterNickName_ToServer"));
+                            if (UpdateNameFunc) {
+                                struct { 
+                                    FPalInstanceID InstanceId; 
+                                    FString NewNickName; 
+                                } Params;
+                                
+                                Params.InstanceId = InstanceIDStruct;
+                                Params.NewNickName = FString(finalConfig.SetNickname.c_str());
+                                
+                                PlayerController->ProcessEvent(UpdateNameFunc, &Params);
+                                DP_LOG(Default, "[Nickname] Natively assigned name for '{}' -> '{}'", InstanceID, finalConfig.SetNickname);
+                            }
+                        }
+                    }
+                
                 }
 
                 ApplySwap(Character, finalConfig, newData);
@@ -617,12 +638,10 @@ namespace DynPals {
         std::wstring TargetClassName = L"";
 
          if (AnimPath.find(L'/') == std::wstring::npos) {
-            // 1. Primary Attempt: Resolve natively via the game's native Database Subsystem!
             std::wstring ResolvedPath;
             if (ResolvePalBlueprintPath(Character, AnimPath, ResolvedPath)) {
                 TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(ResolvedPath));
                 if (TargetBPClass) {
-                    //DP_LOG(Default, "[DEBUG] Successfully resolved Pal '{}' natively to path: '{}'\n", AnimPath, ResolvedPath);
                     size_t dotPos = ResolvedPath.find(L'.');
                     if (dotPos != std::wstring::npos) {
                         TargetPackagePath = ResolvedPath.substr(0, dotPos);
@@ -665,8 +684,6 @@ namespace DynPals {
             if (dotPos != std::wstring::npos) {
                 TargetPackagePath = AnimPath.substr(0, dotPos);
                 TargetClassName = AnimPath.substr(dotPos + 1);
-
-
             }
         }
 
@@ -806,9 +823,10 @@ namespace DynPals {
         Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
         for (int32_t i = 0; i < NumMatParams.RetVal; ++i) {
             struct { int32_t ElementIndex; UObject* Material; } ClearMatParams{i, nullptr};
-             Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
+            Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
         }
 
+        // --- MATERIAL APPLICATION LOOP ---
         for (auto& mat : swap.MatReplaceList) {
             std::wstring ChosenPath = mat.matPath;
             std::wstring WideIndex = Utils::StringToWString(mat.index);
@@ -846,11 +864,15 @@ namespace DynPals {
                 continue;
             }
 
-            if (!IsPalBlueprintValid(Character, BPName)) return;
+            if (!IsPalBlueprintValid(Character, BPName)) {
+                return;
+            }
 
-            UObject* MeshComp = nullptr;
-            Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-            if (!MeshComp) return;
+            UObject* CurrentMeshComp = nullptr;
+            Utils::CallFunction(Character, STR("GetMainMesh"), &CurrentMeshComp);
+            if (!CurrentMeshComp) {
+                return;
+            }
 
             int idx = 0;
             try { idx = std::stoi(mat.index); } catch(...) { continue; }
@@ -887,7 +909,7 @@ namespace DynPals {
                     persist.MatColorSet[mat.index] = appliedColor;
                 }
 
-                // CRASH-PROOF REFLECTION: Safely create the Dynamic Instance
+                // Create the Dynamic Material Instance
                 UObject* KML = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetMaterialLibrary"));
                 UFunction* CreateMIDFunc = KML ? KML->GetFunctionByNameInChain(STR("CreateDynamicMaterialInstance")) : nullptr;
                 UObject* MID = nullptr;
@@ -924,7 +946,7 @@ namespace DynPals {
                         MID->ProcessEvent(SetVecFunc, VecParams);
                     }
                     
-                    // --- VERIFICATION QUERY ---
+                    // Verify that the color applied correctly using engine readbacks
                     UFunction* GetVecFunc = MID->GetFunctionByNameInChain(STR("K2_GetVectorParameterValue"));
                     if (GetVecFunc) {
                         alignas(8) uint8_t GetParams[128] = {0};
@@ -943,20 +965,17 @@ namespace DynPals {
                     
                     // Apply the tinted Dynamic Instance directly to the mesh
                     struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, MID};
-                    Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
+                    Utils::CallFunction(CurrentMeshComp, STR("SetMaterial"), &MatParams);
                     continue;
                 }
             }
 
-            // Standard Application (Fallback or if RandomHue is false)
+            // Standard fallback applicationbut it should work. im using that exact same function
             struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
-            Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
-
-
-                
-            
+            Utils::CallFunction(CurrentMeshComp, STR("SetMaterial"), &MatParams);
         }
-     
+
+        // --- MORPH TARGET APPLICATION ---
         if (!swap.MorphTargetList.empty()) {
             static std::random_device rd;
             static std::mt19937 gen(rd());

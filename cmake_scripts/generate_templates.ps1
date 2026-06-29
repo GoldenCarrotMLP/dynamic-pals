@@ -78,6 +78,7 @@ if ($file -match '(?s)struct\s+SwapConfig\s*\{(.*?)\};') {
     $v2SkinData = [ordered]@{}
     $v2SkinData['SkinPath'] = ''
     $v2SkinData['AnimTarget'] = ''
+    $v2SkinData['SetNickname'] = ''
     $v2SkinData['Gender'] = 'None'
     $v2SkinData['MinLevel'] = 1
     $v2SkinData['MaxLevel'] = 999

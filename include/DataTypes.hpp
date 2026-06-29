@@ -74,6 +74,7 @@ struct SwapConfig {
     GenderType Gender = L"None"; 
     std::wstring SkinName = L"";   
     std::wstring SwapLabel = L"";  // UI Display Name
+    std::wstring SetNickname = L"";
     int MinLevel = 1;
     int MaxLevel = 999;
     int MinTrust = 0;        
@@ -96,6 +97,13 @@ struct SwapEvaluation {
     bool IsValid;
     int Score;
 };
+
+struct FPalInstanceID {
+        DynPals::DynPalsGuid PlayerUId;
+        DynPals::DynPalsGuid InstanceId;
+        DynPals::DynPalsGuid DebugId; // Alignment padding to match the engine's 3-GUID structure
+    };
+
 
 struct PalPersistData {
     std::wstring InstanceID;

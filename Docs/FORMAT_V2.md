@@ -14,6 +14,7 @@ Version 2 is a grouped, map-based format created by MonoDrago. Instead of arrays
 | :--- | :--- | :---: | :--- |
 | **`SkinPath`** | String | **Yes** | Game-internal path to the skeletal mesh asset (Maps to V1 `SkelMeshPath`). |
 | **`AnimTarget`** | String | No | Target Pal ID or asset path to copy animations from. |
+| **`SetNickname`** | String | No | Changes the nickname on the pal upon reaching this swap. |
 | **`Gender`** | String | No | `"Male"`, `"Female"`, `"None"`, `"Futa"`, `"FullFuta"`, `"Andro"`, `"Neutered"`, `"FullNeutered"` |
 | **`MinLevel`** / **`MaxLevel`** | Integer | No | Minimum and Maximum level requirements. |
 | **`MinTrust`** / **`MaxTrust`** | Integer | No | Minimum and Maximum friendship/trust requirements. |
@@ -49,6 +50,7 @@ Version 2 is a grouped, map-based format created by MonoDrago. Instead of arrays
             "Glasses Cat Alternate": {
                 "SkinPath": "/Game/Pal/Model/Character/Monster/PinkCat/SK_PinkCat",
                 "AnimTarget": "PinkCat",
+                "SetNickname": "CoolCat",
                 "Gender": "Female",
                 "MinLevel": 1,
                 "MaxLevel": 50,

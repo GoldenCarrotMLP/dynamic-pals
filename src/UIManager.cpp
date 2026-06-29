@@ -201,7 +201,7 @@ namespace DynPals {
         Utils::GetPropertyValue(ParamComp, STR("IndividualParameter"), IndivParam);
         if (!IndivParam) return;
 
-        struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
+        FPalInstanceID IDStruct;
         if (Utils::GetPropertyValue(IndivParam, STR("IndividualId"), IDStruct)) {
             TargetInstanceID = Utils::GuidToWString(IDStruct.InstanceId);
         }

@@ -16,6 +16,7 @@ Version 1 is an array-based format created by Michael where every replacement en
 | **`CharacterID`** | String | **Yes** | Internal unique ID of the target Pal (e.g., `"PinkCat"`). |
 | **`SkelMeshPath`** | String | **Yes** | Game-internal path to the skeletal mesh asset. |
 | **`AnimTarget`** | String | No | Target Pal ID or asset path to copy animations from. |
+| **`SetNickname`** | String | No | Changes the nickname on the pal upon reaching this swap. |
 | **`Gender`** | String | No | `"Male"`, `"Female"`, `"None"`, `"Futa"`, `"FullFuta"`, `"Andro"`, `"Neutered"`, `"FullNeutered"` |
 | **`SkinName`** | String | No | Game-native Skin ID to overwrite. |
 | **`SkinLabel`** | String | No | Descriptive name for this specific skin to display in supported UI menus. |
@@ -49,6 +50,7 @@ Version 1 is an array-based format created by Michael where every replacement en
             "CharacterID": "PinkCat",
             "SkelMeshPath": "/Game/Pal/Model/Character/Monster/PinkCat/SK_PinkCat",
             "AnimTarget": "PinkCat",
+            "SetNickname": "CoolCat",
             "Gender": "Female",
             "SkinName": "PinkCat_Skin001",
             "SkinLabel": "Classic Pink Cat Custom",

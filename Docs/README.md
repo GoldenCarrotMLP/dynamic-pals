@@ -15,6 +15,7 @@ Unlike traditional `.pak` replacements which statically overwrite game-wide asse
 * **Advanced Material Instancing:** Swap textures and materials dynamically per-slot without duplicating mesh files. Now features wildcard targeting (`/*`) for rapid material folder overrides! (thanks to Raeil for the idea)
 * **Dynamic Hue Shifting:** Generate vibrant, randomized HSV colors at runtime per material slot using `"RandomHue": true`. The mod automatically handles creating Dynamic Material Instances (MIDs) on-the-fly and applies a unique, persisted color to the `"Hue"` vector parameter (safely ignored by materials that do not support it).
 * **Overworld Settle Quarantine:** Pauses swaps for 5 seconds during initial level loads to prevent spawning performance spikes.
+* **Custon Names:** Depending on how you set your JSON, the pal can appear ingame with a custom name of your choosing.
 
 ---
 
