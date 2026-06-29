@@ -461,16 +461,23 @@ namespace DynPals {
                 // Materials
                 if (ContainsKey(swapJson, "SpecialMaterial")) {
                     for (auto& mat : GetValue(swapJson, "SpecialMaterial")) {
-                        MatReplace mr;
-                        mr.index = SafeGetIndexString(mat, "Index");
+                        std::string rawIndex = SafeGetIndexString(mat, "Index");
+                        std::wstring matPath;
                         if (ContainsKey(mat, "MaterialAsset")) {
-                            mr.matPath = Utils::StringToWString(GetValue(mat, "MaterialAsset").get<std::string>());
+                            matPath = Utils::StringToWString(GetValue(mat, "MaterialAsset").get<std::string>());
                         } else if (ContainsKey(mat, "MatPath")) {
-                            mr.matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
+                            matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
                         }
-                        sc.MatReplaceList.push_back(mr);
+                        ParseMaterialIndices(rawIndex, matPath, sc);
+                    }
+                } else if (ContainsKey(swapJson, "MatReplace")) {
+                    for (auto& mat : GetValue(swapJson, "MatReplace")) {
+                        std::string rawIndex = SafeGetIndexString(mat, "Index");
+                        std::wstring matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
+                        ParseMaterialIndices(rawIndex, matPath, sc);
                     }
                 }
+
 
                 // Morphs
                 if (ContainsKey(swapJson, "ShapeKeys")) {

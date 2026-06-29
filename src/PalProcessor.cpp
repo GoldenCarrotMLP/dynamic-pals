@@ -186,37 +186,74 @@ namespace DynPals {
     }
 
     void PalProcessor::ScanActivePals() {
-    auto now = std::chrono::steady_clock::now();
-    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - LastScanTime).count() < 1000) return;
-    LastScanTime = now;
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - LastScanTime).count() < 1000) return;
+        LastScanTime = now;
 
-    std::vector<UObject*> AllPals;
-    UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+        UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+        if (!PalUtil) return;
 
-    for (UObject* Pal : AllPals) {
-        if (Pal) {
-            if (ProcessedPals.find(Pal) == ProcessedPals.end()) {
-                ProcessedPals.insert(Pal);
-                ProcessPal(Pal, false);
-            } else {
-                // FAST POLL: Lightweight check for level/rank/friendship changes in the background!
-                // This creates a safety-net just in case a native stat update bypassed the UE4SS hooks.
-                UObject* ParamComp = nullptr;
-                Utils::GetPropertyValue<UObject*>(Pal, STR("CharacterParameterComponent"), ParamComp);
-                if (ParamComp) {
-                    UObject* IndivParam = nullptr;
-                    Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
-                    if (IndivParam) {
-                        struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
-                        if (Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), IDStruct) && IDStruct.InstanceId.IsValid()) {
+        // Safely fetch an active world context object (Stops instantly upon finding the player)
+        UObject* WorldContext = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+        if (!WorldContext) return;
+
+        // Bypass FindAllOf! Query the game's internal cached array directly for zero-overhead
+        struct { UObject* WorldContextObject; TArray<UObject*> OutCharacters; } Params;
+        Params.WorldContextObject = WorldContext;
+
+        Utils::CallFunction(PalUtil, STR("GetPalCharacters"), &Params);
+
+        // Safety warning if no Pals are returned by the engine scanner
+        static bool bLoggedZeroWarn = false;
+        if (Params.OutCharacters.Num() == 0) {
+            if (!bLoggedZeroWarn) {
+                DP_LOG(Warning, "[ScanActivePals] GetPalCharacters returned 0 active Pals. No characters are currently tracked by the world.");
+                bLoggedZeroWarn = true;
+            }
+        } else {
+            bLoggedZeroWarn = false; // Reset state when Pals are successfully discovered
+        }
+
+        for (int32_t i = 0; i < Params.OutCharacters.Num(); ++i) {
+            UObject* Pal = Params.OutCharacters[i];
+            if (!Pal) continue;
+
+            bool bIsRelevant = false;
+
+            // 1. Is this Pal currently summoned as an Otomo (Player's Party)?
+            struct { UObject* Actor; bool RetVal; } OtomoParams{Pal, false};
+            Utils::CallFunction(PalUtil, STR("IsOtomo"), &OtomoParams);
+            if (OtomoParams.RetVal) bIsRelevant = true;
+
+            // 2. Is this Pal actively assigned to a Base Camp?
+            if (!bIsRelevant) {
+                struct { UObject* Actor; bool RetVal; } CampParams{Pal, false};
+                Utils::CallFunction(PalUtil, STR("IsBaseCampPal"), &CampParams);
+                if (CampParams.RetVal) bIsRelevant = true;
+            }
+
+            // We only process math if they are on our team or in a base camp!
+            if (bIsRelevant) {
+                if (ProcessedPals.find(Pal) == ProcessedPals.end()) {
+                    ProcessedPals.insert(Pal);
+                    ProcessPal(Pal, false);
+                } else {
+                    UObject* ParamComp = nullptr;
+                    Utils::GetPropertyValue<UObject*>(Pal, STR("CharacterParameterComponent"), ParamComp);
+                    if (ParamComp) {
+                        UObject* IndivParam = nullptr;
+                        Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
+                        if (IndivParam) {
+                            struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
+                            if (Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), IDStruct) && IDStruct.InstanceId.IsValid()) {
                                 std::wstring InstanceID = Utils::GuidToWString(IDStruct.InstanceId);
                                 auto it = RuntimeStatsCache.find(InstanceID);
                                 
                                 if (it != RuntimeStatsCache.end()) {
-                                    // Silently poll the current engine parameters
+                                    // Silently poll the current engine parameters using our refactored RetrievePalStats helper
                                     PalRuntimeStats stats = RetrievePalStats(IndivParam, L"", InstanceID, false);
 
-                                    // If any cached parameter differs, trigger the update
+                                    // If any dynamic stat changed under the hood, trigger the update
                                     if (it->second.Level != stats.Level || 
                                         it->second.Rank != stats.Rank || 
                                         it->second.Friendship != stats.Friendship) 
@@ -225,12 +262,12 @@ namespace DynPals {
                                     }
                                 }
                             }
+                        }
                     }
                 }
             }
         }
     }
-}
 
     void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
         if (!Character) return;
