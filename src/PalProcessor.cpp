@@ -18,6 +18,53 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
+     // Fetches Level, Rank, and Friendship/Trust from a Pal with sentinel verification and fallback checks
+    PalRuntimeStats RetrievePalStats(UObject* IndivParam, const std::wstring& RawCharID, const std::wstring& InstanceID, bool bLogWarnings) {
+            PalRuntimeStats stats;
+            if (!IndivParam) return stats;
+
+            struct { int32_t RetVal = -1; } LevelParams;
+            Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
+            stats.Level = LevelParams.RetVal;
+            if (stats.Level == -1) {
+                if (bLogWarnings) {
+                    DP_LOG(Warning, "[Stats] Failed to execute 'GetLevel' for Pal '{}' (ID: '{}'). Falling back to level 1.", RawCharID, InstanceID);
+                }
+                stats.Level = 1;
+            }
+
+            struct { int32_t RetVal = -1; } RankParams;
+            Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
+            stats.Rank = RankParams.RetVal;
+            if (stats.Rank == -1) {
+                if (bLogWarnings) {
+                    DP_LOG(Warning, "[Stats] Failed to execute 'GetRank' for Pal '{}' (ID: '{}'). Falling back to rank 0.", RawCharID, InstanceID);
+                }
+                stats.Rank = 0;
+            }
+
+            struct { int32_t RetVal = -1; } FriendshipParams;
+            Utils::CallFunction(IndivParam, STR("GetFriendshipRank"), &FriendshipParams);
+            stats.Friendship = FriendshipParams.RetVal;
+            if (stats.Friendship == -1) {
+                // Safeguard legacy fallback check
+                struct { int32_t RetVal = -1; } LegacyFriendshipParams;
+                Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &LegacyFriendshipParams);
+                if (LegacyFriendshipParams.RetVal != -1) {
+                    stats.Friendship = LegacyFriendshipParams.RetVal;
+                } else {
+                    if (bLogWarnings) {
+                        DP_LOG(Warning, "[Stats] Failed to execute both 'GetFriendshipRank' and 'GetFriendshipPoint' for Pal '{}' (ID: '{}'). Falling back to trust 0.", RawCharID, InstanceID);
+                    }
+                    stats.Friendship = 0;
+                }
+            }
+
+            return stats;
+        }
+    
+
+
     void PalProcessor::ClearAllSwappedStatus() {
         SwappedInstances.clear();
         RuntimeStatsCache.clear();
@@ -162,35 +209,28 @@ namespace DynPals {
                     if (IndivParam) {
                         struct FPalInstanceID { DynPalsGuid PlayerUId; DynPalsGuid InstanceId; } IDStruct;
                         if (Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), IDStruct) && IDStruct.InstanceId.IsValid()) {
-                            std::wstring InstanceID = Utils::GuidToWString(IDStruct.InstanceId);
-                            auto it = RuntimeStatsCache.find(InstanceID);
-                            
-                            if (it != RuntimeStatsCache.end()) {
-                                struct { int32_t RetVal; } LevelParams{1};
-                                Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
+                                std::wstring InstanceID = Utils::GuidToWString(IDStruct.InstanceId);
+                                auto it = RuntimeStatsCache.find(InstanceID);
                                 
-                                struct { int32_t RetVal; } RankParams{0};
-                                Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
-                                
-                                struct { int32_t RetVal; } FriendshipParams{0};
-                                Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &FriendshipParams);
+                                if (it != RuntimeStatsCache.end()) {
+                                    // Silently poll the current engine parameters
+                                    PalRuntimeStats stats = RetrievePalStats(IndivParam, L"", InstanceID, false);
 
-                                // If any dynamic stat changed under the hood, trigger the swap evaluation
-                                if (it->second.Level != LevelParams.RetVal || 
-                                    it->second.Rank != RankParams.RetVal || 
-                                    it->second.Friendship != FriendshipParams.RetVal) 
-                                {
-                                    ProcessPal(Pal, false);
+                                    // If any cached parameter differs, trigger the update
+                                    if (it->second.Level != stats.Level || 
+                                        it->second.Rank != stats.Rank || 
+                                        it->second.Friendship != stats.Friendship) 
+                                    {
+                                        ProcessPal(Pal, false);
+                                    }
                                 }
                             }
-                        }
                     }
                 }
             }
         }
     }
 }
-
 
     void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
         if (!Character) return;
@@ -218,7 +258,6 @@ namespace DynPals {
             });
         }).detach();
     }
-
 
     void PalProcessor::ForceSwap(UObject* Character, int SwapIndex, int DelayMs) {
         if (!Character || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
@@ -270,6 +309,7 @@ namespace DynPals {
             });
         }).detach();
     }
+    
     int PalProcessor::EvaluateIdealSwapIndex(UObject* Character, std::wstring& OutInstanceID) {
         return -1; 
     }
@@ -324,6 +364,11 @@ namespace DynPals {
 
         std::wstring CharID = StripCharacterPrefix(RawCharID);
 
+        PalRuntimeStats stats = RetrievePalStats(IndivParam, RawCharID, InstanceID, true);
+        int LevelNum = stats.Level;
+        int RankNum = stats.Rank;
+        int FriendshipNum = stats.Friendship;
+
         struct { UObject* Actor; bool RetVal; } WildParams{Character, false};
         if (PalUtil) Utils::CallFunction(PalUtil, STR("IsWildNPC"), &WildParams);
         bool IsWild = WildParams.RetVal;
@@ -335,18 +380,6 @@ namespace DynPals {
         struct { uint8_t RetVal; } GenderParams{0};
         Utils::CallFunction(IndivParam, STR("GetGenderType"), &GenderParams);
         std::wstring GenderStr = (GenderParams.RetVal == 1) ? L"Male" : ((GenderParams.RetVal == 2) ? L"Female" : L"None");
-
-        struct { int32_t RetVal; } LevelParams{1};
-        Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
-        int LevelNum = LevelParams.RetVal;
-
-        struct { int32_t RetVal; } RankParams{0};
-        Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
-        int RankNum = RankParams.RetVal;
-
-        struct { int32_t RetVal; } FriendshipParams{0};
-        Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &FriendshipParams);
-        int FriendshipNum = FriendshipParams.RetVal;
 
         struct { FName RetVal; } SkinParams{FName()};
         Utils::CallFunction(IndivParam, STR("GetSkinName"), &SkinParams);
@@ -508,7 +541,6 @@ namespace DynPals {
 
         }
     }
-    
     
     void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
         std::wstring BPName;

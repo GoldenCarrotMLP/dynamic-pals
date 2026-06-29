@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <set> 
+#include <sstream>
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -97,6 +98,22 @@ namespace DynPals {
             }
         }
     }
+
+    void ParseMaterialIndices(const std::string& rawIndex, const std::wstring& matPath, SwapConfig& sc) {
+            std::stringstream ss(rawIndex);
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+                size_t first = token.find_first_not_of(" \t\r\n");
+                if (first == std::string::npos) continue;
+                size_t last = token.find_last_not_of(" \t\r\n");
+                token = token.substr(first, last - first + 1);
+                
+                if (!token.empty()) {
+                    sc.MatReplaceList.push_back({token, matPath});
+                }
+            }
+        }
+
 
     void ConfigManager::Initialize(const std::wstring& BasePath) {
         ConfigPath = BasePath + L"Paks/~mods/";
@@ -311,24 +328,24 @@ namespace DynPals {
             
             // Aligned: SpecialMaterial / MatReplace dual support for V1
             if (ContainsKey(swapJson, "SpecialMaterial")) {
-                for (auto& mat : GetValue(swapJson, "SpecialMaterial")) {
-                    MatReplace mr;
-                    mr.index = SafeGetIndexString(mat, "Index");
-                    if (ContainsKey(mat, "MaterialAsset")) {
-                        mr.matPath = Utils::StringToWString(GetValue(mat, "MaterialAsset").get<std::string>());
-                    } else if (ContainsKey(mat, "MatPath")) {
-                        mr.matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
+                    for (auto& mat : GetValue(swapJson, "SpecialMaterial")) {
+                        std::string rawIndex = SafeGetIndexString(mat, "Index");
+                        std::wstring matPath;
+                        if (ContainsKey(mat, "MaterialAsset")) {
+                            matPath = Utils::StringToWString(GetValue(mat, "MaterialAsset").get<std::string>());
+                        } else if (ContainsKey(mat, "MatPath")) {
+                            matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
+                        }
+                        ParseMaterialIndices(rawIndex, matPath, sc);
                     }
-                    sc.MatReplaceList.push_back(mr);
+                } else if (ContainsKey(swapJson, "MatReplace")) {
+                    for (auto& mat : GetValue(swapJson, "MatReplace")) {
+                        std::string rawIndex = SafeGetIndexString(mat, "Index");
+                        std::wstring matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
+                        ParseMaterialIndices(rawIndex, matPath, sc);
+                    }
                 }
-            } else if (ContainsKey(swapJson, "MatReplace")) {
-                for (auto& mat : GetValue(swapJson, "MatReplace")) {
-                    MatReplace mr;
-                    mr.index = SafeGetIndexString(mat, "Index");
-                    mr.matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
-                    sc.MatReplaceList.push_back(mr);
-                }
-            }
+
 
             // Aligned: ShapeKeys / MorphTarget dual support for V1
             if (ContainsKey(swapJson, "ShapeKeys")) {
