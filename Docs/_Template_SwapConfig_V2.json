@@ -27,7 +27,8 @@
                                                                          "SpecialMaterial":  [
                                                                                                  {
                                                                                                      "MaterialAsset":  "/Game/MaterialPath",
-                                                                                                     "Index":  "0"
+                                                                                                     "Index":  "0",
+                                                                                                     "RandomHue":  false
                                                                                                  }
                                                                                              ],
                                                                          "ShapeKeys":  [

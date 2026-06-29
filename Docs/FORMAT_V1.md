@@ -66,6 +66,7 @@ Version 1 is an array-based format created by Michael where every replacement en
             "SkipTrait": [ "Coward" ],
             "MatReplaceList": [
                 {
+                    "RandomHue": true,
                     "MatPath": "/Game/Pal/Model/Character/Monster/PinkCat/MI_PinkCat_Body",
                     "Index": "0"
                 }

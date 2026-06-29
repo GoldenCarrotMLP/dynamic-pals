@@ -64,6 +64,7 @@ Version 2 is a grouped, map-based format created by MonoDrago. Instead of arrays
                 "SkipTrait": [ "Coward" ],
                 "SpecialMaterial": [
                     {
+                        "RandomHue": true,
                         "MaterialAsset": "/Game/Pal/Model/Character/Monster/PinkCat/MI_PinkCat_Body",
                         "Index": "0"
                     }

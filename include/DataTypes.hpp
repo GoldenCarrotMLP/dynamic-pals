@@ -49,9 +49,13 @@ namespace DynPals {
 using GenderType = std::wstring; 
 using MorphType = std::wstring;  
 
+struct FLinearColor_UE5 {
+    float R, G, B, A;
+};
 struct MatReplace {
     std::string index;
     std::wstring matPath;
+    bool bRandomHue = false;
 };
 
 struct MorphTarget {
@@ -100,8 +104,8 @@ struct PalPersistData {
     std::wstring SwapLabel;
     std::wstring SkelMeshPath;
     std::map<std::wstring, double> MorphSet;
-    std::map<std::string, std::wstring> MatSet; // <-- FIXED: Correctly closed with semicolon
-
+    std::map<std::string, std::wstring> MatSet;
+    std::map<std::string, FLinearColor_UE5> MatColorSet;
     bool HasSavedSwap() const {
         return !SkelMeshPath.empty() || !SkinName.empty();
     }
@@ -130,7 +134,6 @@ struct AltrSoftObjectPtr {
 struct FVector_UE5 {
     double X, Y, Z;
 };
-
 namespace DynPals {
     enum class EPalLogPriority : uint8_t { 
         None = 0, Normal = 1, Important = 2, VeryImportant = 3 

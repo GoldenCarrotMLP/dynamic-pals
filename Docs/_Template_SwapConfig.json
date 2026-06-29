@@ -29,6 +29,7 @@
                              "MatReplaceList":  [
                                                     {
                                                         "MatPath":  "/Game/MaterialPath",
+                                                        "RandomHue":  false,
                                                         "Index":  "0"
                                                     }
                                                 ],

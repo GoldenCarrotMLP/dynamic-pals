@@ -333,6 +333,7 @@ namespace DynPals {
             // FIX: Wipe the persistent materials and morphs so the new skin rolls fresh ones!
             ExistingData->MorphSet.clear();
             ExistingData->MatSet.clear();
+            ExistingData->MatColorSet.clear();
             
             SaveManager::Get().SetPersistData(InstanceID, *ExistingData, true); 
         }
@@ -560,6 +561,7 @@ namespace DynPals {
                 if (ForceReroll || ExplicitSwapIndex != -1 || finalSwap != currentSwap) {
                     newData.MorphSet.clear();
                     newData.MatSet.clear();
+                    newData.MatColorSet.clear();
                 }
 
                 ApplySwap(Character, finalConfig, newData);
@@ -804,101 +806,157 @@ namespace DynPals {
         Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
         for (int32_t i = 0; i < NumMatParams.RetVal; ++i) {
             struct { int32_t ElementIndex; UObject* Material; } ClearMatParams{i, nullptr};
-            Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
+             Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
         }
-
-        // Apply material overrides safely
-        //DP_LOG(Default, "=== MATERIAL OVERRIDE PROCESS START (Count: {}) ===", swap.MatReplaceList.size());
 
         for (auto& mat : swap.MatReplaceList) {
             std::wstring ChosenPath = mat.matPath;
             std::wstring WideIndex = Utils::StringToWString(mat.index);
 
-            //DP_LOG(Default, "[Slot {}] Target Config Path: '{}'", WideIndex, mat.matPath);
-
-            // 1. Is this a wildcard folder path?
             if (mat.matPath.length() >= 2 && mat.matPath.substr(mat.matPath.length() - 2) == L"/*") {
                 std::wstring VirtualFolder = mat.matPath.substr(0, mat.matPath.length() - 2);
 
-                DP_LOG(Default, "[Slot {}] Wildcard folder detected. Querying Asset Registry for folder: '{}'", WideIndex, VirtualFolder);
-
-                // ALWAYS call GetAssetsInVirtualFolder first. This forces the Engine to run 
-                // ScanPathsSynchronous on the .pak file so it actually knows the materials exist!
                 std::vector<std::wstring> AvailableMats = Utils::GetAssetsInVirtualFolder(VirtualFolder);
-                DP_LOG(Default, "[Slot {}] Asset Registry returned {} valid material files.", WideIndex, AvailableMats.size());
 
-                // Verbose: Dump every discovered asset inside the target folder
-                for (size_t i = 0; i < AvailableMats.size(); ++i) {
-                    DP_LOG(Default, "  -> Discovered [{}]: '{}'", i, AvailableMats[i]);
-                }
-
-                // 2. NOW check if we already have a saved material for this specific slot
                 auto savedMatIt = persist.MatSet.find(mat.index);
                 if (savedMatIt != persist.MatSet.end() && !savedMatIt->second.empty()) {
                     ChosenPath = savedMatIt->second;
-                    DP_LOG(Verbose, "[Slot {}] Persistent cache HIT. Using saved material path: '{}'", WideIndex, ChosenPath);
                 } 
                 else {
-                    DP_LOG(Verbose, "[Slot {}] Persistent cache MISS. Picking from available materials.", WideIndex);
-
                     if (!AvailableMats.empty()) {
-                        // 3. Pick randomly and persist the choice
                         static std::random_device rd;
                         static std::mt19937 gen(rd());
                         std::uniform_int_distribution<int> dis(0, (int)(AvailableMats.size() - 1));
                         
-                        int RolledIndex = dis(gen);
-                        ChosenPath = AvailableMats[RolledIndex];
+                        ChosenPath = AvailableMats[dis(gen)];
                         persist.MatSet[mat.index] = ChosenPath;
                         
-                        DP_LOG(Verbose, "[Slot {}] Rolled Index {} out of {}. Chosen: '{}'", WideIndex, RolledIndex, AvailableMats.size(), ChosenPath);
                     } else {
                         DP_LOG(Warning, "[Slot {}] Wildcard folder '{}' has ZERO matching material files! Skipping slot.", WideIndex, VirtualFolder);
                         continue;
                     }
                 }
             } else {
-                //DP_LOG(Default, "[Slot {}] Static path detected. Direct apply.", WideIndex);
                 persist.MatSet[mat.index] = ChosenPath;
             }
 
-            // 5. Load and apply the chosen material
-            //DP_LOG(Default, "[Slot {}] Invoking LoadAssetSafely for: '{}'", WideIndex, ChosenPath);
             UObject* NewMat = Utils::LoadAssetSafely(ChosenPath);
-            
             if (!NewMat) {
                 DP_LOG(Warning, "[Slot {}] LoadAssetSafely FAILED for path: '{}'", WideIndex, ChosenPath);
                 continue;
             }
-            //DP_LOG(Default, "[Slot {}] Material loaded successfully: '{}' (Class: '{}')", WideIndex, NewMat->GetName(), NewMat->GetClassPrivate()->GetName().c_str());
 
-            // 6. Verify mesh/blueprint targets are fully ready
-            if (!IsPalBlueprintValid(Character, BPName)) {
-                DP_LOG(Warning, "[Slot {}] Target character blueprint is INVALID. Aborting apply.", WideIndex);
-                return;
-            }
+            if (!IsPalBlueprintValid(Character, BPName)) return;
 
             UObject* MeshComp = nullptr;
             Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-            if (!MeshComp) {
-                DP_LOG(Warning, "[Slot {}] GetMainMesh returned NULL. Aborting apply.", WideIndex);
-                return;
-            }
-            //DP_LOG(Default, "[Slot {}] Successfully verified MainMesh component: '{}'", WideIndex, MeshComp->GetName());
+            if (!MeshComp) return;
 
-            // 7. Execute native SetMaterial
-            int idx = std::stoi(mat.index);
-            //DP_LOG(Default, "[Slot {}] Preparing to execute SetMaterial on index: {}.", WideIndex, idx);
-            
+            int idx = 0;
+            try { idx = std::stoi(mat.index); } catch(...) { continue; }
+
+            // --- DYNAMIC MATERIAL INSTANCE & HUE GENERATOR ---
+            if (mat.bRandomHue) {
+                FLinearColor_UE5 appliedColor;
+                auto colorIt = persist.MatColorSet.find(mat.index);
+                
+                if (colorIt != persist.MatColorSet.end()) {
+                    appliedColor = colorIt->second; // Use persisted color
+                } else {
+                    // Generate vibrant random color using HSV to RGB
+                    static std::random_device rdColor;
+                    static std::mt19937 genColor(rdColor());
+                    std::uniform_real_distribution<float> disHue(0.0f, 360.0f);
+                    
+                    float H = disHue(genColor);
+                    float S = 1.0f;
+                    float V = 1.0f;
+                    float C = S * V;
+                    float X = C * (1.0f - std::abs(std::fmod(H / 60.0f, 2.0f) - 1.0f));
+                    float m = V - C;
+                    float r = 0, g = 0, b = 0;
+                    
+                    if (H >= 0 && H < 60) { r = C, g = X, b = 0; }
+                    else if (H >= 60 && H < 120) { r = X, g = C, b = 0; }
+                    else if (H >= 120 && H < 180) { r = 0, g = C, b = X; }
+                    else if (H >= 180 && H < 240) { r = 0, g = X, b = C; }
+                    else if (H >= 240 && H < 300) { r = X, g = 0, b = C; }
+                    else { r = C, g = 0, b = X; }
+                    
+                    appliedColor = { r + m, g + m, b + m, 1.0f };
+                    persist.MatColorSet[mat.index] = appliedColor;
+                }
+
+                // CRASH-PROOF REFLECTION: Safely create the Dynamic Instance
+                UObject* KML = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetMaterialLibrary"));
+                UFunction* CreateMIDFunc = KML ? KML->GetFunctionByNameInChain(STR("CreateDynamicMaterialInstance")) : nullptr;
+                UObject* MID = nullptr;
+
+                if (CreateMIDFunc) {
+                    alignas(8) uint8_t MIDParams[128] = {0};
+
+                    FProperty* WCProp = CreateMIDFunc->GetPropertyByNameInChain(STR("WorldContextObject"));
+                    if (WCProp) *WCProp->ContainerPtrToValuePtr<UObject*>(MIDParams) = Character;
+
+                    FProperty* ParentProp = CreateMIDFunc->GetPropertyByNameInChain(STR("Parent"));
+                    if (ParentProp) *ParentProp->ContainerPtrToValuePtr<UObject*>(MIDParams) = NewMat;
+
+                    FProperty* NameProp = CreateMIDFunc->GetPropertyByNameInChain(STR("OptionalName"));
+                    if (NameProp) *NameProp->ContainerPtrToValuePtr<FName>(MIDParams) = FName();
+
+                    KML->ProcessEvent(CreateMIDFunc, MIDParams);
+
+                    FProperty* RetProp = CreateMIDFunc->GetPropertyByNameInChain(STR("ReturnValue"));
+                    if (RetProp) MID = *RetProp->ContainerPtrToValuePtr<UObject*>(MIDParams);
+                }
+
+                if (MID) {
+                    UFunction* SetVecFunc = MID->GetFunctionByNameInChain(STR("SetVectorParameterValue"));
+                    if (SetVecFunc) {
+                        alignas(8) uint8_t VecParams[128] = {0};
+                        
+                        FProperty* NameProp = SetVecFunc->GetPropertyByNameInChain(STR("ParameterName"));
+                        if (NameProp) *NameProp->ContainerPtrToValuePtr<FName>(VecParams) = FName(STR("Hue"), FNAME_Add);
+                        
+                        FProperty* ValProp = SetVecFunc->GetPropertyByNameInChain(STR("Value"));
+                        if (ValProp) *ValProp->ContainerPtrToValuePtr<FLinearColor_UE5>(VecParams) = appliedColor;
+                        
+                        MID->ProcessEvent(SetVecFunc, VecParams);
+                    }
+                    
+                    // --- VERIFICATION QUERY ---
+                    UFunction* GetVecFunc = MID->GetFunctionByNameInChain(STR("K2_GetVectorParameterValue"));
+                    if (GetVecFunc) {
+                        alignas(8) uint8_t GetParams[128] = {0};
+                        FProperty* NamePropGet = GetVecFunc->GetPropertyByNameInChain(STR("ParameterName"));
+                        if (NamePropGet) *NamePropGet->ContainerPtrToValuePtr<FName>(GetParams) = FName(STR("Hue"), FNAME_Add);
+                        
+                        MID->ProcessEvent(GetVecFunc, GetParams);
+                        
+                        FProperty* RetPropGet = GetVecFunc->GetPropertyByNameInChain(STR("ReturnValue"));
+                        if (RetPropGet) {
+                            FLinearColor_UE5* ReadColor = RetPropGet->ContainerPtrToValuePtr<FLinearColor_UE5>(GetParams);
+                            DP_LOG(Default, "[RandomHue] Successfully pushed Hue Shift to MID on slot {}. Readback Color -> R:{:.2f} G:{:.2f} B:{:.2f}", idx, ReadColor->R, ReadColor->G, ReadColor->B);
+                        }
+                    }
+                    // --------------------------
+                    
+                    // Apply the tinted Dynamic Instance directly to the mesh
+                    struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, MID};
+                    Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
+                    continue;
+                }
+            }
+
+            // Standard Application (Fallback or if RandomHue is false)
             struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
             Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
+
+
+                
             
-            //DP_LOG(Default, "[Slot {}] SetMaterial execution completed successfully.", WideIndex);
         }
-
-        //DP_LOG(Default, "=== MATERIAL OVERRIDE PROCESS END ===");
-
-
+     
         if (!swap.MorphTargetList.empty()) {
             static std::random_device rd;
             static std::mt19937 gen(rd());

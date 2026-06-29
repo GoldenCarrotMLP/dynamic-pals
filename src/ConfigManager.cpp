@@ -28,8 +28,8 @@ namespace DynPals {
         bool ContainsKey(const nlohmann::json& parent, const std::string& key) {
             if (!parent.is_object()) return false;
             std::string target = ToLower(key);
-            for (auto it = parent.begin(); it != parent.end(); ++it) {
-                if (ToLower(it.key()) == target) return true;
+            for (auto i = parent.begin(); i != parent.end(); ++i) {
+                if (ToLower(i.key()) == target) return true;
             }
             return false;
         }
@@ -40,11 +40,27 @@ namespace DynPals {
                 return empty;
             }
             std::string target = ToLower(key);
-            for (auto it = parent.begin(); it != parent.end(); ++it) {
-                if (ToLower(it.key()) == target) return *it;
+            for (auto i = parent.begin(); i != parent.end(); ++i) {
+                if (ToLower(i.key()) == target) return *i;
             }
             static const nlohmann::json empty;
             return empty;
+        }
+
+        // --- SINGLE UNIFIED HELPER: Splits comma-separated strings into multiple independent override instructions! ---
+        void ParseMaterialIndices(const std::string& rawIndex, const std::wstring& matPath, bool bRandomHue, SwapConfig& sc) {
+            std::stringstream ss(rawIndex);
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+                size_t first = token.find_first_not_of(" \t\r\n");
+                if (first == std::string::npos) continue;
+                size_t last = token.find_last_not_of(" \t\r\n");
+                token = token.substr(first, last - first + 1);
+                
+                if (!token.empty()) {
+                    sc.MatReplaceList.push_back({token, matPath, bRandomHue});
+                }
+            }
         }
 
         double SafeGetDouble(const nlohmann::json& parent, const std::string& key, double defaultValue = 0.0) {
@@ -91,29 +107,13 @@ namespace DynPals {
         void ValidateGender(const std::wstring& genderStr, const std::wstring& packName, const std::wstring& swapLabel) {
             std::wstring lg = ToLower(genderStr);
             if (!lg.empty() && lg != L"none" && lg != L"male" && lg != L"female" &&
-        lg != L"any" && lg != L"all" && lg != L"both" && lg != L"futa" && lg != L"fullfuta" && 
-        lg != L"andro" && lg != L"neutered" && lg != L"fullneutered") {
+                lg != L"any" && lg != L"all" && lg != L"both" && lg != L"futa" && lg != L"fullfuta" && 
+                lg != L"andro" && lg != L"neutered" && lg != L"fullneutered") {
                 
                 DP_LOG(Error, "JSON ERROR in Pack '{}': Swap '{}' has an invalid Gender '{}'. Valid options: None, Male, Female.", packName, swapLabel, genderStr);
             }
         }
     }
-
-    void ParseMaterialIndices(const std::string& rawIndex, const std::wstring& matPath, SwapConfig& sc) {
-            std::stringstream ss(rawIndex);
-            std::string token;
-            while (std::getline(ss, token, ',')) {
-                size_t first = token.find_first_not_of(" \t\r\n");
-                if (first == std::string::npos) continue;
-                size_t last = token.find_last_not_of(" \t\r\n");
-                token = token.substr(first, last - first + 1);
-                
-                if (!token.empty()) {
-                    sc.MatReplaceList.push_back({token, matPath});
-                }
-            }
-        }
-
 
     void ConfigManager::Initialize(const std::wstring& BasePath) {
         ConfigPath = BasePath + L"Paks/~mods/";
@@ -126,7 +126,7 @@ namespace DynPals {
         std::wstring PathV1 = ConfigPath + L"SwapJSON/";
         std::wstring PathV2 = ConfigPath + L"ModelJSON/";
 
-        // 1. Ensure both directories exist safely
+        // Ensure both directories exist safely
         if (!std::filesystem::exists(PathV1)) {
             std::filesystem::create_directories(PathV1);
         }
@@ -137,7 +137,6 @@ namespace DynPals {
         int loadedPacksCount = 0;
         DP_LOG(Default, "ConfigManager: Scanning recursively for Swap/Model JSONs...");
 
-        // Only scan within these two target folders
         std::vector<std::wstring> targetPaths = { PathV1, PathV2 };
 
         for (const auto& targetPath : targetPaths) {
@@ -191,7 +190,6 @@ namespace DynPals {
                                 continue;
                             }
 
-                            // Support both PackName (v1) and ModelPack (v2) naming conventions
                             std::wstring packName = L"Default Pack";
                             if (configData.contains("PackName") && configData.at("PackName").is_string()) {
                                 packName = Utils::StringToWString(configData.at("PackName").get<std::string>());
@@ -201,7 +199,6 @@ namespace DynPals {
                                 packName = entry.path().stem().wstring();
                             }
 
-                            // Smart format detection
                             if (configData.contains("SkelMeshSwap") && configData.at("SkelMeshSwap").is_array()) {
                                 ParseSwaps(packName, configData.at("SkelMeshSwap"));
                                 loadedPacksCount++;
@@ -220,26 +217,21 @@ namespace DynPals {
             }
         }
 
-        
-
         // --- VALIDATION: Check for Save-Breaking Collisions ---
         std::map<std::wstring, std::vector<size_t>> collisionMap;
         for (size_t i = 0; i < Configs.size(); ++i) {
             auto& cfg = Configs[i];
             
-            // If the entry lacks a unique SwapLabel/SkinLabel AND lacks a game-native SkinName
             if (cfg.SwapLabel.empty() && (cfg.SkinName.empty() || cfg.SkinName == L"None")) {
-                // Group them by Pack Name + CharacterID + SkelMeshPath [1]
                 std::wstring key = cfg.PackName + L"|" + ToLower(cfg.CharacterID) + L"|" + cfg.SkelMeshPath;
                 collisionMap[key].push_back(i);
             }
         }
 
         for (const auto& [key, indices] : collisionMap) {
-            if (indices.size() > 1) { // If more than 1 entry shares the exact same fingerprint
+            if (indices.size() > 1) { 
                 auto& cfg = Configs[indices[0]];
                 
-                // Extract just the skeletal mesh name from the full path (e.g., SK_AmaterasuWolf_M)
                 std::wstring meshName = cfg.SkelMeshPath;
                 size_t lastSlash = meshName.find_last_of(L'/');
                 if (lastSlash != std::wstring::npos) {
@@ -250,17 +242,14 @@ namespace DynPals {
                     meshName = meshName.substr(0, lastDot);
                 }
                 
-                // Priority 3 (Error): Will queue up and persistently stay on the screen in-game!
                 DP_LOG(Error, "JSON ERROR in Pack '{}': Found {} variants for '{}'. Please add a 'SkinLabel' property to each or they won't be able to load properly!", 
                     cfg.PackName, indices.size(), meshName);
-
             }
         }
 
         DP_LOG(Default, "Successfully loaded {} skin packs dynamically.\n", loadedPacksCount);
         DP_LOG(Default, "Complete matchmaking table compiled with {} swaps.\n", Configs.size());
     }
-
 
     void ConfigManager::ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray) {
         for (auto& swapJson : swapArray) {
@@ -328,23 +317,25 @@ namespace DynPals {
             
             // Aligned: SpecialMaterial / MatReplace dual support for V1
             if (ContainsKey(swapJson, "SpecialMaterial")) {
-                    for (auto& mat : GetValue(swapJson, "SpecialMaterial")) {
-                        std::string rawIndex = SafeGetIndexString(mat, "Index");
-                        std::wstring matPath;
-                        if (ContainsKey(mat, "MaterialAsset")) {
-                            matPath = Utils::StringToWString(GetValue(mat, "MaterialAsset").get<std::string>());
-                        } else if (ContainsKey(mat, "MatPath")) {
-                            matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
-                        }
-                        ParseMaterialIndices(rawIndex, matPath, sc);
+                for (auto& mat : GetValue(swapJson, "SpecialMaterial")) {
+                    std::string rawIndex = SafeGetIndexString(mat, "Index");
+                    bool bRandomHue = SafeGetOptionalBool(mat, "RandomHue").value_or(false);
+                    std::wstring matPath;
+                    if (ContainsKey(mat, "MaterialAsset")) {
+                        matPath = Utils::StringToWString(GetValue(mat, "MaterialAsset").get<std::string>());
+                    } else if (ContainsKey(mat, "MatPath")) {
+                        matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
                     }
-                } else if (ContainsKey(swapJson, "MatReplace")) {
-                    for (auto& mat : GetValue(swapJson, "MatReplace")) {
-                        std::string rawIndex = SafeGetIndexString(mat, "Index");
-                        std::wstring matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
-                        ParseMaterialIndices(rawIndex, matPath, sc);
-                    }
+                    ParseMaterialIndices(rawIndex, matPath, bRandomHue, sc);
                 }
+            } else if (ContainsKey(swapJson, "MatReplace")) {
+                for (auto& mat : GetValue(swapJson, "MatReplace")) {
+                    std::string rawIndex = SafeGetIndexString(mat, "Index");
+                    bool bRandomHue = SafeGetOptionalBool(mat, "RandomHue").value_or(false);
+                    std::wstring matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
+                    ParseMaterialIndices(rawIndex, matPath, bRandomHue, sc);
+                }
+            }
 
 
             // Aligned: ShapeKeys / MorphTarget dual support for V1
@@ -371,7 +362,7 @@ namespace DynPals {
                     sc.MorphTargetList.push_back(mt);
                 }
             } else if (ContainsKey(swapJson, "MorphTarget")) {
-                for (auto& morph : GetValue(swapJson, "MorphTarget")) {
+                for (auto& morph : GetValue(swapJson, "MorphTarget")) { // <--- FIXED: Now references swapJson correctly!
                     MorphTarget mt;
                     mt.target = Utils::StringToWString(GetValue(morph, "Target").get<std::string>());
                     mt.setVal = SafeGetDouble(morph, "Set", -1000.0);
@@ -391,7 +382,6 @@ namespace DynPals {
         }
     }
     
-    
     void ConfigManager::ParseSwapsV2(const std::wstring& PackName, const nlohmann::json& skinListObj) {
         for (auto& [charIdStr, skinsObj] : skinListObj.items()) {
             if (!skinsObj.is_object()) continue;
@@ -404,21 +394,17 @@ namespace DynPals {
                 sc.PackName = PackName;
                 sc.CharacterID = charID;
                 
-                // Start with the JSON key as the default label
                 sc.SwapLabel = Utils::StringToWString(skinLabelStr); 
 
-                // Apply explicit internal labels if defined (Fixes Issue 1)
                 if (ContainsKey(swapJson, "SkinLabel")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SkinLabel").get<std::string>());
                 else if (ContainsKey(swapJson, "SwapLabel")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SwapLabel").get<std::string>());
                 else if (ContainsKey(swapJson, "SwapName")) sc.SwapLabel = Utils::StringToWString(GetValue(swapJson, "SwapName").get<std::string>());
 
-                // Core Translations
                 if (ContainsKey(swapJson, "SkinName")) {sc.SkinName = Utils::StringToWString(GetValue(swapJson, "SkinName").get<std::string>());}
                 if (ContainsKey(swapJson, "SkinPath")) sc.SkelMeshPath = Utils::StringToWString(GetValue(swapJson, "SkinPath").get<std::string>());
                 if (ContainsKey(swapJson, "AnimTarget")) sc.AnimTarget = Utils::StringToWString(GetValue(swapJson, "AnimTarget").get<std::string>());
                 if (ContainsKey(swapJson, "Gender")) sc.Gender = Utils::StringToWString(GetValue(swapJson, "Gender").get<std::string>());
                 
-                // Limits mapping
                 sc.MinLevel = SafeGetInt(swapJson, "MinLevel", 1);
                 sc.MaxLevel = SafeGetInt(swapJson, "MaxLevel", 999);
                 sc.MinTrust = SafeGetInt(swapJson, "MinTrust", 0);
@@ -431,19 +417,16 @@ namespace DynPals {
                     sc.SpawnWeight = w > 0 ? w : 1;
                 }
                 
-                // Wild Pal Flag
                 if (ContainsKey(swapJson, "IsWildPal")) {
                     sc.IsWildPal = SafeGetOptionalBool(swapJson, "IsWildPal");
                 }
 
-                // Lucky Star / Rare Pal Flag
                 if (ContainsKey(swapJson, "LuckyStarReq")) {
                     sc.IsRarePal = SafeGetOptionalBool(swapJson, "LuckyStarReq");
                 } else if (ContainsKey(swapJson, "IsRarePal")) {
                     sc.IsRarePal = SafeGetOptionalBool(swapJson, "IsRarePal");
                 }
 
-                // Trait handling
                 if (ContainsKey(swapJson, "PassiveSkills")) {
                     for (auto& trait : GetValue(swapJson, "PassiveSkills")) sc.ReqTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
                 } else if (ContainsKey(swapJson, "ReqTrait")) {
@@ -458,28 +441,27 @@ namespace DynPals {
                     for (auto& trait : GetValue(swapJson, "SkipTrait")) sc.SkipTrait.push_back(Utils::StringToWString(trait.get<std::string>()));
                 }
                 
-                // Materials
                 if (ContainsKey(swapJson, "SpecialMaterial")) {
                     for (auto& mat : GetValue(swapJson, "SpecialMaterial")) {
                         std::string rawIndex = SafeGetIndexString(mat, "Index");
+                        bool bRandomHue = SafeGetOptionalBool(mat, "RandomHue").value_or(false);
                         std::wstring matPath;
                         if (ContainsKey(mat, "MaterialAsset")) {
                             matPath = Utils::StringToWString(GetValue(mat, "MaterialAsset").get<std::string>());
                         } else if (ContainsKey(mat, "MatPath")) {
                             matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
                         }
-                        ParseMaterialIndices(rawIndex, matPath, sc);
+                        ParseMaterialIndices(rawIndex, matPath, bRandomHue, sc);
                     }
                 } else if (ContainsKey(swapJson, "MatReplace")) {
                     for (auto& mat : GetValue(swapJson, "MatReplace")) {
                         std::string rawIndex = SafeGetIndexString(mat, "Index");
+                        bool bRandomHue = SafeGetOptionalBool(mat, "RandomHue").value_or(false);
                         std::wstring matPath = Utils::StringToWString(GetValue(mat, "MatPath").get<std::string>());
-                        ParseMaterialIndices(rawIndex, matPath, sc);
+                        ParseMaterialIndices(rawIndex, matPath, bRandomHue, sc);
                     }
                 }
 
-
-                // Morphs
                 if (ContainsKey(swapJson, "ShapeKeys")) {
                     for (auto& morph : GetValue(swapJson, "ShapeKeys")) {
                         MorphTarget mt;
@@ -504,7 +486,6 @@ namespace DynPals {
                     }
                 }
 
-                // Metadata Extra parsing (supports either nested JSON object or stringified JSON string safely)
                 if (ContainsKey(swapJson, "Extra")) {
                     const auto& extraNode = GetValue(swapJson, "Extra");
                     if (extraNode.is_object()) {

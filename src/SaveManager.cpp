@@ -84,6 +84,15 @@ namespace DynPals {
                             pd.MatSet[matIndex] = Utils::StringToWString(matPath.get<std::string>());
                         }
                     }
+                    
+                    // --- NEW: Deserialize Rolled Colors ---
+                    if (palNode.contains("MatColors") && palNode.at("MatColors").is_object()) {
+                        for (auto& [matIndex, colorArr] : palNode.at("MatColors").items()) {
+                            if (colorArr.is_array() && colorArr.size() == 4) {
+                                pd.MatColorSet[matIndex] = { colorArr[0].get<float>(), colorArr[1].get<float>(), colorArr[2].get<float>(), colorArr[3].get<float>() };
+                            }
+                        }
+                    }
                     PersistedSwaps[pd.InstanceID] = pd;
                     AccessOrder.push_back(pd.InstanceID); 
                 }
@@ -133,6 +142,13 @@ namespace DynPals {
                     matsObj[mIndex] = Utils::WStringToString(mPath);
                 }
                 if (!matsObj.empty()) palNode["Mats"] = matsObj;
+                
+                // --- NEW: Serialize Rolled Colors ---
+                nlohmann::ordered_json matColorsObj;
+                for (const auto& [mIndex, mColor] : data.MatColorSet) {
+                    matColorsObj[mIndex] = { mColor.R, mColor.G, mColor.B, mColor.A };
+                }
+                if (!matColorsObj.empty()) palNode["MatColors"] = matColorsObj;
                 
                 palsObj[Utils::WStringToString(id)] = palNode;
 

@@ -189,7 +189,7 @@ namespace DynPals {
             NotificationManager::Get().SetReady(false); 
             PalProcessor::Get().ClearAllSwappedStatus();
             
-            DP_LOG(Default, "Transitioned to Main Menu (Detected via %S). Mod entering standby mode...\n", WidgetName.c_str());
+            DP_LOG(Default, "Transitioned to Main Menu (Detected via '{}'). Mod entering standby mode...\n", WidgetName.c_str());
 
             std::thread([]() {
                 Updater::CheckForUpdates();

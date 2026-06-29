@@ -30,7 +30,7 @@ if ($file -match '(?s)struct\s+SwapConfig\s*\{(.*?)\};') {
             
             if ($type -like '*std::vector*') {
                 if ($type -like '*MatReplace*') {
-                    $json[$name] = ,@{'MatPath'='/Game/MaterialPath'; 'Index'='0'}
+                    $json[$name] = ,@{'MatPath'='/Game/MaterialPath'; 'RandomHue'=$false; 'Index'='0'}
                 } elseif ($type -like '*MorphTarget*') {
                     $morphTypeVal = if ($aliases.ContainsKey('MorphType')) { $aliases['MorphType'] } else { 'Free' }
                     $json[$name] = ,@{'Max'=1; 'Min'=0; 'Target'='MorphName'; 'Type'=$morphTypeVal; 'Set'=1}
@@ -95,6 +95,7 @@ if ($file -match '(?s)struct\s+SwapConfig\s*\{(.*?)\};') {
     $matObj = [ordered]@{
         'MaterialAsset' = '/Game/MaterialPath'
         'Index' = '0'
+        'RandomHue' = $false
     }
     $v2SkinData['SpecialMaterial'] = ,$matObj
 

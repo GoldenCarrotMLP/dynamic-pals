@@ -118,8 +118,8 @@ This mod is possible and stable thanks to these amazing people:
 - Reaper
 - Spam
 - Raeil
-- EisDrache 
-- 
+- Jyanon 
+  
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.

@@ -12,7 +12,8 @@ Unlike traditional `.pak` replacements which statically overwrite game-wide asse
 * **Matchmaking Engine:** Evaluates Pals' traits, gender, level, and rarity against configured weights to assign the most specific skin. (thanks to spam for helping polish it)
 * **UI Integration:** Utilize the `SwapLabel` property to give your replacement skins clean, readable names inside supported in-game menus.
 * **Dynamic Morph Target Engine:** Randomized or absolute morph targets (blendshapes) applied cleanly per-instance.
-* **Advanced Material Instancing:** Swap textures and materials dynamically per-slot without duplicating mesh files. Now features wildcard targeting (`/*`) for rapid material folder overrides! (thanks for Raeil for the idea)
+* **Advanced Material Instancing:** Swap textures and materials dynamically per-slot without duplicating mesh files. Now features wildcard targeting (`/*`) for rapid material folder overrides! (thanks to Raeil for the idea)
+* **Dynamic Hue Shifting:** Generate vibrant, randomized HSV colors at runtime per material slot using `"RandomHue": true`. The mod automatically handles creating Dynamic Material Instances (MIDs) on-the-fly and applies a unique, persisted color to the `"Hue"` vector parameter (safely ignored by materials that do not support it).
 * **Overworld Settle Quarantine:** Pauses swaps for 5 seconds during initial level loads to prevent spawning performance spikes.
 
 ---
