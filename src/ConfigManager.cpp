@@ -4,7 +4,8 @@
 #include "json.hpp"
 #include <random>
 #include <algorithm>
-#include <filesystem> // <--- ADD THIS INCLUDE
+#include <filesystem>
+#include <set> 
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -85,9 +86,17 @@ namespace DynPals {
             else if (val.is_number()) return std::to_string(val.get<int>());
             return "0";
         }
-    }
 
-    
+        void ValidateGender(const std::wstring& genderStr, const std::wstring& packName, const std::wstring& swapLabel) {
+            std::wstring lg = ToLower(genderStr);
+            if (!lg.empty() && lg != L"none" && lg != L"male" && lg != L"female" &&
+        lg != L"any" && lg != L"all" && lg != L"both" && lg != L"futa" && lg != L"fullfuta" && 
+        lg != L"andro" && lg != L"neutered" && lg != L"fullneutered") {
+                
+                DP_LOG(Error, "JSON ERROR in Pack '{}': Swap '{}' has an invalid Gender '{}'. Valid options: None, Male, Female.", packName, swapLabel, genderStr);
+            }
+        }
+    }
 
     void ConfigManager::Initialize(const std::wstring& BasePath) {
         ConfigPath = BasePath + L"Paks/~mods/";
@@ -131,7 +140,34 @@ namespace DynPals {
                         if (fileContent.empty()) continue;
 
                         try {
-                            nlohmann::json configData = nlohmann::json::parse(fileContent, nullptr, true, true);
+                            // SAX Event callback to detect duplicate keys as they are parsed!
+                            std::vector<std::set<std::string>> keysAtDepth;
+                            std::wstring currentFilename = filename;
+
+                            nlohmann::json::parser_callback_t cb = [&keysAtDepth, currentFilename](int depth, nlohmann::json::parse_event_t event, nlohmann::json& parsed) {
+                                if (depth + 1 >= (int)keysAtDepth.size()) {
+                                    keysAtDepth.resize(depth + 2);
+                                }
+
+                                if (event == nlohmann::json::parse_event_t::object_start) {
+                                    // A new object block is starting. Clear any keys we tracked for its children.
+                                    keysAtDepth[depth + 1].clear();
+                                }
+                                else if (event == nlohmann::json::parse_event_t::key) {
+                                    if (parsed.is_string()) {
+                                        std::string keyName = parsed.get<std::string>();
+                                        if (keysAtDepth[depth].count(keyName)) {
+                                            std::wstring wKey = Utils::StringToWString(keyName);
+                                            DP_LOG(Error, "JSON DUPLICATE KEY ERROR in '{}': Key '{}' appears multiple times in the same block! The parser will OVERWRITE the first one. Please ensure all your skin labels/keys are uniquely named.", currentFilename, wKey);
+                                        } else {
+                                            keysAtDepth[depth].insert(keyName);
+                                        }
+                                    }
+                                }
+                                return true;
+                            };
+
+                            nlohmann::json configData = nlohmann::json::parse(fileContent, cb, true, true);
                             
                             if (!configData.is_object()) {
                                 DP_LOG(Warning, "Skipping invalid config (not a JSON Object): '{}'\n", filename);
@@ -328,9 +364,12 @@ namespace DynPals {
                     sc.MorphTargetList.push_back(mt);
                 }
             }
+
             if (sc.SwapLabel.empty()) {
                 sc.SwapLabel = Utils::GenerateFallbackLabel(sc.SkelMeshPath, sc.MatReplaceList, sc.MorphTargetList);
             }
+            
+            ValidateGender(sc.Gender, sc.PackName, sc.SwapLabel);
             Configs.push_back(sc);
         }
     }
@@ -450,9 +489,12 @@ namespace DynPals {
                         sc.Extra = Utils::StringToWString(extraNode.get<std::string>());
                     }
                 }
+                
                 if (sc.SwapLabel.empty()) {
                     sc.SwapLabel = Utils::GenerateFallbackLabel(sc.SkelMeshPath, sc.MatReplaceList, sc.MorphTargetList);
                 }
+                
+                ValidateGender(sc.Gender, sc.PackName, sc.SwapLabel);
                 Configs.push_back(sc);
             }
         }
@@ -484,11 +526,11 @@ namespace DynPals {
             std::wstring swapGender = ToLower(swap.Gender);
             std::wstring charGender = ToLower(GenderStr);
 
-            // Normalize "any", "all", or missing/empty strings to "none"
-            if (swapGender == L"any" || swapGender == L"all" || swapGender.empty()) {
+            // Normalize "any", "all", "both", or missing/empty strings to "none"
+            if (swapGender == L"any" || swapGender == L"all" || swapGender == L"both" || swapGender.empty()) {
                 swapGender = L"none";
             }
-            if (charGender == L"any" || charGender == L"all" || charGender.empty()) {
+            if (charGender == L"any" || charGender == L"all" || charGender == L"both" || charGender.empty()) {
                 charGender = L"none";
             }
 
