@@ -433,23 +433,11 @@ namespace DynPals {
 
         PalRuntimeStats& CachedStats = RuntimeStatsCache[InstanceID];
         
+        // Extract the current skin label so the engine knows the Pal's evolutionary state
+        std::wstring CurrentSwapLabel = ExistingData ? ExistingData->SwapLabel : L"";
+        
         bool bLiveEventTriggered = (CachedStats.Level != -1); 
-        bool bBucketChanged = false;
-
-        if (bLiveEventTriggered) {
-            auto oldEvaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, CachedStats.Level, SkinName, CachedStats.Rank, CachedStats.Friendship, IsWild);
-            auto newEvaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
-
-            std::vector<int> oldValidSkins;
-            std::vector<int> newValidSkins;
-
-            for (const auto& ev : oldEvaluations) { if (ev.IsValid) oldValidSkins.push_back(ev.ConfigIndex); }
-            for (const auto& ev : newEvaluations) { if (ev.IsValid) newValidSkins.push_back(ev.ConfigIndex); }
-
-            if (oldValidSkins != newValidSkins) {
-                bBucketChanged = true;
-            }
-        }
+        
 
         CachedStats.Level = LevelNum;
         CachedStats.Rank = RankNum;
@@ -457,7 +445,6 @@ namespace DynPals {
 
         int currentSwap = -1;
         if (ExistingData && ExistingData->HasSavedSwap()) {
-            // Pass CharID to allow different characters to share the same mesh without collision [1]
             currentSwap = ConfigManager::Get().FindConfigIndex(ExistingData->PackName, ExistingData->SkinName, ExistingData->SwapLabel, ExistingData->SkelMeshPath, CharID);
         }
 
@@ -467,15 +454,12 @@ namespace DynPals {
             finalSwap = ExplicitSwapIndex;
         } 
         else {
-            // --- DEBUG 2: DUPLICATE GUARD BLOCK ---
             auto it = SwappedInstances.find(InstanceID);
-            if (!ForceReroll && !bBucketChanged && it != SwappedInstances.end() && it->second == Character) {
-                //DP_LOG(Default, "[Debug Swap] Blocked Duplicate: Pal '{}' (ID: '{}') already processed on Actor {}. Skipping.", RawCharID, InstanceID, (void*)Character);
-                return; 
-            }
+            
 
-            auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
+            auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);
             int newBestSwap = ConfigManager::Get().PickBestSwap(evaluations);
+
             
             finalSwap = currentSwap;
 
@@ -492,20 +476,17 @@ namespace DynPals {
                     }
 
                     if (currentEval) {
-                        if (bBucketChanged) {
-                            int absoluteBestScore = 999999;
-                            for (const auto& ev : evaluations) {
-                                if (ev.IsValid && ev.Score < absoluteBestScore) {
-                                    absoluteBestScore = ev.Score;
-                                }
+                        int absoluteBestScore = 999999;
+                        for (const auto& ev : evaluations) {
+                            if (ev.IsValid && ev.Score < absoluteBestScore) {
+                                absoluteBestScore = ev.Score;
                             }
+                        }
 
-                            if (!currentEval->IsValid || currentEval->Score > absoluteBestScore) {
-                                DP_LOG(Normal, "Live Event: Skin bucket changed or became invalid. Upgrading skin.\n");
-                                finalSwap = newBestSwap;
-                            } else {
-                                finalSwap = currentSwap;
-                            }
+                        // Always evolve if the current skin became invalid OR a strictly better skin is available
+                        if (!currentEval->IsValid || currentEval->Score > absoluteBestScore) {
+                            DP_LOG(Verbose, "Live Event: Better skin found or current became invalid. Upgrading skin.\n");
+                            finalSwap = newBestSwap;
                         } else {
                             finalSwap = currentSwap;
                         }
@@ -562,30 +543,89 @@ namespace DynPals {
                     newData.MorphSet.clear();
                     newData.MatSet.clear();
                     newData.MatColorSet.clear(); 
+                }
 
-                    // --- SAFE NATIVE NICKNAME ENGINE (100% Crash-Proof) ---
-                    if (!finalConfig.SetNickname.empty()) {
-                        UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-                        if (PlayerController) {
-                            UFunction* UpdateNameFunc = PlayerController->GetFunctionByNameInChain(STR("UpdateCharacterNickName_ToServer"));
-                            if (UpdateNameFunc) {
-                                struct { 
-                                    FPalInstanceID InstanceId; 
-                                    FString NewNickName; 
-                                } Params;
-                                
-                                Params.InstanceId = InstanceIDStruct;
-                                Params.NewNickName = FString(finalConfig.SetNickname.c_str());
-                                
-                                PlayerController->ProcessEvent(UpdateNameFunc, &Params);
-                                DP_LOG(Default, "[Nickname] Natively assigned name for '{}' -> '{}'", InstanceID, finalConfig.SetNickname);
+                // --- NEW: INDEPENDENT AUTOMATIC NICKNAME ENGINE ---
+                if (!finalConfig.SetNickname.empty()) {
+                    bool bNicknameIsEmpty = false;
+                    FProperty* SaveParamProp = Utils::GetProperty(IndivParam, STR("SaveParameter"));
+                    if (SaveParamProp) {
+                        void* SaveParamPtr = SaveParamProp->ContainerPtrToValuePtr<void>(IndivParam);
+                        if (SaveParamPtr) {
+                            FStructProperty* StructProp = CastField<FStructProperty>(SaveParamProp);
+                            if (StructProp) {
+                                UStruct* SaveParamStruct = StructProp->GetStruct();
+                                if (SaveParamStruct) {
+                                    FProperty* NickNameProp = SaveParamStruct->GetPropertyByNameInChain(STR("NickName"));
+                                    if (NickNameProp) {
+                                        FString* pNickName = NickNameProp->ContainerPtrToValuePtr<FString>(SaveParamPtr);
+                                        if (pNickName) {
+                                            std::wstring curName = pNickName->GetCharArray().GetData() ? pNickName->GetCharArray().GetData() : L"";
+                                            if (curName.empty()) {
+                                                bNicknameIsEmpty = true;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
-                
+
+                    // Set the name if we are forcing it, selecting it explicitly, changing skins, or if the Pal has no custom name yet!
+                    bool bShouldSetNickname = ForceReroll || (ExplicitSwapIndex != -1) || (finalSwap != currentSwap) || bNicknameIsEmpty;
+
+                    if (bShouldSetNickname) {
+                        // 1. Force the name change client-side safely using Reflection (Works 100% on wild Pals!)
+                        if (SaveParamProp) {
+                            void* SaveParamPtr = SaveParamProp->ContainerPtrToValuePtr<void>(IndivParam);
+                            if (SaveParamPtr) {
+                                FStructProperty* StructProp = CastField<FStructProperty>(SaveParamProp);
+                                if (StructProp) {
+                                    UStruct* SaveParamStruct = StructProp->GetStruct();
+                                    if (SaveParamStruct) {
+                                        FString newNameStr(finalConfig.SetNickname.c_str());
+
+                                        FProperty* NickNameProp = SaveParamStruct->GetPropertyByNameInChain(STR("NickName"));
+                                        if (NickNameProp) {
+                                            void* pNickName = NickNameProp->ContainerPtrToValuePtr<void>(SaveParamPtr);
+                                            if (pNickName) NickNameProp->CopyCompleteValue(pNickName, &newNameStr);
+                                        }
+
+                                        FProperty* FilteredNickNameProp = SaveParamStruct->GetPropertyByNameInChain(STR("FilteredNickName"));
+                                        if (FilteredNickNameProp) {
+                                            void* pFilteredNickName = FilteredNickNameProp->ContainerPtrToValuePtr<void>(SaveParamPtr);
+                                            if (pFilteredNickName) FilteredNickNameProp->CopyCompleteValue(pFilteredNickName, &newNameStr);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. If it is NOT a wild Pal, tell the server so it permanently saves in the database
+                        if (!IsWild) {
+                            UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+                            if (PlayerController) {
+                                UFunction* UpdateNameFunc = PlayerController->GetFunctionByNameInChain(STR("UpdateCharacterNickName_ToServer"));
+                                if (UpdateNameFunc) {
+                                    struct { 
+                                        FPalInstanceID InstanceId; 
+                                        FString NewNickName; 
+                                    } Params;
+                                    Params.InstanceId = InstanceIDStruct;
+                                    Params.NewNickName = FString(finalConfig.SetNickname.c_str());
+                                    
+                                    PlayerController->ProcessEvent(UpdateNameFunc, &Params);
+                                }
+                            }
+                        }
+                        
+                        DP_LOG(Default, "[Nickname] Applied name update for '{}' -> '{}' (Wild: {})", (InstanceID), (finalConfig.SetNickname), IsWild ? L"True" : L"False");
+                    }
                 }
+                
 
                 ApplySwap(Character, finalConfig, newData);
+
 
                 bool bIsManualAction = (ExplicitSwapIndex != -1) || ForceReroll;
                 SaveManager::Get().SetPersistData(InstanceID, newData, bIsManualAction);

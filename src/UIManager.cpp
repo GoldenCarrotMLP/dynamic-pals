@@ -426,17 +426,24 @@ namespace DynPals {
                 Utils::CallFunction(IndivParam, STR("GetGenderType"), &GenderParams);
                 GenderStr = (GenderParams.RetVal == 1) ? L"Male" : ((GenderParams.RetVal == 2) ? L"Female" : L"None");
 
-                struct { int32_t RetVal; } LevelParams{1};
+                // --- SYNCED SENTINEL STATS LOGIC ---
+                struct { int32_t RetVal = -1; } LevelParams;
                 Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
-                LevelNum = LevelParams.RetVal;
+                LevelNum = LevelParams.RetVal == -1 ? 1 : LevelParams.RetVal;
 
-                struct { int32_t RetVal; } RankParams{0};
+                struct { int32_t RetVal = -1; } RankParams;
                 Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
-                RankNum = RankParams.RetVal;
+                RankNum = RankParams.RetVal == -1 ? 0 : RankParams.RetVal;
 
-                struct { int32_t RetVal; } FriendshipParams{0};
-                Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &FriendshipParams);
+                struct { int32_t RetVal = -1; } FriendshipParams;
+                Utils::CallFunction(IndivParam, STR("GetFriendshipRank"), &FriendshipParams);
                 FriendshipNum = FriendshipParams.RetVal;
+                if (FriendshipNum == -1) {
+                    struct { int32_t RetVal = -1; } LegacyFriendshipParams;
+                    Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &LegacyFriendshipParams);
+                    FriendshipNum = LegacyFriendshipParams.RetVal == -1 ? 0 : LegacyFriendshipParams.RetVal;
+                }
+                // -----------------------------------
 
                 struct { FName RetVal; } SkinParams{FName()};
                 Utils::CallFunction(IndivParam, STR("GetSkinName"), &SkinParams);
@@ -447,6 +454,7 @@ namespace DynPals {
                 Utils::CallFunction(IndivParam, STR("GetPassiveSkillList"), &TraitsParams);
                 for (int32_t i = 0; i < TraitsParams.RetVal.Num(); ++i) {
                     Traits.push_back(TraitsParams.RetVal[i].ToString());
+
                 }
             }
         }
@@ -458,8 +466,12 @@ namespace DynPals {
             IsWild = WildParams.RetVal;
         }
 
-        auto evaluations = ConfigManager::Get().EvaluateAllSwaps(TargetCharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild);
-        
+        // Fetch the active swap label for the UI matchmaker
+        PalPersistData* currentPersist = SaveManager::Get().GetPersistData(TargetInstanceID);
+        std::wstring CurrentSwapLabel = currentPersist ? currentPersist->SwapLabel : L"";
+
+        auto evaluations = ConfigManager::Get().EvaluateAllSwaps(TargetCharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);
+
         int bestScore = 999999;
         int tieCount = 0;
         for (const auto& eval : evaluations) {
@@ -472,7 +484,7 @@ namespace DynPals {
             }
         }
 
-        int totalTiedWeight = 0;
+        double totalTiedWeight = 0.0;
         for (const auto& eval : evaluations) {
             if (eval.IsValid && eval.Score == bestScore) {
                 totalTiedWeight += ConfigManager::Get().GetConfigs()[eval.ConfigIndex].SpawnWeight;
@@ -833,9 +845,9 @@ namespace DynPals {
                 if (processedFilename.rfind(L"SK_", 0) == 0 || processedFilename.rfind(L"sk_", 0) == 0) processedFilename = processedFilename.substr(3);
                 for (wchar_t& c : processedFilename) { if (c == L'_') c = L' '; }
 
-                int pct = 0;
-                if (eval.IsValid && eval.Score == bestScore && totalTiedWeight > 0) {
-                    pct = (cfg.SpawnWeight * 100) / totalTiedWeight;
+                double pct = 0.0;
+                if (eval.IsValid && eval.Score == bestScore && totalTiedWeight > 0.0) {
+                    pct = (cfg.SpawnWeight * 100.0) / totalTiedWeight;
                 }
 
                 FLinearColor textColor;
@@ -844,7 +856,10 @@ namespace DynPals {
                 else if (eval.Score == 0) textColor = PalBakerEmerald;
                 else textColor = PalBakerOrange;
 
-                std::wstring logStr = L"    " + std::to_wstring(pct) + L"% : " + processedFilename;
+                wchar_t pctBuf[16];
+                swprintf(pctBuf, 16, L"%.1f", pct); // Formats to 1 decimal place (e.g. 2.4%)
+                std::wstring logStr = L"    " + std::wstring(pctBuf) + L"% : " + processedFilename;
+
 
                 UObject* LogText = ConstructElement(TextBlockClass);
                 if (LogText) {

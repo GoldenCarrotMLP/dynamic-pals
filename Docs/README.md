@@ -47,6 +47,7 @@ If two or more configurations tie for the lowest score, the engine resolves the 
 ### Scoring Rules:
 | Condition | Match Outcome | Score Adjustment / Action |
 | :--- | :--- | :--- |
+| **Required Swap Missing** | Fail | Skip Swap (Invalidated) |
 | **Required Trait Missing** | Fail | Skip Swap (Invalidated) |
 | **Banned Trait (`SkipTrait`) Present** | Fail | Skip Swap (Invalidated) |
 | **IsRarePal / IsWildPal Misaligned** | Fail | Skip Swap (Invalidated) |

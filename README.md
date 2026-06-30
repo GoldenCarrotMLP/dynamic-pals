@@ -82,7 +82,7 @@ Upon successful compilation, the compiled `main.dll` and the dynamically updated
 
 ## How to Install the Mod
 
-1. Ensure [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS) is installed in your Palworld directory (`Pal/Binaries/Win64/`).
+1. Ensure [UE4SS](https://github.com/Okaetsu/RE-UE4SS) is installed in your Palworld directory (`Pal/Binaries/Win64/`).
 2. Create a folder named `DynamicPals` in your `Mods` directory: 
    `Pal/Binaries/Win64/Mods/DynamicPals/`
 3. Copy your compiled `main.dll` and `version.txt` into:
@@ -93,7 +93,7 @@ Upon successful compilation, the compiled `main.dll` and the dynamically updated
 
 ## Controls
 
-* **`Alt + N`:** Toggles the manual customization menu when standing near a Pal.
+* **`Alt + N`:** Toggles the manual customization menu when looking at a Pal.
 * **`Escape` (while menu is open):** Safely closes the menu, re-hiding the mouse cursor and returning input capture to the game camera.
 
 ---
@@ -101,7 +101,8 @@ Upon successful compilation, the compiled `main.dll` and the dynamically updated
 ## Creating Skin Configuration Packs
 
 Configurations are stored as JSON files inside your project's content directory at:
-`Paks/~mods/SwapJSON/`
+`Paks/~mods/SwapJSON/` for classic alternatic jsons
+`Paks/~mods/ModelJSON/` for newer PalMagic jsons
 
 ---
 ## Credits
@@ -111,8 +112,8 @@ This mod is possible and stable thanks to these amazing people:
 - MonoDragon
 - Z3NlTH-Dr4G0N
 - ⌞ℤ𝕖𝕥𝕥𝕖𝕣𝟛𝔻⌝
-- MCorgano
-- Okaetsu
+- [MCorgano](https://github.com/Corgano)
+- [Okaetsu](https://github.com/Okaetsu)
 - T-Box
 - DefaultUsername80
 - Reaper

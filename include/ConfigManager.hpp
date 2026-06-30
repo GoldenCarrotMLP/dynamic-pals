@@ -19,7 +19,7 @@ namespace DynPals {
         void Initialize(const std::wstring& BasePath);
         void LoadConfigJSONs();
         
-        std::vector<SwapEvaluation> EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild) const;
+        std::vector<SwapEvaluation> EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild, const std::wstring& CurrentSwapLabel) const; 
         int PickBestSwap(const std::vector<SwapEvaluation>& evaluations) const;
         // Declare the signature with optional CharID to safely resolve identical meshes on different Pals [1]
         int FindConfigIndex(const std::wstring& PackName, const std::wstring& SkinName, const std::wstring& SwapLabel, const std::wstring& SkelMeshPath, const std::wstring& CharID = L"") const;

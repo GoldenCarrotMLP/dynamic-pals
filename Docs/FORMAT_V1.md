@@ -26,6 +26,7 @@ Version 1 is an array-based format created by Michael where every replacement en
 | **`SpawnWeight`** | Integer | No | Relative probability weight for weighted random selection on ties (default 1). |
 | **`IsRarePal`** | Boolean | No | `true` or `false` (Forces match only on Lucky/Rare status). |
 | **`IsWildPal`** | Boolean | No | `true` or `false` (Forces match only on wild status). |
+| **`ReqSwap`** | Array | No | Array of swap IDs the Pal **must** be in before it can transition to them (useful for evolutions). |
 | **`ReqTrait`** | Array | No | Array of passive skill IDs the Pal **must** possess. |
 | **`PrefTrait`** | Array | No | Array of passive skill IDs the Pal **should** possess (increases match score). |
 | **`SkipTrait`** | Array | No | Array of passive skill IDs that **banned** this swap from occurring. |
@@ -63,6 +64,7 @@ Version 1 is an array-based format created by Michael where every replacement en
             "SpawnWeight": 10,
             "IsRarePal": false,
             "IsWildPal": true,
+            "ReqSwap":  ["Uncool Cat"],
             "ReqTrait": [ "Brave" ],
             "PrefTrait": [ "Swift" ],
             "SkipTrait": [ "Coward" ],

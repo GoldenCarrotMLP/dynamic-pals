@@ -81,9 +81,10 @@ struct SwapConfig {
     int MaxTrust = 999999;   
     int MinRank = 0;         
     int MaxRank = 5;         
-    int SpawnWeight = 1;          
+    double SpawnWeight = 1;          
     std::optional<bool> IsRarePal; 
     std::optional<bool> IsWildPal; 
+    std::vector<std::wstring> ReqSwap;
     std::vector<std::wstring> ReqTrait;
     std::vector<std::wstring> PrefTrait;
     std::vector<std::wstring> SkipTrait;

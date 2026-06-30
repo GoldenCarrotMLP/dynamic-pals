@@ -24,6 +24,7 @@ Version 2 is a grouped, map-based format created by MonoDrago. Instead of arrays
 | **`IsWildPal`** | String/Bool | No | `"true"` or `"false"`. |
 | **`PassiveSkills`** | Array | No | Array of passive skill IDs the Pal **must** possess (replaces V1 `ReqTrait`). |
 | **`PrefTrait`** | Array | No | Array of passive skill IDs the Pal **should** possess. |
+| **`ReqSwap`** | Array | No | Array of swap IDs the Pal **must** be in before it can transition to them (useful for evolutions). |
 | **`SkipTrait`** | Array | No | Array of passive skill IDs that **banned** this swap from occurring. |
 | **`SpecialMaterial`** | Array | No | Array of material overrides. See Special Material sub-schema below. |
 | **`ShapeKeys`** | Array | No | Array of morph slider overrides. See Shape Keys sub-schema below. |
@@ -63,6 +64,7 @@ Version 2 is a grouped, map-based format created by MonoDrago. Instead of arrays
                 "IsWildPal": "true",
                 "PassiveSkills": [ "Brave" ],
                 "PrefTrait": [ "Swift" ],
+                "ReqSwap": [ "Uncool cat" ],
                 "SkipTrait": [ "Coward" ],
                 "SpecialMaterial": [
                     {

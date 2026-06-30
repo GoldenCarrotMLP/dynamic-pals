@@ -276,8 +276,13 @@ namespace DynPals {
             sc.MaxRank = SafeGetInt(swapJson, "MaxRank", 5);
             
             if (ContainsKey(swapJson, "SpawnWeight")) {
-                int w = SafeGetInt(swapJson, "SpawnWeight", 1);
-                sc.SpawnWeight = w > 0 ? w : 1;
+                double w = SafeGetDouble(swapJson, "SpawnWeight", 1.0);
+                sc.SpawnWeight = w > 0.0 ? w : 1.0;
+            }
+            if (ContainsKey(swapJson, "ReqSwap")) {
+                for (auto& req : GetValue(swapJson, "ReqSwap")) {
+                    sc.ReqSwap.push_back(Utils::StringToWString(req.get<std::string>()));
+                }
             }
             
             if (ContainsKey(swapJson, "SkipTrait")) {
@@ -415,8 +420,13 @@ namespace DynPals {
                 sc.MaxRank = SafeGetInt(swapJson, "MaxRank", 5);
                 
                 if (ContainsKey(swapJson, "SpawnWeight")) {
-                    int w = SafeGetInt(swapJson, "SpawnWeight", 1);
-                    sc.SpawnWeight = w > 0 ? w : 1;
+                double w = SafeGetDouble(swapJson, "SpawnWeight", 1.0);
+                sc.SpawnWeight = w > 0.0 ? w : 1.0;
+            }
+                if (ContainsKey(swapJson, "ReqSwap")) {
+                    for (auto& req : GetValue(swapJson, "ReqSwap")) {
+                        sc.ReqSwap.push_back(Utils::StringToWString(req.get<std::string>()));
+                    }
                 }
                 
                 if (ContainsKey(swapJson, "IsWildPal")) {
@@ -507,7 +517,7 @@ namespace DynPals {
         }
     }
     
-    std::vector<SwapEvaluation> ConfigManager::EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild) const {
+    std::vector<SwapEvaluation> ConfigManager::EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild, const std::wstring& CurrentSwapLabel) const {
         std::vector<SwapEvaluation> results;
 
         for (size_t i = 0; i < Configs.size(); i++) {
@@ -594,6 +604,24 @@ namespace DynPals {
                     }
                 }
             }
+
+            // 6. Required Swap Path (Evolution Trees)
+            if (eval.IsValid && !swap.ReqSwap.empty()) {
+                bool hasReqSwap = false;
+                for (const auto& req : swap.ReqSwap) {
+                    if (ToLower(req) == ToLower(CurrentSwapLabel)) {
+                        hasReqSwap = true;
+                        break;
+                    }
+                }
+                if (!hasReqSwap) {
+                    eval.IsValid = false; // Blocked! It did not come from the required evolutionary line.
+                } else {
+                    eval.Score -= 30; // Strong bonus for correctly following a specific evolutionary path!
+                }
+            }
+            
+           
 
             if (eval.IsValid) {
                 for (const auto& pref : swap.PrefTrait) {
@@ -685,14 +713,13 @@ namespace DynPals {
         if (!bestMatches.empty()) {
             // 1. BIAS DETECTION: Only evaluate if we have a tie (more than 1 candidate)
             if (bestMatches.size() > 1) {
-                int maxWeight = -1;
+                double maxWeight = -1.0;
                 int maxWeightIdx = -1;
-                int secondMaxWeight = -1;
+                double secondMaxWeight = -1.0;
                 int secondMaxWeightIdx = -1;
 
-                // Find the highest and second-highest weights in the tie-breaker pool
                 for (int idx : bestMatches) {
-                    int w = Configs[idx].SpawnWeight;
+                    double w = Configs[idx].SpawnWeight;
                     if (w > maxWeight) {
                         secondMaxWeight = maxWeight;
                         secondMaxWeightIdx = maxWeightIdx;
@@ -704,8 +731,7 @@ namespace DynPals {
                     }
                 }
 
-                // If the top candidate's weight is over double the next best candidate's weight [1]
-                if (secondMaxWeight > 0 && maxWeight > (2 * secondMaxWeight)) {
+                if (secondMaxWeight > 0.0 && maxWeight > (2.0 * secondMaxWeight)) {
                     auto& maxConfig = Configs[maxWeightIdx];
                     std::wstring maxName = maxConfig.SkinName.empty() ? L"Anonymous Mesh" : maxConfig.SkinName;
                     
@@ -714,27 +740,28 @@ namespace DynPals {
                         secondName = Configs[secondMaxWeightIdx].SkinName.empty() ? L"Anonymous Mesh" : Configs[secondMaxWeightIdx].SkinName;
                     }
 
-                    // Fires a yellow warning toast directly on the player's screen! [2]
-                    DP_LOG(Warning, "Skin '{}' in Pack '{}' has a biased spawn weight ({}) which is over double the weight of other candidates (like '{}' with {}). You can adjust this in the JSON file for more variety!", 
+                    // Notice the {:.2f} formatting for doubles
+                    DP_LOG(Warning, "Skin '{}' in Pack '{}' has a biased spawn weight ({:.2f}) which is over double the weight of other candidates (like '{}' with {:.2f}). You can adjust this in the JSON file for more variety!", 
                            maxName, maxConfig.PackName, maxWeight, secondName, secondMaxWeight);
                 }
             }
 
-            int totalWeight = 0;
+            // 2. RANDOM ROLL (Now using Real Distribution!)
+            double totalWeight = 0.0;
             for (int idx : bestMatches) {
                 totalWeight += Configs[idx].SpawnWeight;
             }
 
-            if (totalWeight > 0) {
+            if (totalWeight > 0.0) {
                 std::random_device rd;
                 std::mt19937 gen(rd());
-                std::uniform_int_distribution<> dis(0, totalWeight - 1);
-                int randomValue = dis(gen);
+                std::uniform_real_distribution<double> dis(0.0, totalWeight);
+                double randomValue = dis(gen);
 
-                int cumulativeWeight = 0;
+                double cumulativeWeight = 0.0;
                 for (int idx : bestMatches) {
                     cumulativeWeight += Configs[idx].SpawnWeight;
-                    if (randomValue < cumulativeWeight) {
+                    if (randomValue <= cumulativeWeight) {
                         return idx;
                     }
                 }

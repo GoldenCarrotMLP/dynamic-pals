@@ -257,7 +257,7 @@ namespace DynPals {
                             DP_LOG(Default, "Reconciliation complete. Mod entering zero-overhead standby.\n");
 
                             std::wstring verStr = GetFormattedVersionString();
-                            DP_LOG(Normal, "welcome to dynamic pals {}", verStr);
+                            DP_LOG(Normal, "Welcome to dynamic pals {}", verStr);
 
                             NotificationManager::Get().FlushQueuedToasts();
                         });
