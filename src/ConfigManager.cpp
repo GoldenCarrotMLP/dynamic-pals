@@ -122,6 +122,7 @@ namespace DynPals {
 
     void ConfigManager::LoadConfigJSONs() {
         Configs.clear();
+        WarnedCharIDs.clear();
         
         std::wstring PathV1 = ConfigPath + L"SwapJSON/";
         std::wstring PathV2 = ConfigPath + L"ModelJSON/";
@@ -711,13 +712,14 @@ namespace DynPals {
         }
 
         if (!bestMatches.empty()) {
-            // 1. BIAS DETECTION: Only evaluate if we have a tie (more than 1 candidate)
-            if (bestMatches.size() > 1) {
+            // 1. BIAS DETECTION: Only evaluate if the tie-breaker pool has 4 or more candidates
+            if (bestMatches.size() >= 4) {
                 double maxWeight = -1.0;
                 int maxWeightIdx = -1;
                 double secondMaxWeight = -1.0;
                 int secondMaxWeightIdx = -1;
 
+                // Find the highest and second-highest weights in the tie-breaker pool
                 for (int idx : bestMatches) {
                     double w = Configs[idx].SpawnWeight;
                     if (w > maxWeight) {
@@ -731,22 +733,29 @@ namespace DynPals {
                     }
                 }
 
+                // If the top candidate's weight is over double the next best candidate's weight
                 if (secondMaxWeight > 0.0 && maxWeight > (2.0 * secondMaxWeight)) {
                     auto& maxConfig = Configs[maxWeightIdx];
-                    std::wstring maxName = maxConfig.SkinName.empty() ? L"Anonymous Mesh" : maxConfig.SkinName;
-                    
-                    std::wstring secondName = L"Other Candidates";
-                    if (secondMaxWeightIdx != -1) {
-                        secondName = Configs[secondMaxWeightIdx].SkinName.empty() ? L"Anonymous Mesh" : Configs[secondMaxWeightIdx].SkinName;
-                    }
+                    std::wstring charID = maxConfig.CharacterID;
 
-                    // Notice the {:.2f} formatting for doubles
-                    DP_LOG(Warning, "Skin '{}' in Pack '{}' has a biased spawn weight ({:.2f}) which is over double the weight of other candidates (like '{}' with {:.2f}). You can adjust this in the JSON file for more variety!", 
-                           maxName, maxConfig.PackName, maxWeight, secondName, secondMaxWeight);
+                    // Only trigger the warning once per Pal species (CharacterID) per session/reload
+                    if (WarnedCharIDs.find(charID) == WarnedCharIDs.end()) {
+                        WarnedCharIDs.insert(charID);
+
+                        std::wstring maxName = maxConfig.SkinName.empty() ? L"Anonymous Mesh" : maxConfig.SkinName;
+                        std::wstring secondName = L"Other Candidates";
+                        if (secondMaxWeightIdx != -1) {
+                            secondName = Configs[secondMaxWeightIdx].SkinName.empty() ? L"Anonymous Mesh" : Configs[secondMaxWeightIdx].SkinName;
+                        }
+
+                        // Pushes a single warning toast to notify about large variety discrepancies
+                        DP_LOG(Warning, "Skin '{}' in Pack '{}' has a highly biased spawn weight ({:.2f}) compared to '{}' with {:.2f}.", 
+                               maxName, maxConfig.PackName, maxWeight, secondName, secondMaxWeight);
+                    }
                 }
             }
 
-            // 2. RANDOM ROLL (Now using Real Distribution!)
+            // 2. RANDOM ROLL (Using double precision math)
             double totalWeight = 0.0;
             for (int idx : bestMatches) {
                 totalWeight += Configs[idx].SpawnWeight;

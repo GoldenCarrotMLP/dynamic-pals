@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <set>
 #include "json.hpp"
 #include "DataTypes.hpp"
 
@@ -33,5 +34,6 @@ namespace DynPals {
 
         std::wstring ConfigPath;
         std::vector<SwapConfig> Configs;
+        mutable std::set<std::wstring> WarnedCharIDs; 
     };
 }
