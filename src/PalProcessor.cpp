@@ -849,12 +849,27 @@ namespace DynPals {
                             }
                         }
                     };
+                     // --- Animations & Movement ---
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
+                    
+                    // --- Fix: Player Petting Posture & Distances ---
+                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingSize"));
+                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingStartAddDistance"));
+                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingEndLeaveDistance"));
+                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingDistance"));
+                    
+                    // --- Fix: UI Positioning (HP Bar Height) ---
+                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("HPGaugeUIOffset"));
+                    
+                    // --- Fix: Bed Alignment & Sleeping Positions ---
+                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideInfoMapForMapObject"));
+                    
+                    
                 }
             }
         }

@@ -609,12 +609,19 @@ namespace DynPals {
             // 6. Required Swap Path (Evolution Trees)
             if (eval.IsValid && !swap.ReqSwap.empty()) {
                 bool hasReqSwap = false;
-                for (const auto& req : swap.ReqSwap) {
-                    if (ToLower(req) == ToLower(CurrentSwapLabel)) {
-                        hasReqSwap = true;
-                        break;
+
+                // If this skin is ALREADY the active skin, it automatically satisfies the evolution requirement!
+                if (!swap.SwapLabel.empty() && ToLower(swap.SwapLabel) == ToLower(CurrentSwapLabel)) {
+                    hasReqSwap = true;
+                } else {
+                    for (const auto& req : swap.ReqSwap) {
+                        if (ToLower(req) == ToLower(CurrentSwapLabel)) {
+                            hasReqSwap = true;
+                            break;
+                        }
                     }
                 }
+
                 if (!hasReqSwap) {
                     eval.IsValid = false; // Blocked! It did not come from the required evolutionary line.
                 } else {
@@ -755,7 +762,7 @@ namespace DynPals {
                 }
             }
 
-            // 2. RANDOM ROLL (Using double precision math)
+            // 2. RANDOM ROLL (Using double precision math) 
             double totalWeight = 0.0;
             for (int idx : bestMatches) {
                 totalWeight += Configs[idx].SpawnWeight;
