@@ -123,4 +123,4 @@ This mod is possible and stable thanks to these amazing people:
   
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License

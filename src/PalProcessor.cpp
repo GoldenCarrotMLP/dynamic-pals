@@ -1142,7 +1142,6 @@ namespace DynPals {
                 if (SetupFunc) {
                     MainModule->ProcessEvent(SetupFunc, &SetupParams);
 
-                    
                     // --- VERIFICATION LOGS ---
                     int32_t EyeIdx = -2;
                     int32_t MouthIdx = -2;
@@ -1151,17 +1150,15 @@ namespace DynPals {
                     Utils::GetPropertyValue<int32_t>(MainModule, STR("EyeMaterialIndex"), EyeIdx);
                     Utils::GetPropertyValue<int32_t>(MainModule, STR("MouthMaterialIndex"), MouthIdx);
                     Utils::GetPropertyValue<int32_t>(MainModule, STR("BrowMaterialIndex"), BrowIdx);
-                    
-                    //DP_LOG(Normal, "[Facial Fix] Re-indexed {} -> Eye: {}, Mouth: {}, Brow: {}", Character->GetName(), EyeIdx, MouthIdx, BrowIdx);
-
+                } else {
+                    DP_LOG(Warning, "[Facial] MainModule on Pal '{}' is missing 'Setup_FacialModule' function. Face textures may stretch.", Character->GetName());
                 }
+            } else {
+                DP_LOG(Warning, "[Facial] Failed to retrieve 'MainModule' from FacialComponent on Pal '{}'.", Character->GetName());
             }
-            
-            // Force the face state to refresh visually to prevent it from getting stuck
-            UFunction* ChangeFacialFunc = FacialComp->GetFunctionByNameInChain(STR("ChangeDefaultFacial"));
-            if (ChangeFacialFunc) {
-                FacialComp->ProcessEvent(ChangeFacialFunc, nullptr);
-            }
+        } else {
+            // Replaced with verbose log so it doesn't clutter normal play, but is searchable
+            DP_LOG(Verbose, "[Facial] FacialComponent not found on Pal '{}'.", Character->GetName());
         }
 
 

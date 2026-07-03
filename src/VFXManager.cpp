@@ -375,9 +375,16 @@ namespace DynPals {
         // Visual only attachments are now natively bound to MeshComp, but positionally resolved via Capsule! [1, 5]
         UObject* AttachTarget = MeshComp;
         if (!AttachTarget) AttachTarget = RootComp;
-        if (!AttachTarget) return nullptr;
+        if (!AttachTarget) {
+            DP_LOG(Warning, "[VFX] Failed to resolve an AttachTarget (MainMesh or RootComponent) for Pal '{}'. Aborting attachment.", PalActor->GetName());
+            return nullptr;
+        }
 
         UObject* VFXAsset = Utils::LoadAssetSafely(VfxPath);
+        if (!VFXAsset) {
+            DP_LOG(Warning, "[VFX] Failed to load VFX Asset at path: '{}'. Check if files are missing.", VfxPath);
+            return nullptr;
+        }
         if (!VFXAsset) return nullptr;
 
         // Fetch dynamic 3D bounds in world space

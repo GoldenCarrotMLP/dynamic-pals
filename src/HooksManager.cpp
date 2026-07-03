@@ -85,25 +85,41 @@ namespace DynPals {
         UObject* PalActor = nullptr;
         std::wstring ClassName = ContextObj->GetClassPrivate()->GetName();
 
-        // 1. If context is a Pal Character (e.g. from BP_MonsterBase_C hook), we already have the Actor!
+        // 1. If context is a Pal Character
         if (ClassName.find(L"PalCharacter") != std::wstring::npos || ClassName.find(L"Monster") != std::wstring::npos || ClassName.find(L"Player") != std::wstring::npos) {
             PalActor = ContextObj;
         }
-        // 2. If context is a Parameter Object, perform a reverse-lookup to find the correct Actor it is attached to!
+        // 2. O(1) Reverse-lookup up the Actor ownership hierarchy!
         else if (ClassName == L"PalIndividualCharacterParameter") {
-            std::vector<UObject*> AllPals;
-            UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
-            for (UObject* Pal : AllPals) {
-                if (!Pal) continue;
-                UObject* ParamComp = nullptr;
-                Utils::GetPropertyValue<UObject*>(Pal, STR("CharacterParameterComponent"), ParamComp);
-                if (ParamComp) {
-                    UObject* IndivParamCheck = nullptr;
-                    Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParamCheck);
-                    // Match found!
-                    if (IndivParamCheck == ContextObj) {
-                        PalActor = Pal;
-                        break;
+            UObject* OuterComp = ContextObj->GetOuterPrivate();
+            if (OuterComp && OuterComp->GetClassPrivate()->GetName().find(L"PalCharacterParameterComponent") != std::wstring::npos) {
+                UObject* Actor = OuterComp->GetOuterPrivate();
+                if (Actor && Actor->GetClassPrivate()->GetName().find(L"PalCharacter") != std::wstring::npos) {
+                    PalActor = Actor; // Success!
+                } else {
+                    DP_LOG(Warning, "O(1) Lookup Failed: Outer of PalCharacterParameterComponent is not a PalCharacter!\n");
+                }
+            } else {
+                DP_LOG(Warning, "O(1) Lookup Failed: Outer of PalIndividualCharacterParameter is not a PalCharacterParameterComponent!\n");
+            }
+
+            // 3. FALLBACK: If the O(1) lookup failed due to unexpected hierarchy, log and use the safe O(N) method
+            if (!PalActor) {
+                DP_LOG(Normal, "Falling back to slow O(N) iteration to find PalActor for stat change...\n");
+                
+                std::vector<UObject*> AllPals;
+                UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+                for (UObject* Pal : AllPals) {
+                    if (!Pal) continue;
+                    UObject* ParamComp = nullptr;
+                    Utils::GetPropertyValue<UObject*>(Pal, STR("CharacterParameterComponent"), ParamComp);
+                    if (ParamComp) {
+                        UObject* IndivParamCheck = nullptr;
+                        Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParamCheck);
+                        if (IndivParamCheck == ContextObj) {
+                            PalActor = Pal;
+                            break;
+                        }
                     }
                 }
             }

@@ -260,6 +260,12 @@ namespace DynPals {
         UClass* SpacerClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Spacer"));
         UClass* ButtonClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.Button"));
 
+        // Safeguard warning logs
+        if (!CanvasPanelClass) DP_LOG(Warning, "[UI] Failed to resolve CanvasPanelClass. Menu construction may fail.");
+        if (!ScrollBoxClass)   DP_LOG(Warning, "[UI] Failed to resolve ScrollBoxClass. Menu construction may fail.");
+        if (!ComboBoxClass)    DP_LOG(Warning, "[UI] Failed to resolve ComboBoxClass. Dropdowns will be missing.");
+        if (!SliderClass)      DP_LOG(Warning, "[UI] Failed to resolve SliderClass. Morphs will not have adjustment bars.");
+        
         UObject* Canvas = ConstructElement(CanvasPanelClass);
         UObject* BackgroundBorder = ConstructElement(BorderClass);
         UObject* ScrollBox = ConstructElement(ScrollBoxClass);
