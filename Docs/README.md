@@ -7,6 +7,7 @@ Unlike traditional `.pak` replacements which statically overwrite game-wide asse
 ---
 
 ## Features
+* **Evolution Engine:** Allows you to set up evolution lines or branches to transition to them by leveling up any attribute specifed on the JSON.
 * **Native Execution:** Written completely in C++ for maximum performance and minimal frame-time overhead.
 * **Two JSON Formats Supported:** Seamlessly parses both Version 1 (Altermatic) and Version 2 (PalMagic) configuration schemas.
 * **Matchmaking Engine:** Evaluates Pals' traits, gender, level, and rarity against configured weights to assign the most specific skin. (thanks to spam for helping polish it)
