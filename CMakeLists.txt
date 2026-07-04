@@ -17,6 +17,7 @@ set(COMMON_SRC_FILES
     "src/NotificationManager.cpp" 
     "src/AsyncHelper.cpp"
     "src/VFXManager.cpp"
+    "src/safetyhook.cpp" # Compiling your manually added safetyhook file!
 )
 
 # -------------------------------------------------------------------------
@@ -29,8 +30,11 @@ target_include_directories(DynamicPals PRIVATE
     "RE-UE4SS/deps/first/Unreal/include"
     "RE-UE4SS/deps/first/DynamicOutput/include"
     "RE-UE4SS/deps/first/Function-Pointer-Wrapper/include"
+    "RE-UE4SS/deps/first/zydis/include" # Zydis headers required by safetyhook.cpp
+    "RE-UE4SS/deps/first/zydis/dependencies/zycore/include" # Zycore headers required by Zydis
 )
-target_link_libraries(DynamicPals PUBLIC UE4SS wininet)
+# Linking Zydis which is compiled as part of the RE-UE4SS subdirectory
+target_link_libraries(DynamicPals PUBLIC UE4SS Zydis wininet)
 
 # -------------------------------------------------------------------------
 # TARGET 2: Offline Build (Compiles dummy Updater_Offline.cpp - No WinINet)
@@ -42,9 +46,18 @@ target_include_directories(DynamicPals_Offline PRIVATE
     "RE-UE4SS/deps/first/Unreal/include"
     "RE-UE4SS/deps/first/DynamicOutput/include"
     "RE-UE4SS/deps/first/Function-Pointer-Wrapper/include"
+    "RE-UE4SS/deps/first/zydis/include" # Zydis headers required by safetyhook.cpp
+    "RE-UE4SS/deps/first/zydis/dependencies/zycore/include" # Zycore headers required by Zydis
 )
-# Notice we DO NOT link 'wininet' here!
-target_link_libraries(DynamicPals_Offline PUBLIC UE4SS)
+# Linking Zydis which is compiled as part of the RE-UE4SS subdirectory
+target_link_libraries(DynamicPals_Offline PUBLIC UE4SS Zydis)
+
+# =========================================================================
+# BUILD ORDER DEPENDENCIES (Prevents Parallel Compilation Race Conditions)
+# =========================================================================
+# Force the Zydis target to finish compiling before either mod target tries to link
+add_dependencies(DynamicPals Zydis)
+add_dependencies(DynamicPals_Offline Zydis)
 
 # Force offline build to compile before the Standard target's automation script copies them
 add_dependencies(DynamicPals DynamicPals_Offline)
@@ -74,7 +87,7 @@ add_custom_command(TARGET DynamicPals POST_BUILD
     # 4. Query Git and write/upsert the version.txt file
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/cmake_scripts/write_version.ps1" -SourceDir "${CMAKE_CURRENT_SOURCE_DIR}"
     
-    # 5. Pack and stage everything into production-ready ZIP releases in the root directory [1]
+    # 5. Pack and stage everything into production-ready ZIP releases in the root directory
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/cmake_scripts/package_release.ps1" -SourceDir "${CMAKE_CURRENT_SOURCE_DIR}"
     
     COMMENT "Copying DLLs, generating V1 and V2 JSON templates, updating version.txt, and packaging ZIP releases."

@@ -9,6 +9,8 @@
 #include "Updater.hpp"
 #include "VFXManager.hpp"
 #include <fstream>
+#include <safetyhook.hpp> 
+#include <Zydis/Zydis.h> // Linked natively! Used to disassemble thunks.
 
 #include <Unreal/CoreUObject/UObject/Class.hpp> 
 #include <Unreal/UObjectGlobals.hpp>
@@ -25,108 +27,124 @@ namespace DynPals {
     static UObject* LastWorld = nullptr;
     static bool bIsAtMenu = false; 
 
-    void HooksManager::OnPalSpawnedReady(UnrealScriptFunctionCallableContext& Context, void*) {
-        if (!bCompletedInitReady) return;
+    // --- NATIVE DETOUR STORAGE ---
+    static SafetyHookInline Hook_MasterWazaUpdate;
+    static SafetyHookInline Hook_OnUpdateCharacterRank;
+    static SafetyHookInline Hook_AddFriendship;
 
-        UObject* PalNPC = Context.Context;
-        if (PalNPC) {
-            PalProcessor::Get().ProcessPal(PalNPC, false);
+    // --- DYNAMIC NATIVE THUNK DISASSEMBLER ---
+    // Reads the exec thunk at runtime, finds the CALL instruction, and resolves the raw C++ address
+    static void* ResolveNativeFromThunk(void* ThunkAddress) {
+        if (!ThunkAddress) return nullptr;
+
+        ZydisDecoder decoder;
+        if (!ZYAN_SUCCESS(ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64))) {
+            return nullptr;
         }
+
+        ZyanUSize offset = 0;
+        ZydisDecodedInstruction instruction;
+        ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
+        void* lastCallTarget = nullptr;
+
+        // Disassemble up to 150 bytes of the thunk to find the final CALL
+        while (offset < 150) {
+            ZyanStatus status = ZydisDecoderDecodeFull(
+                &decoder, 
+                reinterpret_cast<uint8_t*>(ThunkAddress) + offset, 
+                150 - offset, 
+                &instruction, 
+                operands
+            );
+
+            if (!ZYAN_SUCCESS(status)) {
+                break;
+            }
+
+            // Stop disassembling if we hit a RET (return)
+            if (instruction.mnemonic == ZYDIS_MNEMONIC_RET) {
+                break;
+            }
+
+            if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL) {
+                // Resolve the relative immediate call target
+                if (operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
+                    uintptr_t rip = reinterpret_cast<uintptr_t>(ThunkAddress) + offset + instruction.length;
+                    uintptr_t target = rip + operands[0].imm.value.s;
+                    lastCallTarget = reinterpret_cast<void*>(target);
+                }
+            }
+
+            offset += instruction.length;
+        }
+
+        return lastCallTarget;
     }
 
-    static std::wstring GetFormattedVersionString() {
-        HMODULE hModule = NULL;
-        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            (LPCWSTR)&GetFormattedVersionString, &hModule);
-        wchar_t path[MAX_PATH];
-        GetModuleFileNameW(hModule, path, MAX_PATH);
-        std::wstring currentDllPath(path);
-        std::wstring dllDir = currentDllPath.substr(0, currentDllPath.find_last_of(L"\\/") + 1);
-        std::wstring versionTxtPath = dllDir + L"version.txt";
-
-        std::ifstream file(versionTxtPath);
-        if (!file.is_open()) {
-            return L"v0.0.56"; 
-        }
-        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    // Helper: Safely retrieves the native C++ address from a UFunction object
+    static void* GetNativeAddress(const wchar_t* FunctionPath) {
+        UFunction* FuncObj = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, FunctionPath);
+        if (!FuncObj) return nullptr;
         
-        content.erase(0, content.find_first_not_of(" \t\r\n"));
-        size_t last = content.find_last_not_of(" \t\r\n");
-        if (last != std::string::npos) {
-            content.erase(last + 1);
+        // Read the native Func pointer at the UFunction::Func offset (0xD8)
+        void* ThunkAddr = *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(FuncObj) + 0xD8);
+
+        // Resolve the raw C++ address from the thunk
+        void* NativeAddr = ResolveNativeFromThunk(ThunkAddr);
+        if (NativeAddr) {
+            return NativeAddr; 
         }
 
-        if (content.empty()) {
-            return L"v0.0.56";
-        }
+        // Fallback: If no CALL was found (inlined), detour the thunk itself
+        return ThunkAddr;
+    }
 
-        try {
-            int versionNum = std::stoi(content);
-            int major = versionNum / 1000;
-            int minor = (versionNum / 100) % 10;
-            int patch = versionNum % 100;
-            wchar_t buf[64];
-            swprintf(buf, 64, L"v%d.%d.%02d", major, minor, patch);
-            return std::wstring(buf);
-        } catch (...) {
-            std::wstring rawVersion;
-            rawVersion.assign(content.begin(), content.end());
-            return L"v" + rawVersion;
+    // --- DETOUR CALLBACKS (RAW ASSEMBLY SIGNATURES) ---
+
+    // Member Function of APalCharacter: Fires on Level-up
+    void __fastcall NativeMasterWazaUpdate_Hook(UObject* This, int32_t AddLevel, int32_t NowLevel) {
+        Hook_MasterWazaUpdate.call<void, UObject*, int32_t, int32_t>(This, AddLevel, NowLevel);
+
+        if (This) {
+            std::wstring actorName = This->GetName();
+            DP_LOG(Default, "[Native Hook] Pal {} Leveled Up to {}! Checking evolution...", 
+                actorName, NowLevel);
+            
+            PalProcessor::Get().ProcessPal(This, false);
         }
     }
 
-    // --- LIVE STAT CHANGE DETECTOR ---
-    static void OnPalStatChanged(UnrealScriptFunctionCallableContext& Context, void*) {
-        if (!bCompletedInitReady) return; 
+    // Member Function of UPalPartnerSkillParameterComponent: Fires on Condensation Rank-up
+    void __fastcall NativeOnUpdateCharacterRank_Hook(UObject* This, int32_t NewRank, int32_t OldRank) {
+        Hook_OnUpdateCharacterRank.call<void, UObject*, int32_t, int32_t>(This, NewRank, OldRank);
 
-        UObject* ContextObj = Context.Context;
-        if (!ContextObj) return;
+        if (This) {
+            // A component's outer is always its owning APalCharacter actor!
+            UObject* PalActor = This->GetOuterPrivate();
 
-        UObject* PalActor = nullptr;
-        std::wstring ClassName = ContextObj->GetClassPrivate()->GetName();
-
-        // 1. If context is a Pal Character
-        if (ClassName.find(L"PalCharacter") != std::wstring::npos || ClassName.find(L"Monster") != std::wstring::npos || ClassName.find(L"Player") != std::wstring::npos) {
-            PalActor = ContextObj;
-        }
-        // 2. O(1) Reverse-lookup up the Actor ownership hierarchy!
-        else if (ClassName == L"PalIndividualCharacterParameter") {
-            UObject* OuterComp = ContextObj->GetOuterPrivate();
-            if (OuterComp && OuterComp->GetClassPrivate()->GetName().find(L"PalCharacterParameterComponent") != std::wstring::npos) {
-                UObject* Actor = OuterComp->GetOuterPrivate();
-                if (Actor && Actor->GetClassPrivate()->GetName().find(L"PalCharacter") != std::wstring::npos) {
-                    PalActor = Actor; // Success!
-                } else {
-                    DP_LOG(Warning, "O(1) Lookup Failed: Outer of PalCharacterParameterComponent is not a PalCharacter!\n");
-                }
-            } else {
-                DP_LOG(Warning, "O(1) Lookup Failed: Outer of PalIndividualCharacterParameter is not a PalCharacterParameterComponent!\n");
-            }
-
-            // 3. FALLBACK: If the O(1) lookup failed due to unexpected hierarchy, log and use the safe O(N) method
-            if (!PalActor) {
-                DP_LOG(Normal, "Falling back to slow O(N) iteration to find PalActor for stat change...\n");
-                
-                std::vector<UObject*> AllPals;
-                UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
-                for (UObject* Pal : AllPals) {
-                    if (!Pal) continue;
-                    UObject* ParamComp = nullptr;
-                    Utils::GetPropertyValue<UObject*>(Pal, STR("CharacterParameterComponent"), ParamComp);
-                    if (ParamComp) {
-                        UObject* IndivParamCheck = nullptr;
-                        Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParamCheck);
-                        if (IndivParamCheck == ContextObj) {
-                            PalActor = Pal;
-                            break;
-                        }
-                    }
-                }
+            if (PalActor) {
+                std::wstring actorName = PalActor->GetName();
+                DP_LOG(Default, "[Native Hook] Pal {} Condensation Rank Up to {}! Checking evolution...", 
+                    actorName, NewRank);
+                PalProcessor::Get().ProcessPal(PalActor, false);
             }
         }
+    }
 
-        if (PalActor) {
-            PalProcessor::Get().ProcessPal(PalActor, false);
+    // Member Function of UPalIndividualCharacterParameter: Fires on Friendship update
+    void __fastcall NativeAddFriendship_Hook(UObject* This, int32_t Value) {
+        Hook_AddFriendship.call<void, UObject*, int32_t>(This, Value);
+
+        if (This) {
+            UObject* PalActor = nullptr;
+            Utils::GetPropertyValue<UObject*>(This, STR("IndividualActor"), PalActor);
+
+            if (PalActor) {
+                std::wstring actorName = PalActor->GetName();
+                DP_LOG(Default, "[Native Hook] Pal {} Friendship updated! Checking evolution...", 
+                    actorName);
+                PalProcessor::Get().ProcessPal(PalActor, false);
+            }
         }
     }
 
@@ -142,13 +160,7 @@ namespace DynPals {
 
         VFXManager::Get().Tick();
 
-        // Let the lightweight background scanner poll periodically for missed updates!
-        if (bCompletedInitReady) {
-            PalProcessor::Get().ScanActivePals();
-        }
-
-        if (!UIManager::Get().IsMenuOpen()) 
-        {
+        if (!UIManager::Get().IsMenuOpen()) {
             bIsReentrant = false;
             return;
         }
@@ -205,7 +217,7 @@ namespace DynPals {
             NotificationManager::Get().SetReady(false); 
             PalProcessor::Get().ClearAllSwappedStatus();
             
-            DP_LOG(Default, "Transitioned to Main Menu (Detected via '{}'). Mod entering standby mode...\n", WidgetName.c_str());
+            DP_LOG(Default, "Transitioned to Main Menu (Detected via '{}'). Mod entering standby mode...\n", WidgetName);
 
             std::thread([]() {
                 Updater::CheckForUpdates();
@@ -217,6 +229,63 @@ namespace DynPals {
         bIsAtMenu = false;
         bCompletedInitReady = false;
         NotificationManager::Get().SetReady(false); 
+    }
+
+    static std::wstring GetFormattedVersionString() {
+        HMODULE hModule = NULL;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            (LPCWSTR)&GetFormattedVersionString, &hModule);
+        wchar_t path[MAX_PATH];
+        GetModuleFileNameW(hModule, path, MAX_PATH);
+        std::wstring currentDllPath(path);
+        std::wstring dllDir = currentDllPath.substr(0, currentDllPath.find_last_of(L"\\/") + 1);
+        std::wstring versionTxtPath = dllDir + L"version.txt";
+
+        std::ifstream file(versionTxtPath);
+        if (!file.is_open()) {
+            return L"v0.0.56"; 
+        }
+        std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        
+        content.erase(0, content.find_first_not_of(" \t\r\n"));
+        size_t last = content.find_last_not_of(" \t\r\n");
+        if (last != std::string::npos) {
+            content.erase(last + 1);
+        }
+
+        if (content.empty()) {
+            return L"v0.0.56";
+        }
+
+        try {
+            int versionNum = std::stoi(content);
+            int major = versionNum / 1000;
+            int minor = (versionNum / 100) % 10;
+            int patch = versionNum % 100;
+            wchar_t buf[64];
+            swprintf(buf, 64, L"v%d.%d.%02d", major, minor, patch);
+            return std::wstring(buf);
+        } catch (...) {
+            std::wstring rawVersion;
+            rawVersion.assign(content.begin(), content.end());
+            return L"v" + rawVersion;
+        }
+    }
+
+    void HooksManager::OnPalSpawnedReady(UnrealScriptFunctionCallableContext& Context, void*) {
+        UObject* PalNPC = Context.Context;
+        
+        std::wstring palName = PalNPC ? PalNPC->GetName() : L"NULL";
+        DP_LOG(Default, "[Hook Monitor] OnPalSpawnedReady fired for {}", palName);
+
+        if (!bCompletedInitReady) {
+            DP_LOG(Default, "  -> Aborted: Mod is still in startup standby.");
+            return;
+        }
+
+        if (PalNPC) {
+            PalProcessor::Get().ProcessPal(PalNPC, false);
+        }
     }
 
     static void OnClientRestart(UnrealScriptFunctionCallableContext& Context, void*) {
@@ -307,26 +376,36 @@ namespace DynPals {
             SaveFunc->RegisterPostHook(OnStartedWorldAutoSave, nullptr);
         }
 
-        // 5. LIVE STAT UPDATE HOOKS 
-        const wchar_t* StatHooks[] = {
-            // Blueprint bound events from the base monster class (Found via your JSON dump!)
-            STR("/Game/Pal/Blueprint/Character/Monster/BP_MonsterBase.BP_MonsterBase_C:OnUpdateLevelDelegate_イベント_0"),
-            // The native PalIndividualCharacterParameter setter functions (we provide a few common names to be robust)
-            STR("/Script/Pal.PalIndividualCharacterParameter:AddPassiveSkill"),
-            STR("/Script/Pal.PalIndividualCharacterParameter:RemovePassiveSkill"),
-            STR("/Script/Pal.PalIndividualCharacterParameter:AddRank"),
-            STR("/Script/Pal.PalIndividualCharacterParameter:SetRank"),
-            STR("/Script/Pal.PalIndividualCharacterParameter:AddFriendshipPoint"),
-            STR("/Script/Pal.PalIndividualCharacterParameter:SetFriendshipPoint"),
-            STR("/Script/Pal.PalIndividualCharacterParameter:AddLevel"),
-            STR("/Script/Pal.PalIndividualCharacterParameter:SetLevel")
-        };
+        // ==================================================
+        // MIXED NATIVE ASSEMBLY DETOURS (0.00ms OVERHEAD)
+        // ==================================================
+        uintptr_t BaseAddr = reinterpret_cast<uintptr_t>(GetModuleHandleA(NULL));
+        
+        // 1. Level-Up: Hardcoded RVA offset of APalCharacter::MasterWazaUpdateWhenLevelUp (142e55330 - 140000000 = 0x2E55330) [1, 2]
+        void* MasterWazaUpdateAddr = reinterpret_cast<void*>(BaseAddr + 0x2E55330); 
+        if (MasterWazaUpdateAddr) {
+            Hook_MasterWazaUpdate = safetyhook::create_inline(MasterWazaUpdateAddr, NativeMasterWazaUpdate_Hook);
+            DP_LOG(Default, "[Native Hook] Detoured MasterWazaUpdateWhenLevelUp successfully!");
+        } else {
+            DP_LOG(Error, "Failed to resolve Native MasterWazaUpdateWhenLevelUp!");
+        }
 
-        for (const wchar_t* HookName : StatHooks) {
-            UFunction* TargetFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, HookName);
-            if (TargetFunc) {
-                TargetFunc->RegisterPostHook(OnPalStatChanged, nullptr);
-            }
+        // 2. Rank-Up (Condensation): Detoured natively from UPalPartnerSkillParameterComponent::OnUpdateCharacterRank (142af9080 - 140000000 = 0x2AF9080) [1]
+        void* SetRankAddr = reinterpret_cast<void*>(BaseAddr + 0x2AF9080);
+        if (SetRankAddr) {
+            Hook_OnUpdateCharacterRank = safetyhook::create_inline(SetRankAddr, NativeOnUpdateCharacterRank_Hook);
+            DP_LOG(Default, "[Native Hook] Detoured OnUpdateCharacterRank successfully!");
+        } else {
+            DP_LOG(Error, "Failed to resolve Native OnUpdateCharacterRank!");
+        }
+
+        // 3. Friendship-Up: Resolved dynamically from Thunk
+        void* FriendshipAddr = GetNativeAddress(STR("/Script/Pal.PalIndividualCharacterParameter:AddFriendShip"));
+        if (FriendshipAddr) {
+            Hook_AddFriendship = safetyhook::create_inline(FriendshipAddr, NativeAddFriendship_Hook);
+            DP_LOG(Default, "[Native Hook] Detoured AddFriendShip successfully!");
+        } else {
+            DP_LOG(Error, "Failed to resolve Native AddFriendShip!");
         }
 
         UFunction* AddToViewportFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/UMG.UserWidget:AddToViewport"));

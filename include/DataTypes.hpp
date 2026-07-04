@@ -115,11 +115,12 @@ struct PalPersistData {
     std::map<std::wstring, double> MorphSet;
     std::map<std::string, std::wstring> MatSet;
     std::map<std::string, FLinearColor_UE5> MatColorSet;
+    bool bIsManuallyLocked = false;
+    
     bool HasSavedSwap() const {
         return !SkelMeshPath.empty() || !SkinName.empty();
     }
 };
-
 struct AltrSoftObjectPath {
     RC::Unreal::FName PackageName;
     RC::Unreal::FName AssetName;

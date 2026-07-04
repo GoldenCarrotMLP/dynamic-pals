@@ -17,53 +17,83 @@ using namespace RC;
 using namespace RC::Unreal;
 
 namespace DynPals {
+    struct FPalPropertyCache {
+        UFunction* GetPalCharactersFunc = nullptr;
+        UFunction* IsOtomoFunc = nullptr;
+        UFunction* IsBaseCampPalFunc = nullptr;
+        
+        FProperty* CharParamCompProp = nullptr;
+        FProperty* IndivParamProp = nullptr;
+        FProperty* IndivIdProp = nullptr;
+        
+        UFunction* GetLevelFunc = nullptr;
+        UFunction* GetRankFunc = nullptr;
+        UFunction* GetFriendshipRankFunc = nullptr;
+        UFunction* GetFriendshipPointFunc = nullptr;
+        
+        bool bIsGlobalsInit = false;
+        bool bIsStatsInit = false;
+        bool bIsPropsInit = false;
+    };
+    
+    static FPalPropertyCache GCachedProps;
 
-     // Fetches Level, Rank, and Friendship/Trust from a Pal with sentinel verification and fallback checks
-    PalRuntimeStats RetrievePalStats(UObject* IndivParam, const std::wstring& RawCharID, const std::wstring& InstanceID, bool bLogWarnings) {
-            PalRuntimeStats stats;
-            if (!IndivParam) return stats;
 
-            struct { int32_t RetVal = -1; } LevelParams;
-            Utils::CallFunction(IndivParam, STR("GetLevel"), &LevelParams);
-            stats.Level = LevelParams.RetVal;
-            if (stats.Level == -1) {
-                if (bLogWarnings) {
-                    DP_LOG(Warning, "[Stats] Failed to execute 'GetLevel' for Pal '{}' (ID: '{}'). Falling back to level 1.", RawCharID, InstanceID);
-                }
-                stats.Level = 1;
-            }
 
-            struct { int32_t RetVal = -1; } RankParams;
-            Utils::CallFunction(IndivParam, STR("GetRank"), &RankParams);
-            stats.Rank = RankParams.RetVal;
-            if (stats.Rank == -1) {
-                if (bLogWarnings) {
-                    DP_LOG(Warning, "[Stats] Failed to execute 'GetRank' for Pal '{}' (ID: '{}'). Falling back to rank 0.", RawCharID, InstanceID);
-                }
-                stats.Rank = 0;
-            }
-
-            struct { int32_t RetVal = -1; } FriendshipParams;
-            Utils::CallFunction(IndivParam, STR("GetFriendshipRank"), &FriendshipParams);
-            stats.Friendship = FriendshipParams.RetVal;
-            if (stats.Friendship == -1) {
-                // Safeguard legacy fallback check
-                struct { int32_t RetVal = -1; } LegacyFriendshipParams;
-                Utils::CallFunction(IndivParam, STR("GetFriendshipPoint"), &LegacyFriendshipParams);
-                if (LegacyFriendshipParams.RetVal != -1) {
-                    stats.Friendship = LegacyFriendshipParams.RetVal;
-                } else {
-                    if (bLogWarnings) {
-                        DP_LOG(Warning, "[Stats] Failed to execute both 'GetFriendshipRank' and 'GetFriendshipPoint' for Pal '{}' (ID: '{}'). Falling back to trust 0.", RawCharID, InstanceID);
-                    }
-                    stats.Friendship = 0;
-                }
-            }
-
-            return stats;
-        }
     
 
+    // Fetches Level, Rank, and Friendship/Trust from a Pal with sentinel verification and fallback checks
+    PalRuntimeStats RetrievePalStats(UObject* IndivParam, const std::wstring& RawCharID, const std::wstring& InstanceID, bool bLogWarnings) {
+        PalRuntimeStats stats;
+        stats.Level = -1;
+        stats.Rank = -1;
+        stats.Friendship = -1;
+        if (!IndivParam) return stats;
+
+        // SAFE Lazy-init: Only lock the init flag if we ACTUALLY found the core function!
+        if (!GCachedProps.bIsStatsInit) {
+            GCachedProps.GetLevelFunc = IndivParam->GetFunctionByNameInChain(STR("GetLevel"));
+            GCachedProps.GetRankFunc = IndivParam->GetFunctionByNameInChain(STR("GetRank"));
+            GCachedProps.GetFriendshipRankFunc = IndivParam->GetFunctionByNameInChain(STR("GetFriendshipRank"));
+            GCachedProps.GetFriendshipPointFunc = IndivParam->GetFunctionByNameInChain(STR("GetFriendshipPoint"));
+            
+            // Only stop searching if we successfully resolved the pointers
+            if (GCachedProps.GetLevelFunc) {
+                GCachedProps.bIsStatsInit = true;
+            }
+        }
+
+        struct { int32_t RetVal = -1; } IntParams;
+
+        if (GCachedProps.GetLevelFunc) {
+            IntParams.RetVal = -1;
+            IndivParam->ProcessEvent(GCachedProps.GetLevelFunc, &IntParams);
+            stats.Level = IntParams.RetVal;
+        }
+
+        if (GCachedProps.GetRankFunc) {
+            IntParams.RetVal = -1;
+            IndivParam->ProcessEvent(GCachedProps.GetRankFunc, &IntParams);
+            stats.Rank = IntParams.RetVal;
+        }
+
+        if (GCachedProps.GetFriendshipRankFunc) {
+            IntParams.RetVal = -1;
+            IndivParam->ProcessEvent(GCachedProps.GetFriendshipRankFunc, &IntParams);
+            stats.Friendship = IntParams.RetVal;
+        } else if (GCachedProps.GetFriendshipPointFunc) {
+            IntParams.RetVal = -1;
+            IndivParam->ProcessEvent(GCachedProps.GetFriendshipPointFunc, &IntParams);
+            stats.Friendship = IntParams.RetVal;
+        }
+
+        // Apply defaults silently to avoid massive file I/O bottlenecks in the console
+        if (stats.Level == -1) stats.Level = 1;
+        if (stats.Rank == -1) stats.Rank = 0;
+        if (stats.Friendship == -1) stats.Friendship = 0;
+
+        return stats;
+    }
 
     void PalProcessor::ClearAllSwappedStatus() {
         SwappedInstances.clear();
@@ -185,75 +215,122 @@ namespace DynPals {
         return InputID;
     }
 
+    // ==========================================
+    // ULTIMATE PERFORMANCE CACHE
+    // Caches Unreal's reflection pointers statically so we NEVER 
+    // do string comparisons inside the ticking loop!
+    // ==========================================
+    
+    
+    
     void PalProcessor::ScanActivePals() {
+        return;
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - LastScanTime).count() < 1000) return;
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - LastScanTime).count() < 3000) return;
         LastScanTime = now;
 
         UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
         if (!PalUtil) return;
 
-        // Safely fetch an active world context object (Stops instantly upon finding the player)
         UObject* WorldContext = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
         if (!WorldContext) return;
 
-        // Bypass FindAllOf! Query the game's internal cached array directly for zero-overhead
+        auto start = std::chrono::high_resolution_clock::now();
+
+        // SAFE Inline Lazy-Init: Only lock if resolved!
+        if (!GCachedProps.bIsGlobalsInit) {
+            GCachedProps.GetPalCharactersFunc = PalUtil->GetFunctionByNameInChain(STR("GetPalCharacters"));
+            GCachedProps.IsOtomoFunc = PalUtil->GetFunctionByNameInChain(STR("IsOtomo"));
+            GCachedProps.IsBaseCampPalFunc = PalUtil->GetFunctionByNameInChain(STR("IsBaseCampPal"));
+            
+            if (GCachedProps.GetPalCharactersFunc) GCachedProps.bIsGlobalsInit = true;
+        }
+
+        if (!GCachedProps.GetPalCharactersFunc || !GCachedProps.IsOtomoFunc || !GCachedProps.IsBaseCampPalFunc) return;
+
         struct { UObject* WorldContextObject; TArray<UObject*> OutCharacters; } Params;
         Params.WorldContextObject = WorldContext;
 
-        Utils::CallFunction(PalUtil, STR("GetPalCharacters"), &Params);
-
-        // Safety warning if no Pals are returned by the engine scanner
-        static bool bLoggedZeroWarn = false;
-        if (Params.OutCharacters.Num() == 0) {
-            if (!bLoggedZeroWarn) {
-                DP_LOG(Warning, "[ScanActivePals] GetPalCharacters returned 0 active Pals. No characters are currently tracked by the world.");
-                bLoggedZeroWarn = true;
-            }
-        } else {
-            bLoggedZeroWarn = false; // Reset state when Pals are successfully discovered
-        }
+        PalUtil->ProcessEvent(GCachedProps.GetPalCharactersFunc, &Params);
 
         for (int32_t i = 0; i < Params.OutCharacters.Num(); ++i) {
             UObject* Pal = Params.OutCharacters[i];
             if (!Pal) continue;
 
             bool bIsRelevant = false;
-
-            // 1. Is this Pal currently summoned as an Otomo (Player's Party)?
-            struct { UObject* Actor; bool RetVal; } OtomoParams{Pal, false};
-            Utils::CallFunction(PalUtil, STR("IsOtomo"), &OtomoParams);
-            if (OtomoParams.RetVal) bIsRelevant = true;
-
-            // 2. Is this Pal actively assigned to a Base Camp?
-            if (!bIsRelevant) {
-                struct { UObject* Actor; bool RetVal; } CampParams{Pal, false};
-                Utils::CallFunction(PalUtil, STR("IsBaseCampPal"), &CampParams);
-                if (CampParams.RetVal) bIsRelevant = true;
+            struct { UObject* Actor; bool RetVal; } BoolParams{Pal, false};
+            
+            PalUtil->ProcessEvent(GCachedProps.IsOtomoFunc, &BoolParams);
+            if (BoolParams.RetVal) {
+                bIsRelevant = true;
+            } else {
+                PalUtil->ProcessEvent(GCachedProps.IsBaseCampPalFunc, &BoolParams);
+                if (BoolParams.RetVal) bIsRelevant = true;
             }
 
-            // We only process math if they are on our team or in a base camp!
             if (bIsRelevant) {
                 if (ProcessedPals.find(Pal) == ProcessedPals.end()) {
                     ProcessedPals.insert(Pal);
                     ProcessPal(Pal, false);
                 } else {
+                    // Inline Lazy-Init properties using the live Actor Class
+                    if (!GCachedProps.bIsPropsInit) {
+                        UClass* PalClass = Pal->GetClassPrivate();
+                        if (PalClass) GCachedProps.CharParamCompProp = PalClass->GetPropertyByNameInChain(STR("CharacterParameterComponent"));
+                    }
+
                     UObject* ParamComp = nullptr;
-                    Utils::GetPropertyValue<UObject*>(Pal, STR("CharacterParameterComponent"), ParamComp);
+                    if (GCachedProps.CharParamCompProp) {
+                        void* ValuePtr = GCachedProps.CharParamCompProp->ContainerPtrToValuePtr<void>(Pal);
+                        if (ValuePtr) ParamComp = *reinterpret_cast<UObject**>(ValuePtr);
+                    } else {
+                        Utils::GetPropertyValue<UObject*>(Pal, STR("CharacterParameterComponent"), ParamComp);
+                    }
+
                     if (ParamComp) {
                         UObject* IndivParam = nullptr;
-                        Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
+                        
+                        if (!GCachedProps.bIsPropsInit) {
+                            UClass* ParamCompClass = ParamComp->GetClassPrivate();
+                            if (ParamCompClass) GCachedProps.IndivParamProp = ParamCompClass->GetPropertyByNameInChain(STR("IndividualParameter"));
+                        }
+
+                        if (GCachedProps.IndivParamProp) {
+                            void* ValuePtr = GCachedProps.IndivParamProp->ContainerPtrToValuePtr<void>(ParamComp);
+                            if (ValuePtr) IndivParam = *reinterpret_cast<UObject**>(ValuePtr);
+                        } else {
+                            Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
+                        }
+
                         if (IndivParam) {
                             FPalInstanceID IDStruct;
-                            if (Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), IDStruct) && IDStruct.InstanceId.IsValid()) {
+                            bool bGotId = false;
+
+                            if (!GCachedProps.bIsPropsInit) {
+                                UClass* IndivClass = IndivParam->GetClassPrivate();
+                                if (IndivClass) GCachedProps.IndivIdProp = IndivClass->GetPropertyByNameInChain(STR("IndividualId"));
+                                
+                                // Lock the prop cache once we successfully find the final ID property
+                                if (GCachedProps.IndivIdProp) GCachedProps.bIsPropsInit = true; 
+                            }
+                            
+                            if (GCachedProps.IndivIdProp) {
+                                void* ValuePtr = GCachedProps.IndivIdProp->ContainerPtrToValuePtr<void>(IndivParam);
+                                if (ValuePtr) {
+                                    IDStruct = *reinterpret_cast<FPalInstanceID*>(ValuePtr);
+                                    bGotId = true;
+                                }
+                            } else {
+                                bGotId = Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), IDStruct);
+                            }
+
+                            if (bGotId && IDStruct.InstanceId.IsValid()) {
                                 std::wstring InstanceID = Utils::GuidToWString(IDStruct.InstanceId);
                                 auto it = RuntimeStatsCache.find(InstanceID);
                                 
                                 if (it != RuntimeStatsCache.end()) {
-                                    // Silently poll the current engine parameters using our refactored RetrievePalStats helper
-                                    PalRuntimeStats stats = RetrievePalStats(IndivParam, L"", InstanceID, false);
+                                    PalRuntimeStats stats = RetrievePalStats(IndivParam, L"", InstanceID, false); 
 
-                                    // If any dynamic stat changed under the hood, trigger the update
                                     if (it->second.Level != stats.Level || 
                                         it->second.Rank != stats.Rank || 
                                         it->second.Friendship != stats.Friendship) 
@@ -267,9 +344,17 @@ namespace DynPals {
                 }
             }
         }
+
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        
+        RC::Output::send<RC::LogLevel::Default>(
+            STR("[DynPals] [Perf - Ultra Optimized] ScanActivePals evaluated {} characters in {} us ({:.3f} ms)\n"), 
+            Params.OutCharacters.Num(), duration, duration / 1000.0f
+        );
     }
 
-    void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
+void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
         if (!Character) return;
         
         // 1. Play the visual composition instantly and get the JSON-defined swap delay
@@ -509,11 +594,11 @@ namespace DynPals {
             
             if (bNeedsApply) {
                 // --- DEBUG 3: PROCEEDING WITH SWAP ---
-                DP_LOG(Default, "[Debug Swap] Proceeding to Swap Pal '{}' (ID: '{}', Actor: {}). Reason: {}", 
-                    RawCharID, InstanceID, (void*)Character,
-                    (ExplicitSwapIndex != -1) ? L"Explicit Selection" : 
-                    (ForceReroll) ? L"Force Reroll" : 
-                    (finalSwap != currentSwap) ? L"Skin Changed" : L"New Actor Spawned");
+                //DP_LOG(Default, "[Debug Swap] Proceeding to Swap Pal '{}' (ID: '{}', Actor: {}). Reason: {}", 
+                //    RawCharID, InstanceID, (void*)Character,
+                //    (ExplicitSwapIndex != -1) ? L"Explicit Selection" : 
+                //    (ForceReroll) ? L"Force Reroll" : 
+                //    (finalSwap != currentSwap) ? L"Skin Changed" : L"New Actor Spawned");
 
                 // ==========================================
                 // LIVE EVOLUTION INTERCEPT
@@ -619,7 +704,7 @@ namespace DynPals {
                             }
                         }
                         
-                        DP_LOG(Default, "[Nickname] Applied name update for '{}' -> '{}' (Wild: {})", (InstanceID), (finalConfig.SetNickname), IsWild ? L"True" : L"False");
+                        //DP_LOG(Default, "[Nickname] Applied name update for '{}' -> '{}' (Wild: {})", (InstanceID), (finalConfig.SetNickname), IsWild ? L"True" : L"False");
                     }
                 }
                 
@@ -1013,7 +1098,7 @@ namespace DynPals {
                         FProperty* RetPropGet = GetVecFunc->GetPropertyByNameInChain(STR("ReturnValue"));
                         if (RetPropGet) {
                             FLinearColor_UE5* ReadColor = RetPropGet->ContainerPtrToValuePtr<FLinearColor_UE5>(GetParams);
-                            DP_LOG(Default, "[RandomHue] Successfully pushed Hue Shift to MID on slot {}. Readback Color -> R:{:.2f} G:{:.2f} B:{:.2f}", idx, ReadColor->R, ReadColor->G, ReadColor->B);
+                            //DP_LOG(Default, "[RandomHue] Successfully pushed Hue Shift to MID on slot {}. Readback Color -> R:{:.2f} G:{:.2f} B:{:.2f}", idx, ReadColor->R, ReadColor->G, ReadColor->B);
                         }
                     }
                     // --------------------------
