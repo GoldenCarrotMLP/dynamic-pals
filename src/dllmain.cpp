@@ -11,6 +11,7 @@
 #include "Utils.hpp"
 #include "AsyncHelper.hpp"
 #include "VFXManager.hpp"
+#include "FileWatcher.hpp"
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -69,8 +70,6 @@ public:
     
     auto on_unreal_init() -> void override
     {
-        
-
         // 1. Initialize the independent scanner
         DynPals::AsyncHelper::Initialize();
 
@@ -81,9 +80,14 @@ public:
             DynPals::Utils::CallFunction(KismetLib, STR("GetProjectContentDirectory"), &ContentDir);
             std::wstring BasePath = DynPals::Utils::FStringToWString(ContentDir);
 
-            
             DynPals::SaveManager::Get().Initialize(BasePath);
+            
+            // Initialize the config manager
             DynPals::ConfigManager::Get().Initialize(BasePath);
+            
+            // Start the modular native file watcher on a background thread!
+            DynPals::FileWatcher::Start(BasePath + L"Paks/~mods/");
+
             DynPals::VFXManager::Get().Initialize(); 
             DynPals::HooksManager::RegisterHooks();
         }

@@ -17,6 +17,7 @@ set(COMMON_SRC_FILES
     "src/NotificationManager.cpp" 
     "src/AsyncHelper.cpp"
     "src/VFXManager.cpp"
+    "src/FileWatcher.cpp"
     "src/safetyhook.cpp" # Compiling your manually added safetyhook file!
 )
 

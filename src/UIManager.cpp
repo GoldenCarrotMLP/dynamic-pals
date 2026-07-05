@@ -97,123 +97,125 @@ namespace DynPals {
     }
 
     void UIManager::UpdateTarget() {
-    TargetPal = nullptr;
-    TargetInstanceID = L"";
-    TargetCharID = L"";
+        TargetPal = nullptr;
+        TargetInstanceID = L"";
+        TargetCharID = L"";
 
-    CurrentPlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+        CurrentPlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+        if (!CurrentPlayerController) {
+            DP_LOG(Warning, "[Target Debug] Failed: PlayerController is NULL!\n");
+            return;
+        }
 
-    if (!CurrentPlayerController) {
-        DP_LOG(Warning, "UpdateTarget cancelled: CurrentPlayerController is NULL!");
-        return;
-    }
+        UObject* PlayerPawn = nullptr;
+        Utils::CallFunction(CurrentPlayerController, STR("K2_GetPawn"), &PlayerPawn);
+        if (!PlayerPawn) {
+            DP_LOG(Warning, "[Target Debug] Failed: PlayerPawn is NULL!\n");
+            return;
+        }
 
-    UObject* PlayerPawn = nullptr;
-    Utils::CallFunction(CurrentPlayerController, STR("K2_GetPawn"), &PlayerPawn);
-    if (!PlayerPawn) {
-        DP_LOG(Warning, "UpdateTarget cancelled: PlayerPawn is NULL!");
-        return;
-    }
+        struct FRotator_UE5 { double Pitch, Yaw, Roll; };
+        struct { FVector_UE5 Location; FRotator_UE5 Rotation; } ViewPointParams;
+        Utils::CallFunction(CurrentPlayerController, STR("GetPlayerViewPoint"), &ViewPointParams);
+        
+        FVector_UE5 CameraLoc = ViewPointParams.Location;
+        FRotator_UE5 CameraRot = ViewPointParams.Rotation;
 
-    struct FRotator_UE5 { double Pitch, Yaw, Roll; };
-    struct { FVector_UE5 Location; FRotator_UE5 Rotation; } ViewPointParams;
-    Utils::CallFunction(CurrentPlayerController, STR("GetPlayerViewPoint"), &ViewPointParams);
-    
-    FVector_UE5 CameraLoc = ViewPointParams.Location;
-    FRotator_UE5 CameraRot = ViewPointParams.Rotation;
+        // Print Player & Controller positions to verify they are active and correct
+        DP_LOG(Default,
+            STR("[Target Debug] Active PC: {} | Pawn: {} | CameraLoc: X={:.1f} Y={:.1f} Z={:.1f}\n"),
+            (void*)CurrentPlayerController, (void*)PlayerPawn, CameraLoc.X, CameraLoc.Y, CameraLoc.Z
+        );
 
-    double PitchRad = CameraRot.Pitch * 0.01745329251; 
-    double YawRad = CameraRot.Yaw * 0.01745329251;
-    double CosPitch = std::cos(PitchRad);
+        double PitchRad = CameraRot.Pitch * 0.01745329251; 
+        double YawRad = CameraRot.Yaw * 0.01745329251;
+        double CosPitch = std::cos(PitchRad);
 
-    FVector_UE5 CameraForward;
-    CameraForward.X = std::cos(YawRad) * CosPitch;
-    CameraForward.Y = std::sin(YawRad) * CosPitch;
-    CameraForward.Z = std::sin(PitchRad);
+        FVector_UE5 CameraForward;
+        CameraForward.X = std::cos(YawRad) * CosPitch;
+        CameraForward.Y = std::sin(YawRad) * CosPitch;
+        CameraForward.Z = std::sin(PitchRad);
 
-    std::vector<UObject*> AllPals;
-    UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+        std::vector<UObject*> AllPals;
+        UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
 
-    UObject* aimedPal = nullptr;
-    double highestDot = -1.0;
-    UObject* closestPal = nullptr;
-    double closestDistSq = 999999999.0;
+        //DP_LOG(Default, "[Target Debug] Total PalCharacters in memory: {}\n", AllPals.size());
 
-    for (UObject* Pal : AllPals) {
-        if (Pal == PlayerPawn || !Pal) continue;
+        UObject* aimedPal = nullptr;
+        double highestDot = -1.0;
+        UObject* closestPal = nullptr;
+        double closestDistSq = 999999999.0;
 
-        FVector_UE5 PalLoc{ 0.0, 0.0, 0.0 };
+        for (UObject* Pal : AllPals) {
+            if (Pal == PlayerPawn || !Pal) continue;
 
-        // Query the true 3D visual center of the Pal rather than their feet pivot
-        struct { bool bOnlyCollidingComponents; uint8_t Pad[7]; FVector_UE5 Origin; FVector_UE5 BoxExtent; } BoundsParams{ true, {0}, {0.0,0.0,0.0}, {0.0,0.0,0.0} };
-        UFunction* BoundsFunc = Pal->GetFunctionByNameInChain(STR("GetActorBounds"));
-        if (BoundsFunc) {
-            Pal->ProcessEvent(BoundsFunc, &BoundsParams);
-            PalLoc = BoundsParams.Origin;
-        } else {
-            // Fallback to feet if GetActorBounds fails
+            FVector_UE5 PalLoc{ 0.0, 0.0, 0.0 };
+            
+            // Check location using K2_GetActorLocation first as it's the safest fallback
             struct { FVector_UE5 RetVal; } PalLocParams;
             Utils::CallFunction(Pal, STR("K2_GetActorLocation"), &PalLocParams);
             PalLoc = PalLocParams.RetVal;
-        }
 
-        FVector_UE5 Dir;
-        Dir.X = PalLoc.X - CameraLoc.X;
-        Dir.Y = PalLoc.Y - CameraLoc.Y;
-        Dir.Z = PalLoc.Z - CameraLoc.Z;
+            FVector_UE5 Dir;
+            Dir.X = PalLoc.X - CameraLoc.X;
+            Dir.Y = PalLoc.Y - CameraLoc.Y;
+            Dir.Z = PalLoc.Z - CameraLoc.Z;
 
-        double distSq = (Dir.X * Dir.X) + (Dir.Y * Dir.Y) + (Dir.Z * Dir.Z);
-        double dist = std::sqrt(distSq);
+            double distSq = (Dir.X * Dir.X) + (Dir.Y * Dir.Y) + (Dir.Z * Dir.Z);
+            double dist = std::sqrt(distSq);
 
-        if (dist > 5000.0) continue;
+            // ==========================================
+            // UPDATED: Logs the Pal's exact X, Y, Z world location!
+            // ==========================================
+            //DP_LOG(Default,STR("[Target Debug] -> Found Pal: {} ({}) | Loc: X={:.1f} Y={:.1f} Z={:.1f} | Distance: {:.1f}m ({} units)\n"),Pal->GetName(), (void*)Pal, PalLoc.X, PalLoc.Y, PalLoc.Z, dist / 100.0f, dist);
 
-        FVector_UE5 DirNorm = { Dir.X / dist, Dir.Y / dist, Dir.Z / dist };
-        double dot = CameraForward.X * DirNorm.X + CameraForward.Y * DirNorm.Y + CameraForward.Z * DirNorm.Z;
+            if (dist > 5000.0) continue;
 
-        if (dot >= 0.97) {
-            if (dot > highestDot) {
-                highestDot = dot;
-                aimedPal = Pal;
+            FVector_UE5 DirNorm = { Dir.X / dist, Dir.Y / dist, Dir.Z / dist };
+            double dot = CameraForward.X * DirNorm.X + CameraForward.Y * DirNorm.Y + CameraForward.Z * DirNorm.Z;
+
+            if (dot >= 0.97) {
+                if (dot > highestDot) {
+                    highestDot = dot;
+                    aimedPal = Pal;
+                }
+            }
+
+            if (distSq < closestDistSq) {
+                closestDistSq = distSq;
+                closestPal = Pal;
             }
         }
 
-        if (distSq < closestDistSq) {
-            closestDistSq = distSq;
-            closestPal = Pal;
+        UObject* selectedPal = aimedPal ? aimedPal : closestPal;
+
+        if (selectedPal) {
+            TargetPal = selectedPal;
+
+            UObject* ParamComp = nullptr;
+            Utils::GetPropertyValue(TargetPal, STR("CharacterParameterComponent"), ParamComp);
+            if (!ParamComp) return;
+
+            UObject* IndivParam = nullptr;
+            Utils::GetPropertyValue(ParamComp, STR("IndividualParameter"), IndivParam);
+            if (!IndivParam) return;
+
+            FPalInstanceID IDStruct;
+            if (Utils::GetPropertyValue(IndivParam, STR("IndividualId"), IDStruct)) {
+                TargetInstanceID = Utils::GuidToWString(IDStruct.InstanceId);
+            }
+
+            UObject* PalUtil1 = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+            struct { UObject* Char; FName RetVal; } CharIDParams1{TargetPal, FName()};
+            if (PalUtil1) Utils::CallFunction(PalUtil1, STR("GetCharacterIDFromCharacter"), &CharIDParams1);
+            TargetCharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams1.RetVal.ToString());
+            
+            DP_LOG(Default, "[Target Debug] Successfully selected: {}\n", TargetCharID);
+        } else {
+            DP_LOG(Warning, "Target Scan completed: No valid PalCharacters were found in 50-meter range.");
         }
     }
 
-    UObject* selectedPal = nullptr;
-    if (aimedPal) {
-        selectedPal = aimedPal;
-    } else if (closestPal) {
-        selectedPal = closestPal;
-    }
-
-    if (selectedPal) {
-        TargetPal = selectedPal;
-
-        UObject* ParamComp = nullptr;
-        Utils::GetPropertyValue(TargetPal, STR("CharacterParameterComponent"), ParamComp);
-        if (!ParamComp) return;
-
-        UObject* IndivParam = nullptr;
-        Utils::GetPropertyValue(ParamComp, STR("IndividualParameter"), IndivParam);
-        if (!IndivParam) return;
-
-        FPalInstanceID IDStruct;
-        if (Utils::GetPropertyValue(IndivParam, STR("IndividualId"), IDStruct)) {
-            TargetInstanceID = Utils::GuidToWString(IDStruct.InstanceId);
-        }
-
-        UObject* PalUtil1 = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
-        struct { UObject* Char; FName RetVal; } CharIDParams1{TargetPal, FName()};
-        if (PalUtil1) Utils::CallFunction(PalUtil1, STR("GetCharacterIDFromCharacter"), &CharIDParams1);
-        TargetCharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams1.RetVal.ToString());
-    } else {
-        DP_LOG(Warning, "Target Scan completed: No valid PalCharacters were found in 50-meter range.");
-    }
-}
     void UIManager::BuildWidget() {
         if (!CurrentPlayerController) return;
 
