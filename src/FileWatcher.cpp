@@ -6,12 +6,13 @@
 #include <Windows.h>
 #include <thread>
 #include <vector>
+#include <string>
+#include <chrono>
 
 using namespace RC::Unreal;
 
 namespace DynPals {
 
-    // Background thread loop
     static void WatchDirectoryThread(std::wstring directoryPath) {
         HANDLE hDir = CreateFileW(
             directoryPath.c_str(),
@@ -27,29 +28,43 @@ namespace DynPals {
             return;
         }
 
-        alignas(DWORD) BYTE buffer[4096];
+        alignas(DWORD) BYTE buffer[8192];
         DWORD bytesReturned;
+        
+        // Initialize the cooldown timer
+        auto lastReloadTime = std::chrono::steady_clock::now();
 
         while (true) {
-            // Block and wait for any file creations, deletions, modifications, or folder renames
             if (ReadDirectoryChangesW(
                 hDir,
                 buffer,
                 sizeof(buffer),
-                TRUE, // Watch recursively (both SwapJSON/ and ModelJSON/ subdirectories)
+                TRUE, // Watch recursively
                 FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE,
                 &bytesReturned,
                 NULL,
                 NULL
             )) {
+                
+                // COOLDOWN GATE:
+                // If we triggered a reload less than 1000ms ago, ignore this event.
+                // Editors often fire 2-3 events per save; this ensures we only recompile once.
+                auto now = std::chrono::steady_clock::now();
+                if (std::chrono::duration_cast<std::chrono::milliseconds>(now - lastReloadTime).count() < 1000) {
+                    continue;
+                }
+
                 FILE_NOTIFY_INFORMATION* pNotify = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(buffer);
                 bool bNeedsReload = false;
 
                 while (pNotify) {
-                    std::wstring filename(pNotify->FileName, pNotify->FileNameLength / sizeof(wchar_t));
+                    std::wstring relPath(pNotify->FileName, pNotify->FileNameLength / sizeof(wchar_t));
                     
-                    // We only care about modifications or additions to JSON files
-                    if (filename.find(L".json") != std::wstring::npos) {
+                    // Trigger if anything changes inside our two config directories
+                    bool bInConfigDir = relPath.find(L"SwapJSON") != std::wstring::npos || 
+                                       relPath.find(L"ModelJSON") != std::wstring::npos;
+
+                    if (bInConfigDir) {
                         bNeedsReload = true;
                         break;
                     }
@@ -59,16 +74,19 @@ namespace DynPals {
                 }
 
                 if (bNeedsReload) {
-                    // Debounce: Wait 250ms for text editors to finish writing to disk
-                    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+                    // Update the timestamp BEFORE the sleep to catch duplicates buffered during the wait
+                    lastReloadTime = std::chrono::steady_clock::now();
+
+                    // Debounce: Give the OS/Editor 500ms to finish the physical file write
+                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
                     AsyncHelper::AsyncTask(ENamedThreads::GameThread, []() {
-                        DP_LOG(Normal, "[Hot-Reload] Config change detected! Recompiling skin matchmaking table...");
+                        DP_LOG(Normal, "[Hot-Reload] Config change detected! Recompiling matchmaking table...");
                         
-                        // 1. Reload the JSON database cleanly
+                        // 1. Reload the JSON database
                         ConfigManager::Get().LoadConfigJSONs();
 
-                        // 2. Instantly reconcile all overworld Pals so their models update in real-time! [1]
+                        // 2. Refresh all Pals in the world to apply potential new skins
                         std::vector<UObject*> AllPals;
                         UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
                         for (UObject* Pal : AllPals) {
