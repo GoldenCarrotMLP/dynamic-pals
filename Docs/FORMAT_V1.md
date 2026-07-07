@@ -1,6 +1,6 @@
 # Version 1 JSON Format Specification
 
-Version 1 is an array-based format created by Michael where every replacement entry is explicitly defined as an individual object inside the `"SkelMeshSwap"` array.
+Version 1 is an array-based format originally created by Michael, but now heavily modified to fit dynamic-pals amplitude of features, where every replacement entry is explicitly defined as an individual object inside the `"SkelMeshSwap"` array.
 
 
 ## Root Schema
