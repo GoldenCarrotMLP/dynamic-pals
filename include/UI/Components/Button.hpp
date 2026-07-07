@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Components/Button.hpp ---
 #pragma once
 #include <functional>
 #include <string>
@@ -13,10 +12,13 @@ namespace DynPals::UI {
         // Construct a standard button with an initial text label
         Button(RC::Unreal::UObject* Outer, const std::wstring& Text) {
             Widget = UI::Button(Outer).Text(Text).Build();
+            InitializeCachedPointers();
         }
 
         // Support wrapping tab buttons or pre-existing native menu items
-        Button(RC::Unreal::UObject* ExistingWidget) : Widget(ExistingWidget) {}
+        Button(RC::Unreal::UObject* ExistingWidget) : Widget(ExistingWidget) {
+            InitializeCachedPointers();
+        }
 
         RC::Unreal::UObject* GetWidget() const { return Widget; }
 
@@ -27,7 +29,7 @@ namespace DynPals::UI {
 
         void Tick() {
             if (!Widget) return;
-            bool isPressed = IsWidgetPressed(Widget);
+            bool isPressed = IsWidgetPressed();
             if (isPressed) {
                 if (!bWasPressed) {
                     bWasPressed = true;
@@ -42,21 +44,34 @@ namespace DynPals::UI {
 
     private:
         RC::Unreal::UObject* Widget = nullptr;
+        RC::Unreal::UObject* EvaluatedTargetBtn = nullptr;
+        RC::Unreal::UFunction* IsPressedFunc = nullptr;
         bool bWasPressed = false;
         std::function<void()> OnClickCallback;
 
-        bool IsWidgetPressed(RC::Unreal::UObject* WidgetObj) const {
-            if (!WidgetObj) return false;
-            RC::Unreal::UObject* TargetBtn = WidgetObj;
+        void InitializeCachedPointers() {
+            if (!Widget) return;
+            EvaluatedTargetBtn = Widget;
+            
             RC::Unreal::UObject* Temp = nullptr;
+            // Pass true to silence logs during probing
+            if (Utils::GetPropertyValue(Widget, STR("WBP_PalCommonButton"), Temp, true) && Temp) {
+                EvaluatedTargetBtn = Temp;
+            } else if (Utils::GetPropertyValue(Widget, STR("WBP_PalInvisibleButton"), Temp, true) && Temp) {
+                EvaluatedTargetBtn = Temp;
+            }
 
-            if (Utils::GetPropertyValue(TargetBtn, STR("WBP_PalCommonButton"), Temp) && Temp) TargetBtn = Temp;
-            if (Utils::GetPropertyValue(TargetBtn, STR("WBP_PalInvisibleButton"), Temp) && Temp) TargetBtn = Temp;
+            if (EvaluatedTargetBtn) {
+                IsPressedFunc = EvaluatedTargetBtn->GetFunctionByNameInChain(STR("IsPressed"));
+            }
+        }
 
+
+        bool IsWidgetPressed() const {
+            if (!EvaluatedTargetBtn || !IsPressedFunc) return false;
             struct { bool RetVal; } Params{false};
-            Utils::CallFunction(TargetBtn, STR("IsPressed"), &Params);
+            EvaluatedTargetBtn->ProcessEvent(IsPressedFunc, &Params);
             return Params.RetVal;
         }
     };
 }
-// --- END OF FILE include/UI/Components/Button.hpp ---

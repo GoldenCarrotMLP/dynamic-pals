@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Components/Selector.hpp ---
 #pragma once
 #include <functional>
 #include <vector>
@@ -14,6 +13,7 @@ namespace DynPals::UI {
         Selector(RC::Unreal::UObject* Outer, const std::vector<std::wstring>& Options, int32_t InitialIndex = 0) {
             Widget = UI::OptionLR(Outer).SetupLR(Options, InitialIndex).Build();
             LastIndex = InitialIndex;
+            InitializeCachedPointers();
         }
 
         RC::Unreal::UObject* GetWidget() const { return Widget; }
@@ -24,9 +24,12 @@ namespace DynPals::UI {
         }
 
         void Tick() {
-            if (!Widget) return;
+            if (!Widget || !CurrentProp) return;
             int32_t currentIndex = LastIndex;
-            if (Utils::GetPropertyValue(Widget, STR("Current"), currentIndex)) {
+
+            int32_t* Ptr = CurrentProp->ContainerPtrToValuePtr<int32_t>(Widget);
+            if (Ptr) {
+                currentIndex = *Ptr;
                 if (currentIndex != LastIndex) {
                     LastIndex = currentIndex;
                     if (OnChangeCallback) {
@@ -38,8 +41,13 @@ namespace DynPals::UI {
 
     private:
         RC::Unreal::UObject* Widget = nullptr;
+        RC::Unreal::FProperty* CurrentProp = nullptr;
         int32_t LastIndex = 0;
         std::function<void(int32_t)> OnChangeCallback;
+
+        void InitializeCachedPointers() {
+            if (!Widget) return;
+            CurrentProp = Utils::GetProperty(Widget, STR("Current"));
+        }
     };
 }
-// --- END OF FILE include/UI/Components/Selector.hpp ---

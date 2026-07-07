@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Components/Slider.hpp ---
 #pragma once
 #include <functional>
 #include <cmath>
@@ -13,6 +12,7 @@ namespace DynPals::UI {
         Slider(RC::Unreal::UObject* Outer, double Min = 0.0, double Max = 100.0, double Initial = 50.0) {
             Widget = UI::OptionSlider(Outer).SetupSlider(Initial, Min, Max).Build();
             LastValue = Initial;
+            InitializeCachedPointers();
         }
 
         RC::Unreal::UObject* GetWidget() const { return Widget; }
@@ -23,9 +23,12 @@ namespace DynPals::UI {
         }
 
         void Tick() {
-            if (!Widget) return;
+            if (!Widget || !CurrentValueProp) return;
             double currentVal = LastValue;
-            if (Utils::GetPropertyValue(Widget, STR("CurrentValue"), currentVal)) {
+            
+            double* Ptr = CurrentValueProp->ContainerPtrToValuePtr<double>(Widget);
+            if (Ptr) {
+                currentVal = *Ptr;
                 if (std::abs(currentVal - LastValue) > 0.001) {
                     LastValue = currentVal;
                     if (OnChangeCallback) {
@@ -37,8 +40,13 @@ namespace DynPals::UI {
 
     private:
         RC::Unreal::UObject* Widget = nullptr;
+        RC::Unreal::FProperty* CurrentValueProp = nullptr;
         double LastValue = 50.0;
         std::function<void(double)> OnChangeCallback;
+
+        void InitializeCachedPointers() {
+            if (!Widget) return;
+            CurrentValueProp = Utils::GetProperty(Widget, STR("CurrentValue"));
+        }
     };
 }
-// --- END OF FILE include/UI/Components/Slider.hpp ---

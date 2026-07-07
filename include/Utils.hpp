@@ -76,15 +76,21 @@ namespace DynPals::Utils {
         return std::wstring(buf);
     }
 
-    inline FProperty* GetProperty(UObject* Object, const wchar_t* PropertyName) {
+    inline FProperty* GetProperty(UObject* Object, const wchar_t* PropertyName, bool bSilenceLogs = false) {
         if (!Object) return nullptr;
         auto* Class = Object->GetClassPrivate();
-        return Class ? Class->GetPropertyByNameInChain(PropertyName) : nullptr;
+        FProperty* Prop = Class ? Class->GetPropertyByNameInChain(PropertyName) : nullptr;
+        
+        if (!Prop && !bSilenceLogs) {
+            DP_LOG(Verbose, "[Utils] GetProperty: Could not find property '{}' on object '{}'", PropertyName, Object->GetName());
+        }
+        return Prop;
     }
 
+
     template<typename T>
-    inline bool GetPropertyValue(UObject* Object, const wchar_t* PropertyName, T& OutValue) {
-        auto* Property = GetProperty(Object, PropertyName);
+    inline bool GetPropertyValue(UObject* Object, const wchar_t* PropertyName, T& OutValue, bool bSilenceLogs = false) {
+        auto* Property = GetProperty(Object, PropertyName, bSilenceLogs);
         if (Property) {
             T* Ptr = Property->ContainerPtrToValuePtr<T>(Object);
             if (Ptr) {
@@ -96,8 +102,8 @@ namespace DynPals::Utils {
     }
 
     template<>
-    inline bool GetPropertyValue<bool>(UObject* Object, const wchar_t* PropertyName, bool& OutValue) {
-        auto* Property = GetProperty(Object, PropertyName);
+    inline bool GetPropertyValue<bool>(UObject* Object, const wchar_t* PropertyName, bool& OutValue, bool bSilenceLogs) {
+        auto* Property = GetProperty(Object, PropertyName, bSilenceLogs);
         if (Property) {
             if (Property->GetClass().GetName() == L"BoolProperty") {
                 FBoolProperty* BoolProp = static_cast<FBoolProperty*>(Property);
@@ -112,8 +118,8 @@ namespace DynPals::Utils {
     }
 
     template<typename T>
-    inline bool SetPropertyValue(UObject* Object, const wchar_t* PropertyName, const T& Value) {
-        auto* Property = GetProperty(Object, PropertyName);
+    inline bool SetPropertyValue(UObject* Object, const wchar_t* PropertyName, const T& Value, bool bSilenceLogs = false) {
+        auto* Property = GetProperty(Object, PropertyName, bSilenceLogs);
         if (Property) {
             T* Ptr = Property->ContainerPtrToValuePtr<T>(Object);
             if (Ptr) {
@@ -125,8 +131,8 @@ namespace DynPals::Utils {
     }
 
     template<>
-    inline bool SetPropertyValue<bool>(UObject* Object, const wchar_t* PropertyName, const bool& Value) {
-        auto* Property = GetProperty(Object, PropertyName);
+    inline bool SetPropertyValue<bool>(UObject* Object, const wchar_t* PropertyName, const bool& Value, bool bSilenceLogs) {
+        auto* Property = GetProperty(Object, PropertyName, bSilenceLogs);
         if (Property) {
             if (Property->GetClass().GetName() == L"BoolProperty") {
                 FBoolProperty* BoolProp = static_cast<FBoolProperty*>(Property);
@@ -140,11 +146,17 @@ namespace DynPals::Utils {
         return false;
     }
 
-    inline void CallFunction(UObject* Object, const wchar_t* FunctionName, void* Params = nullptr) {
+
+    inline void CallFunction(UObject* Object, const wchar_t* FunctionName, void* Params = nullptr, bool bSilenceLogs = false) {
         if (!Object) return;
         auto* Function = Object->GetFunctionByNameInChain(FunctionName);
-        if (Function) Object->ProcessEvent(Function, Params);
+        if (Function) {
+            Object->ProcessEvent(Function, Params);
+        } else if (!bSilenceLogs) {
+            DP_LOG(Verbose, "[Utils] CallFunction FAILED: Could not find function '{}' on object '{}'", FunctionName, Object->GetName());
+        }
     }
+
 
     inline std::wstring FormatAssetPath(const std::wstring& Path) {
         if (Path.empty() || Path.find(L'.') != std::wstring::npos) return Path;
@@ -161,10 +173,154 @@ namespace DynPals::Utils {
         return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
 
+    inline UObject* GetLibrary(const wchar_t* LibraryPath) {
+        static std::map<std::wstring, UObject*> LibraryCache;
+        auto it = LibraryCache.find(LibraryPath);
+        if (it != LibraryCache.end()) {
+            return it->second;
+        }
+        UObject* Lib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, LibraryPath);
+        if (!Lib) {
+            DP_LOG(Warning, "[Utils] GetLibrary FAILED: Could not find core library at path: '{}'", LibraryPath);
+        }
+        LibraryCache[LibraryPath] = Lib;
+        return Lib;
+    }
+
+
+    // Retrieves and caches any UFunction belonging to a Class Library
+    inline UFunction* GetLibraryFunction(const wchar_t* LibraryPath, const wchar_t* FunctionName) {
+        struct Key {
+            std::wstring Path;
+            std::wstring Name;
+            bool operator<(const Key& Other) const {
+                if (Path != Other.Path) return Path < Other.Path;
+                return Name < Other.Name;
+            }
+        };
+        static std::map<Key, UFunction*> FunctionCache;
+        Key k{ LibraryPath, FunctionName };
+
+        auto it = FunctionCache.find(k);
+        if (it != FunctionCache.end()) {
+            return it->second;
+        }
+
+        UObject* Lib = GetLibrary(LibraryPath);
+        UFunction* Func = Lib ? Lib->GetFunctionByNameInChain(FunctionName) : nullptr;
+        
+        if (!Func) {
+            DP_LOG(Warning, "[Utils] GetLibraryFunction FAILED: Could not find function '{}' in library '{}'", FunctionName, LibraryPath);
+        }
+        
+        FunctionCache[k] = Func;
+        return Func;
+    }
+
+    // Retrieves and caches any Class (UClass*) pointer by path
+    inline UClass* GetClassCached(const wchar_t* ClassPath) {
+        static std::map<std::wstring, UClass*> ClassCache;
+        auto it = ClassCache.find(ClassPath);
+        if (it != ClassCache.end()) return it->second;
+
+        UClass* Cls = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, ClassPath);
+        if (!Cls) {
+            DP_LOG(Warning, "[Utils] GetClassCached FAILED: Could not find class at path: '{}'", ClassPath);
+        }
+        
+        ClassCache[ClassPath] = Cls;
+        return Cls;
+    }
+
+    // UserWidget Class Pointer Wrapper
+    inline UClass* GetUserWidgetClass() {
+        return GetClassCached(STR("/Script/UMG.UserWidget"));
+    }
+    inline UObject* GetWBL() {
+        return GetLibrary(STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
+    }
+    inline UFunction* GetWBLFunction(const wchar_t* FunctionName) {
+        return GetLibraryFunction(STR("/Script/UMG.Default__WidgetBlueprintLibrary"), FunctionName);
+    }
+    // KismetTextLibrary Wrappers
+    inline UObject* GetKTL() {
+        return GetLibrary(STR("/Script/Engine.Default__KismetTextLibrary"));
+    }
+    inline UFunction* GetKTLFunction(const wchar_t* FunctionName) {
+        return GetLibraryFunction(STR("/Script/Engine.Default__KismetTextLibrary"), FunctionName);
+    }
+    // KismetMaterialLibrary Wrappers
+    inline UObject* GetKML() {
+        return GetLibrary(STR("/Script/Engine.Default__KismetMaterialLibrary"));
+    }
+    inline UFunction* GetKMLFunction(const wchar_t* FunctionName) {
+        return GetLibraryFunction(STR("/Script/Engine.Default__KismetMaterialLibrary"), FunctionName);
+    }
+
+    // KismetSystemLibrary Wrappers
+    inline UObject* GetKSL() {
+        return GetLibrary(STR("/Script/Engine.Default__KismetSystemLibrary"));
+    }
+    inline UFunction* GetKSLFunction(const wchar_t* FunctionName) {
+        return GetLibraryFunction(STR("/Script/Engine.Default__KismetSystemLibrary"), FunctionName);
+    }
+
+
+     // Globally caches and retrieves the KismetSystemLibrary Class Default Object
+    inline UObject* GetKismetSystemLibrary() {
+        static UObject* KSL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetSystemLibrary"));
+        return KSL;
+    }
+
+    // Globally caches and retrieves any Kismet function by name
+    inline UFunction* GetKismetFunction(const wchar_t* FunctionName) {
+        static std::map<std::wstring, UFunction*> FunctionCache;
+        
+        auto it = FunctionCache.find(FunctionName);
+        if (it != FunctionCache.end()) {
+            return it->second;
+        }
+
+        UObject* KSL = GetKismetSystemLibrary();
+        UFunction* Func = KSL ? KSL->GetFunctionByNameInChain(FunctionName) : nullptr;
+        FunctionCache[FunctionName] = Func;
+        return Func;
+    }
+
+    
+
+    // Bulletproof validation check leveraging Kismet's native static verification
+    inline bool IsObjectValid(UObject* Obj) {
+        if (!Obj) return false;
+        
+        UObject* KSL = GetKismetSystemLibrary();
+        static UFunction* IsValidFunc = GetKismetFunction(STR("IsValid"));
+        if (!KSL || !IsValidFunc) return true; // Safe fallback
+
+        struct { UObject* Object; bool ReturnValue; } Params{ Obj, false };
+        KSL->ProcessEvent(IsValidFunc, &Params);
+        return Params.ReturnValue;
+    }
+
     inline UObject* LoadAssetInternal(const std::wstring& AssetPath) {
         std::wstring formatted = FormatAssetPath(AssetPath); 
-        std::wstring package, asset;
         
+        // --- ZERO-RISK CACHE CHECK ---
+        // Ask the Engine if the asset is already in RAM. This takes microseconds and prevents disk stalls!
+        UObject* ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, formatted.c_str());
+        if (ExistingObj) {
+            std::wstring ClassName = ExistingObj->GetClassPrivate()->GetName();
+            if (ClassName == L"ObjectRedirector") {
+                UObject* Destination = nullptr;
+                if (GetPropertyValue<UObject*>(ExistingObj, STR("DestinationObject"), Destination)) {
+                    return Destination;
+                }
+            }
+            return ExistingObj; // Asset is already loaded! Return instantly.
+        }
+
+        // --- EXPENSIVE FALLBACK ---
+        std::wstring package, asset;
         size_t dot = formatted.find(L'.');
         if (dot != std::wstring::npos) {
             package = formatted.substr(0, dot);
@@ -185,7 +341,7 @@ namespace DynPals::Utils {
         if (!LoadFunc) return nullptr;
 
         struct { AltrSoftObjectPtr Asset; UObject* ReturnValue; } LoadParams{SoftPtr, nullptr};
-        KismetLib->ProcessEvent(LoadFunc, &LoadParams);
+        KismetLib->ProcessEvent(LoadFunc, &LoadParams); // <--- This is what caused the hitching!
         
         UObject* LoadedObj = LoadParams.ReturnValue;
         if (LoadedObj) {

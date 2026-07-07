@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Components/WindowFrame.hpp ---
 #pragma once
 #include <functional>
 #include <Unreal/UObjectGlobals.hpp>
@@ -69,4 +68,3 @@ namespace DynPals::UI {
         DynPals::WidgetBuilder ContentBox;
     };
 }
-// --- END OF FILE include/UI/Components/WindowFrame.hpp ---

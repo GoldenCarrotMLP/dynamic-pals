@@ -1,4 +1,3 @@
-// --- START OF FILE src/UI/Views/UIManager.cpp ---
 #define NOMINMAX 
 #include <Windows.h>
 
@@ -130,17 +129,18 @@ namespace DynPals {
         RerollButton = nullptr;
         MorphSliders.clear();
         MainScrollBoxObj = nullptr;
+        GetScrollOffsetFunc = nullptr;
     }
 
     void UIManager::BuildWidget() {
         if (!CurrentPlayerController || !TargetPal) return;
 
-        // Reset Smart Controllers
         SkinDropdown = nullptr;
         HideInvalidSwitch = nullptr;
         RerollButton = nullptr;
         MorphSliders.clear();
         MainScrollBoxObj = nullptr;
+        GetScrollOffsetFunc = nullptr;
 
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
         UClass* WidgetClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.UserWidget"));
@@ -157,7 +157,6 @@ namespace DynPals {
         const FLinearColor_UE5 White   = {1.0f, 1.0f, 1.0f, 1.0f};
         const FLinearColor_UE5 Emerald = {0.063f, 0.725f, 0.506f, 1.0f};
 
-        // --- 1. Gather Pal Data & Evaluations ---
         bool IsRare = false, IsWild = false;
         std::wstring GenderStr = L"None", SkinName = L"";
         int LevelNum = 1, RankNum = 0, FriendshipNum = 0;
@@ -232,7 +231,6 @@ namespace DynPals {
             }
         }
 
-        // --- 2. Build Categorized Dropdown Options ---
         std::map<std::wstring, std::vector<SwapEvaluation>> rawPacks;
         for (const auto& eval : evaluations) {
             if (bHideInvalidSwaps && !eval.IsValid) continue;
@@ -245,17 +243,14 @@ namespace DynPals {
         for (auto& [packName, evals] : rawPacks) {
             std::map<std::wstring, int> prefixCounts; 
             
-            // Build visual category subheader
             std::wstring headerStr = L"[ " + packName + L" ]";
             DropdownOptions.push_back(headerStr);
             DropdownConfigIndices.push_back(-1); 
 
-            // First pass: Prefix counting for clean grouping (Cleaned hashes!) [Fix]
             for (auto& eval : evals) {
                 auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
                 std::wstring labelName = cfg.SwapLabel;
                 
-                // Strip the fallback hash " (1A2B3C4D)" from displays
                 if (labelName.length() > 11) {
                     size_t len = labelName.length();
                     if (labelName[len - 1] == L')' && labelName[len - 10] == L'(' && labelName[len - 11] == L' ') {
@@ -282,8 +277,9 @@ namespace DynPals {
                     std::wstring lowerCharID = TargetCharID;
                     std::transform(lowerCharID.begin(), lowerCharID.end(), lowerCharID.begin(), ::towlower);
                     
-                    if (lowerClean.rfind(lowerClean, 0) == 0) clean = clean.substr(TargetCharID.length() + 1);
-                    else if (lowerClean.rfind(lowerCharID, 0) == 0) {
+                    if (lowerClean.rfind(lowerCharID + L"_", 0) == 0 && clean.length() >= TargetCharID.length() + 1) {
+                        clean = clean.substr(TargetCharID.length() + 1);
+                    } else if (lowerClean.rfind(lowerCharID, 0) == 0 && clean.length() >= TargetCharID.length()) {
                         clean = clean.substr(TargetCharID.length());
                         if (!clean.empty() && clean[0] == L'_') clean = clean.substr(1);
                     }
@@ -301,12 +297,10 @@ namespace DynPals {
                 }
             }
 
-            // Second pass: Final string generation
             for (auto& eval : evals) {
                 auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
                 std::wstring labelName = cfg.SwapLabel;
                 
-                // Strip the fallback hash " (1A2B3C4D)" from displays
                 if (labelName.length() > 11) {
                     size_t len = labelName.length();
                     if (labelName[len - 1] == L')' && labelName[len - 10] == L'(' && labelName[len - 11] == L' ') {
@@ -334,8 +328,9 @@ namespace DynPals {
                     std::wstring lowerCharID = TargetCharID;
                     std::transform(lowerCharID.begin(), lowerCharID.end(), lowerCharID.begin(), ::towlower);
                     
-                    if (lowerClean.rfind(lowerCharID + L"_", 0) == 0) clean = clean.substr(TargetCharID.length() + 1);
-                    else if (lowerClean.rfind(lowerCharID, 0) == 0) {
+                    if (lowerClean.rfind(lowerCharID + L"_", 0) == 0 && clean.length() >= TargetCharID.length() + 1) {
+                        clean = clean.substr(TargetCharID.length() + 1);
+                    } else if (lowerClean.rfind(lowerCharID, 0) == 0 && clean.length() >= TargetCharID.length()) {
                         clean = clean.substr(TargetCharID.length());
                         if (!clean.empty() && clean[0] == L'_') clean = clean.substr(1);
                     }
@@ -399,28 +394,34 @@ namespace DynPals {
             }
         }
 
-        // --- 3. Instantiate Smart Controllers ---
         SkinDropdown = std::make_unique<UI::Dropdown>(DropdownOptions, initialIdx);
         SkinDropdown->OnChanged([this](int Index, std::wstring Choice) {
             if (Index >= 0 && Index < static_cast<int>(DropdownConfigIndices.size())) {
                 int TargetConfig = DropdownConfigIndices[Index];
                 PalProcessor::Get().ForceSwap(TargetPal, TargetConfig);
                 
-                if (MainScrollBoxObj) Utils::CallFunction(MainScrollBoxObj, STR("GetScrollOffset"), &LastScrollOffset);
+                if (MainScrollBoxObj && GetScrollOffsetFunc) {
+                    struct { float Offset; } Params{ 0.0f };
+                    MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
+                    LastScrollOffset = Params.Offset;
+                }
                 RequestRebuild(); 
             }
         });
 
-        // Use proper Outer injection to construct standard control variants
         HideInvalidSwitch = std::make_unique<UI::Switch>(MyWidget, bHideInvalidSwaps);
         HideInvalidSwitch->OnChanged([this](bool bState) {
             bHideInvalidSwaps = bState;
-            if (MainScrollBoxObj) Utils::CallFunction(MainScrollBoxObj, STR("GetScrollOffset"), &LastScrollOffset);
+            if (MainScrollBoxObj && GetScrollOffsetFunc) {
+                struct { float Offset; } Params{ 0.0f };
+                MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
+                LastScrollOffset = Params.Offset;
+            }
             RequestRebuild(); 
         });
 
         auto RerollBtnBuilder = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget)
-            .Text(L"Reroll Pal")
+            .Text(L"      Reroll Pal      ")
             .BackgroundColor(PalBlue)
             .DesiredSizeOverride(300.0f, 45.0f)
             .UnlockButtonSize(300.0f);
@@ -429,11 +430,14 @@ namespace DynPals {
         RerollButton = std::make_unique<UI::Button>(RerollBtnObj);
         RerollButton->OnClicked([this]() {
             PalProcessor::Get().ProcessPal(TargetPal, true);
-            if (MainScrollBoxObj) Utils::CallFunction(MainScrollBoxObj, STR("GetScrollOffset"), &LastScrollOffset);
+            if (MainScrollBoxObj && GetScrollOffsetFunc) {
+                struct { float Offset; } Params{ 0.0f };
+                MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
+                LastScrollOffset = Params.Offset;
+            }
             RequestRebuild(); 
         });
 
-        // --- 4. Build Layout Container (Inner Scroll Box) ---
         auto InnerContentBox = UI::VerticalBox(MyWidget);
 
         InnerContentBox.AddToVerticalBox(
@@ -448,7 +452,6 @@ namespace DynPals {
             [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 20); } 
         );
 
-        // Action Row [Centered & Padded Horizontally]
         InnerContentBox.AddToVerticalBox(
             WidgetBuilder(RerollBtnObj),
             [](DynPals::BoxSlotBuilder& Slot) { 
@@ -463,7 +466,6 @@ namespace DynPals {
         
         InnerContentBox.AddToVerticalBox(FilterRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,25); });
 
-        // Morph Sliders (Adding directly to InnerContentBox)
         if (currentPersist && persistConfigIndex != -1) {
             auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
             
@@ -509,7 +511,6 @@ namespace DynPals {
             }
         }
 
-        // Evaluation Log Header
         InnerContentBox.AddToVerticalBox(
             UI::Text(MyWidget).Text(L"Matchmaker Log").Font(PalFont, L"Bold", 20).TextColor(Emerald),
             [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,10,0,10); } 
@@ -557,24 +558,23 @@ namespace DynPals {
             }
         }
 
-        // Unified layout: Add morph target sliders and matchmaking logs directly to LogVBox
-        // so that they share the exact same main ScrollBox container
         InnerContentBox.AddToVerticalBox(LogVBox);
 
-        // --- 5. Final Assembly (WindowFrame + Main ScrollBox Constrained) ---
         auto MainScrollBoxBuilder = UI::ScrollBox(MyWidget).AddChild(InnerContentBox);
         MainScrollBoxObj = MainScrollBoxBuilder.Build();
+        if (MainScrollBoxObj) {
+            GetScrollOffsetFunc = MainScrollBoxObj->GetFunctionByNameInChain(STR("GetScrollOffset"));
+        }
 
-        // Enforce a strict 600px Max Height constraints around our single unified scrollbar
         auto MainContentConstrained = UI::SizeBox(MyWidget).HeightOverride(600.0f).AddChild(MainScrollBoxBuilder);
 
         auto HeaderBox = UI::HorizontalBox(MyWidget)
-            .AddToHorizontalBox(UI::Image(MyWidget).ImageFromAsset(UI::Assets::Common::NoticeMark).ImageColor(PalBlue).ImageSize(24, 24), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); }) // Fully qualified
+            .AddToHorizontalBox(UI::Image(MyWidget).ImageFromAsset(UI::Assets::Common::NoticeMark).ImageColor(PalBlue).ImageSize(24, 24), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); }) 
             .AddToHorizontalBox(UI::Text(MyWidget).Text(L"DYN PALS: " + TargetCharID).Font(PalFont, L"Bold", 24).TextOutline(2, {0.0f, 0.0f, 0.0f, 1.0f}).TextColor(PalBlue));
 
         UObject* Canvas = UI::WindowFrame(MyWidget, 650.0f)
             .SetHeader(HeaderBox)
-            .AddContent(MainContentConstrained) // unified scrollable area
+            .AddContent(MainContentConstrained) 
             .SetFooter(UI::ActionBar(MyWidget))
             .Build(0.05, 0.5, 0.05, 0.5, 0.0, 0.5); 
 
@@ -584,7 +584,7 @@ namespace DynPals {
             if (RootProp) *RootProp->ContainerPtrToValuePtr<UObject*>(WidgetTree) = Canvas;
         }
 
-        Utils::CallFunction(MyWidget, STR("Initialize"));
+        //Utils::CallFunction(MyWidget, STR("Initialize")); //Redundant
         struct { int32_t ZOrder; } ViewportParams{9999};
         Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
 
@@ -595,17 +595,26 @@ namespace DynPals {
     }
 
     void UIManager::OnTickUI() {
+        // Safe check: If the target Pal was deleted, swept, or despawned, abort instantly.
+        if (TargetPal && !Utils::IsObjectValid(TargetPal)) {
+            TargetPal = nullptr;
+            RequestToggle(); // Safely closes the menu
+            return;
+        }
+
         if (SkinDropdown)      SkinDropdown->Tick();
         if (HideInvalidSwitch) HideInvalidSwitch->Tick();
         if (RerollButton)      RerollButton->Tick();
+
 
         for (auto& as : MorphSliders) {
             if (as.SliderCtrl) as.SliderCtrl->Tick();
         }
         
-        if (MainScrollBoxObj) {
-            Utils::CallFunction(MainScrollBoxObj, STR("GetScrollOffset"), &LastScrollOffset);
+        if (MainScrollBoxObj && GetScrollOffsetFunc) {
+            struct { float Offset; } Params{ 0.0f };
+            MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
+            LastScrollOffset = Params.Offset;
         }
     }
 }
-// --- END OF FILE src/UI/Views/UIManager.cpp ---

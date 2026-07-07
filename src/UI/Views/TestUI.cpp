@@ -1,4 +1,3 @@
-// --- START OF FILE src/UI/Views/TestUI.cpp ---
 #define NOMINMAX 
 #include <Windows.h>
 
@@ -186,7 +185,7 @@ namespace DynPals {
             if (RootProp) *RootProp->ContainerPtrToValuePtr<UObject*>(WidgetTree) = Canvas;
         }
 
-        Utils::CallFunction(MyWidget, STR("Initialize"));
+        //Utils::CallFunction(MyWidget, STR("Initialize")); //Redundant
         struct { int32_t ZOrder; } ViewportParams{9999};
         Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
     }
@@ -205,4 +204,3 @@ namespace DynPals {
         }
     }
 }
-// --- END OF FILE src/UI/Views/TestUI.cpp ---

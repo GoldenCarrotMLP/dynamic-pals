@@ -3,9 +3,11 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <memory>
 #include <Unreal/UObjectGlobals.hpp>
-#include "UI/WidgetBuilder.hpp" // <-- FIXED INCLUDE PATH
-#include "UI/IconLibrary.hpp"   // <-- FIXED INCLUDE PATH
+#include "UI/WidgetBuilder.hpp" 
+#include "UI/IconLibrary.hpp"   
+#include "UI/Components/Button.hpp"
 #include "Utils.hpp"
 
 namespace DynPals::UI {
@@ -29,50 +31,24 @@ namespace DynPals::UI {
             PlayerController = PC;
 
             std::wstring DisplayText = Options.empty() ? L"" : Options[SelectedIndex];
-            auto BtnBuilder = DynPals::UI::Button(Outer).Text(L"Select: " + DisplayText);
+            MainButtonCtrl = std::make_unique<UI::Button>(Outer, L"Select: " + DisplayText);
             
-            MainButton = BtnBuilder.Build();
-            return MainButton;
+            MainButtonCtrl->OnClicked([this]() {
+                if (!PopupOverlay) OpenPopup();
+                else ClosePopup();
+            });
+            
+            return MainButtonCtrl->GetWidget();
         }
 
         void Tick() {
-            if (!MainButton) return;
+            if (MainButtonCtrl) {
+                MainButtonCtrl->Tick();
+            }
 
-            if (IsWidgetPressed(MainButton)) {
-                if (!bWasMainBtnPressed) {
-                    bWasMainBtnPressed = true;
-                    if (!PopupOverlay) OpenPopup();
-                    else ClosePopup();
-                }
-            } else { bWasMainBtnPressed = false; }
-
-            if (PopupOverlay && ScrollBoxList && !bWasMainBtnPressed) {
-                struct { int32_t RetVal; } CountParams{0};
-                Utils::CallFunction(ScrollBoxList, STR("GetChildrenCount"), &CountParams);
-                
-                RC::Unreal::UFunction* GetChildFunc = ScrollBoxList->GetFunctionByNameInChain(STR("GetChildAt"));
-                if (GetChildFunc) {
-                    for (int32_t i = 0; i < CountParams.RetVal; ++i) {
-                        struct { int32_t Index; RC::Unreal::UObject* RetVal; } GetChildParams{i, nullptr};
-                        ScrollBoxList->ProcessEvent(GetChildFunc, &GetChildParams);
-                        
-                        RC::Unreal::UObject* ChildWidget = GetChildParams.RetVal;
-                        if (!ChildWidget) continue;
-
-                        std::wstring ChildClass = ChildWidget->GetClassPrivate()->GetName();
-                        if (ChildClass.find(L"VerticalBox") != std::wstring::npos) continue;
-
-                        if (IsWidgetPressed(ChildWidget)) {
-                            SelectedIndex = i;
-                            UpdateMainButtonText();
-                            ClosePopup();
-                            
-                            if (OnSelectionChanged && i < static_cast<int32_t>(Options.size())) {
-                                OnSelectionChanged(i, Options[i]);
-                            }
-                            break;
-                        }
-                    }
+            if (PopupOverlay) {
+                for (auto& btnCtrl : PopupItems) {
+                    btnCtrl->Tick();
                 }
             }
         }
@@ -82,6 +58,7 @@ namespace DynPals::UI {
                 Utils::CallFunction(PopupOverlay, STR("RemoveFromParent"));
                 PopupOverlay = nullptr;
                 ScrollBoxList = nullptr;
+                PopupItems.clear(); // Releases child button trackers cleanly
             }
         }
 
@@ -95,81 +72,47 @@ namespace DynPals::UI {
         RC::Unreal::UObject* OuterContext = nullptr;
         RC::Unreal::UObject* PlayerController = nullptr;
 
-        RC::Unreal::UObject* MainButton = nullptr;
+        std::unique_ptr<UI::Button> MainButtonCtrl = nullptr;
         RC::Unreal::UObject* PopupOverlay = nullptr;
         RC::Unreal::UObject* ScrollBoxList = nullptr;
-
-        bool bWasMainBtnPressed = false;
-
-        bool IsWidgetPressed(RC::Unreal::UObject* WidgetObj) const {
-            if (!WidgetObj) return false;
-            RC::Unreal::UObject* TargetBtn = WidgetObj;
-            RC::Unreal::UObject* Temp = nullptr;
-
-            if (Utils::GetPropertyValue(TargetBtn, STR("WBP_PalCommonButton"), Temp) && Temp) TargetBtn = Temp;
-            if (Utils::GetPropertyValue(TargetBtn, STR("WBP_PalInvisibleButton"), Temp) && Temp) TargetBtn = Temp;
-
-            struct { bool RetVal; } Params{false};
-            Utils::CallFunction(TargetBtn, STR("IsPressed"), &Params);
-            return Params.RetVal;
-        }
+        
+        std::vector<std::unique_ptr<UI::Button>> PopupItems;
 
         void UpdateMainButtonText() {
-            if (!MainButton || Options.empty()) return;
+            if (!MainButtonCtrl || Options.empty()) return;
             std::wstring newText = L"Select: " + Options[SelectedIndex];
             
-            RC::Unreal::UObject* KTL = RC::Unreal::UObjectGlobals::StaticFindObject<RC::Unreal::UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetTextLibrary"));
-            struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(newText.c_str()), RC::Unreal::FText() };
-            KTL->ProcessEvent(KTL->GetFunctionByNameInChain(STR("Conv_StringToText")), &P1);
-            
-            struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
-            Utils::CallFunction(MainButton, STR("SetText"), &P2);
-        }
-
-        void FixCommonButtonWidth(RC::Unreal::UObject* ButtonObj, float TargetWidth) {
-            if (!ButtonObj) return;
-            RC::Unreal::UObject* WidgetTree = nullptr;
-            if (Utils::GetPropertyValue(ButtonObj, STR("WidgetTree"), WidgetTree) && WidgetTree) {
-                RC::Unreal::TArray<RC::Unreal::UObject*> AllWidgets;
-                RC::Unreal::UFunction* GetWidgetsFunc = WidgetTree->GetFunctionByNameInChain(STR("GetAllWidgets"));
-                if (GetWidgetsFunc) {
-                    struct { RC::Unreal::TArray<RC::Unreal::UObject*> OutWidgets; } Params;
-                    WidgetTree->ProcessEvent(GetWidgetsFunc, &Params);
-                    AllWidgets = Params.OutWidgets;
-                } else {
-                    Utils::GetPropertyValue(WidgetTree, STR("AllWidgets"), AllWidgets);
-                }
-
-                for (int32_t i = 0; i < AllWidgets.Num(); ++i) {
-                    RC::Unreal::UObject* Child = AllWidgets[i];
-                    if (!Child) continue;
-                    std::wstring ClassName = Child->GetClassPrivate()->GetName();
-                    
-                    if (ClassName.find(L"SizeBox") != std::wstring::npos) {
-                        Utils::CallFunction(Child, STR("ClearMaxDesiredWidth"));
-                        Utils::CallFunction(Child, STR("ClearMinDesiredWidth"));
-                        
-                        struct { float W; } SizeParams{ TargetWidth };
-                        Utils::CallFunction(Child, STR("SetWidthOverride"), &SizeParams);
-                    }
-                    if (ClassName.find(L"TextBlock") != std::wstring::npos || ClassName.find(L"PalTextBlock") != std::wstring::npos) {
-                        float WrapAt = 0.0f;
-                        Utils::SetPropertyValue<float>(Child, STR("WrapTextAt"), WrapAt);
-                        Utils::SetPropertyValue<bool>(Child, STR("AutoWrapText"), false);
-                        Utils::SetPropertyValue<bool>(Child, STR("IsAutoAdjustScale"), false);
-                        Utils::SetPropertyValue<float>(Child, STR("MaxWidth"), TargetWidth);
-                    }
-                }
+            RC::Unreal::UObject* KTL = DynPals::Utils::GetKTL();
+            RC::Unreal::UFunction* ConvFunc = DynPals::Utils::GetKTLFunction(STR("Conv_StringToText"));
+            if (KTL && ConvFunc) {
+                struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(newText.c_str()), RC::Unreal::FText() };
+                KTL->ProcessEvent(ConvFunc, &P1);
+                
+                struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
+                Utils::CallFunction(MainButtonCtrl->GetWidget(), STR("SetText"), &P2, true);
             }
         }
 
         void OpenPopup() {
+            DP_LOG(Default, "[Dropdown Debug] --- OpenPopup Invoked ---");
+            DP_LOG(Default, "[Dropdown Debug] Options count: {}", Options.size());
+            PopupItems.clear();
+
             RC::Unreal::UObject* WidgetTree = nullptr;
             RC::Unreal::UObject* RootCanvas = nullptr;
-            if (Utils::GetPropertyValue(OuterContext, STR("WidgetTree"), WidgetTree) && WidgetTree) {
-                Utils::GetPropertyValue(WidgetTree, STR("RootWidget"), RootCanvas);
+            if (Utils::GetPropertyValue(OuterContext, STR("WidgetTree"), WidgetTree, true) && WidgetTree) {
+                Utils::GetPropertyValue(WidgetTree, STR("RootWidget"), RootCanvas, true);
             }
-            if (!RootCanvas) return;
+
+            DP_LOG(Default, "[Dropdown Debug] Context Validation: OuterContext = 0x{:p} ('{}'), WidgetTree = 0x{:p}, RootCanvas = 0x{:p} ('{}')", 
+                   (void*)OuterContext, OuterContext ? OuterContext->GetClassPrivate()->GetName() : L"NULL",
+                   (void*)WidgetTree, 
+                   (void*)RootCanvas, RootCanvas ? RootCanvas->GetClassPrivate()->GetName() : L"NULL");
+
+            if (!RootCanvas) {
+                DP_LOG(Warning, "[Dropdown Debug] ABORTED: RootCanvas was NULL or unreachable.");
+                return;
+            }
 
             size_t maxLen = 0;
             for (const auto& opt : Options) {
@@ -182,6 +125,8 @@ namespace DynPals::UI {
 
             float ComputedHeight = static_cast<float>(Options.size()) * 51.0f + 20.0f;
             if (ComputedHeight > 450.0f) ComputedHeight = 450.0f;
+
+            DP_LOG(Default, "[Dropdown Debug] Dimensions Calculated: Width = {:.2f}, Height = {:.2f}", ComputedWidth, ComputedHeight);
 
             auto ScrollBoxBuilder = DynPals::UI::ScrollBox(OuterContext);
             RC::Unreal::UObject* TargetWidget = nullptr;
@@ -235,12 +180,31 @@ namespace DynPals::UI {
                             struct { bool bState; } Params{ true };
                             ButtonObj->ProcessEvent(SetStateFunc, &Params);
                         } else {
+                            RC::Unreal::UObject* TargetBtn = ButtonObj;
+                            RC::Unreal::UObject* InnerBtn = nullptr;
+                            if (Utils::GetPropertyValue<RC::Unreal::UObject*>(ButtonObj, STR("WBP_PalInvisibleButton"), InnerBtn, true) && InnerBtn) {
+                                TargetBtn = InnerBtn;
+                            }
+
                             struct { bool bInSelected; bool bGiveFeedback; } SelParams{ true, false };
-                            Utils::CallFunction(ButtonObj, STR("SetIsSelected"), &SelParams);
+                            Utils::CallFunction(TargetBtn, STR("SetIsSelected"), &SelParams, true);
                         }
                     } else {
                         Item.TextColor({0.9f, 0.9f, 0.9f, 1.0f});
                     }
+
+                    auto ItemBtnCtrl = std::make_unique<UI::Button>(ButtonObj);
+                    int itemIndex = static_cast<int>(i);
+                    ItemBtnCtrl->OnClicked([this, itemIndex]() {
+                        SelectedIndex = itemIndex;
+                        UpdateMainButtonText();
+                        ClosePopup();
+                        
+                        if (OnSelectionChanged && itemIndex < static_cast<int32_t>(Options.size())) {
+                            OnSelectionChanged(itemIndex, Options[itemIndex]);
+                        }
+                    });
+                    PopupItems.push_back(std::move(ItemBtnCtrl));
                 }
                 
                 struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{ButtonObj, nullptr};
@@ -271,18 +235,40 @@ namespace DynPals::UI {
                 );
 
             PopupOverlay = DropdownBuilder.Build();
+            DP_LOG(Default, "[Dropdown Debug] PopupOverlay Built: 0x{:p} ('{}')", (void*)PopupOverlay, PopupOverlay ? PopupOverlay->GetClassPrivate()->GetName() : L"NULL");
 
             struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{PopupOverlay, nullptr};
             Utils::CallFunction(RootCanvas, STR("AddChild"), &AddParams);
 
+            DP_LOG(Default, "[Dropdown Debug] Mount Result: CanvasSlot = 0x{:p}", (void*)AddParams.ReturnValue);
+
             if (AddParams.ReturnValue) {
-                struct { float LocationX; float LocationY; } MouseParams{0.0f, 0.0f};
-                Utils::CallFunction(PlayerController, STR("GetMousePosition"), &MouseParams);
+                // 1. Fetch the WidgetLayoutLibrary CDO
+                RC::Unreal::UObject* WLL = RC::Unreal::UObjectGlobals::StaticFindObject<RC::Unreal::UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetLayoutLibrary"));
+                RC::Unreal::UFunction* GetMouseFunc = WLL ? WLL->GetFunctionByNameInChain(STR("GetMousePositionOnViewport")) : nullptr;
+                
+                // 2. Map the parameters block matching UE5 double-precision FVector2D (double X, double Y)
+                struct FVector2D_Double { double X; double Y; };
+                struct { RC::Unreal::UObject* WorldContextObject; FVector2D_Double ReturnValue; } MouseParams{ PlayerController, {0.0, 0.0} };
+
+                if (WLL && GetMouseFunc) {
+                    WLL->ProcessEvent(GetMouseFunc, &MouseParams);
+                }
+
+                DP_LOG(Default, "[Dropdown Debug] GetMousePositionOnViewport: X = {:.2f}, Y = {:.2f}", 
+                       MouseParams.ReturnValue.X, MouseParams.ReturnValue.Y);
+
+                // 3. Compute final slot coordinates (DPI-scaled matching Canvas Slot requirements) [5]
+                float FinalLeft = static_cast<float>(MouseParams.ReturnValue.X) - 100.0f;
+                float FinalTop = static_cast<float>(MouseParams.ReturnValue.Y) - 20.0f;
+
+                DP_LOG(Default, "[Dropdown Debug] SetOffsets Parameter Block: Left = {:.2f}, Top = {:.2f}, Width = {:.2f}, Height = {:.2f}", 
+                       FinalLeft, FinalTop, ComputedWidth, ComputedHeight);
 
                 DynPals::CanvasSlotBuilder SlotBuilder(AddParams.ReturnValue);
                 SlotBuilder.Anchors(0.0, 0.0, 0.0, 0.0)
                            .Alignment(0.0, 0.0)
-                           .Offsets(MouseParams.LocationX - 100.0f, MouseParams.LocationY - 20.0f, ComputedWidth, ComputedHeight) 
+                           .Offsets(FinalLeft, FinalTop, ComputedWidth, ComputedHeight) 
                            .AutoSize(false);
                 
                 struct { int32_t ZOrder; } ZParams{99};
@@ -297,8 +283,13 @@ namespace DynPals::UI {
                     } ScrollParams{TargetWidget, false, 2, 0.0f};
 
                     Utils::CallFunction(ScrollBoxList, STR("ScrollWidgetIntoView"), &ScrollParams);
+                    DP_LOG(Default, "[Dropdown Debug] List Selection Auto-Scrolled.");
                 }
+            } else {
+                DP_LOG(Warning, "[Dropdown Debug] FAILED: AddChild failed to return a valid Slot pointer!");
+
             }
+
         }
     };
 }

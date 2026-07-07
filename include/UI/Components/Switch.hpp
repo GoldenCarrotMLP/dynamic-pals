@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Components/Switch.hpp ---
 #pragma once
 #include <functional>
 #include <Unreal/UObjectGlobals.hpp>
@@ -12,6 +11,7 @@ namespace DynPals::UI {
         Switch(RC::Unreal::UObject* Outer, bool Initial = false) {
             Widget = UI::OptionSwitch(Outer).SetupSwitch(Initial).Build();
             LastState = Initial;
+            InitializeCachedPointers();
         }
 
         RC::Unreal::UObject* GetWidget() const { return Widget; }
@@ -22,9 +22,12 @@ namespace DynPals::UI {
         }
 
         void Tick() {
-            if (!Widget) return;
+            if (!Widget || !CurrentIsOnProp) return;
             bool currentIsOn = LastState;
-            if (Utils::GetPropertyValue(Widget, STR("CurrentIsOn"), currentIsOn)) {
+
+            bool* Ptr = CurrentIsOnProp->ContainerPtrToValuePtr<bool>(Widget);
+            if (Ptr) {
+                currentIsOn = *Ptr;
                 if (currentIsOn != LastState) {
                     LastState = currentIsOn;
                     if (OnChangeCallback) {
@@ -36,8 +39,13 @@ namespace DynPals::UI {
 
     private:
         RC::Unreal::UObject* Widget = nullptr;
+        RC::Unreal::FProperty* CurrentIsOnProp = nullptr;
         bool LastState = false;
         std::function<void(bool)> OnChangeCallback;
+
+        void InitializeCachedPointers() {
+            if (!Widget) return;
+            CurrentIsOnProp = Utils::GetProperty(Widget, STR("CurrentIsOn"));
+        }
     };
 }
-// --- END OF FILE include/UI/Components/Switch.hpp ---

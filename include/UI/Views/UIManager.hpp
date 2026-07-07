@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Views/UIManager.hpp ---
 #pragma once
 #include "UI/UIBase.hpp"
 #include "UI/Components/Button.hpp"
@@ -55,10 +54,10 @@ namespace DynPals {
 
         // Native Widget Pointers (For direct queries)
         RC::Unreal::UObject* MainScrollBoxObj = nullptr;
+        RC::Unreal::UFunction* GetScrollOffsetFunc = nullptr; // Cached Pointer
 
         // Data Models
         std::vector<std::wstring> DropdownOptions;
         std::vector<int> DropdownConfigIndices;
     };
 }
-// --- END OF FILE include/UI/Views/UIManager.hpp ---

@@ -21,24 +21,15 @@ namespace DynPals {
     void UIBase::RequestToggle() {
         bToggleRequested = true;
         UIRegistry::Get().UpdateTickState();
-
-        // Force immediate execution on the Game Thread to prevent hook skipping
-        RC::Unreal::UObject* PC = RC::Unreal::UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-        if (PC) {
-            ProcessTick(PC);
-        }
+        // Deferring execution to the next frame tick prevents re-entrancy crashes
     }
 
     void UIBase::RequestRebuild() {
         bRebuildRequested = true;
         UIRegistry::Get().UpdateTickState();
-
-        // Force immediate execution on the Game Thread to prevent visual delay
-        RC::Unreal::UObject* PC = RC::Unreal::UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-        if (PC) {
-            ProcessTick(PC);
-        }
+        // Deferring execution to the next frame tick prevents Use-After-Free crashes
     }
+
     void UIBase::ProcessTick(UObject* PlayerController) {
         CurrentPlayerController = PlayerController;
         bool bStateChanged = false;
@@ -67,14 +58,13 @@ namespace DynPals {
             bStateChanged = true;
             
             // --- ZERO-FLICKER DOUBLE BUFFERING ---
-            // We keep the old widget on-screen while the new one is built and mounted!
             RC::Unreal::UObject* OldWidget = MyWidget;
             MyWidget = nullptr; 
             
-            BuildWidget(); // Instantiates and overlays the fresh UI
+            BuildWidget(); 
             
             if (OldWidget) {
-                Utils::CallFunction(OldWidget, STR("RemoveFromParent")); // Safely deletes the old UI
+                Utils::CallFunction(OldWidget, STR("RemoveFromParent")); 
             }
         }
 
@@ -106,4 +96,3 @@ namespace DynPals {
         }
     }
 }
-// --- END OF FILE src/UI/UIBase.cpp ---

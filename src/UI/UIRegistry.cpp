@@ -1,4 +1,3 @@
-// --- START OF FILE src/UI/UIRegistry.cpp ---
 #include "UI/UIRegistry.hpp"
 #include "UI/UIBase.hpp"
 #include "Utils.hpp"
@@ -82,4 +81,3 @@ namespace DynPals {
         }
     }
 }
-// --- END OF FILE src/UI/UIRegistry.cpp ---

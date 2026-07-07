@@ -1,4 +1,3 @@
-// --- START OF FILE src/dllmain.cpp ---
 #define NOMINMAX 
 #include <Windows.h>
 
@@ -116,4 +115,3 @@ extern "C"
         delete mod;
     }
 }
-// --- END OF FILE src/dllmain.cpp ---

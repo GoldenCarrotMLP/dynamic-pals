@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/WidgetBuilder.hpp ---
 #pragma once
 #include <string>
 #include <functional>
@@ -8,7 +7,7 @@
 #include <Unreal/FString.hpp>
 #include "Utils.hpp"
 #include "DataTypes.hpp"
-#include "UI/IconLibrary.hpp" // <-- FIXED INCLUDE PATH
+#include "UI/IconLibrary.hpp"
 
 namespace DynPals {
 
@@ -96,7 +95,7 @@ namespace DynPals {
 
     public:
         WidgetBuilder(RC::Unreal::UObject* ExistingWidget) : Widget(ExistingWidget) {
-            KTL = RC::Unreal::UObjectGlobals::StaticFindObject<RC::Unreal::UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetTextLibrary"));
+            KTL = DynPals::Utils::GetKTL();
         }
 
         WidgetBuilder(const wchar_t* ClassPath, RC::Unreal::UObject* Outer) {
@@ -106,24 +105,27 @@ namespace DynPals {
             }
             if (!Cls) return;
 
-            KTL = RC::Unreal::UObjectGlobals::StaticFindObject<RC::Unreal::UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetTextLibrary"));
-
-            RC::Unreal::UClass* UserWidgetClass = RC::Unreal::UObjectGlobals::StaticFindObject<RC::Unreal::UClass*>(nullptr, nullptr, STR("/Script/UMG.UserWidget"));
+            // Clean cached retrievals
+            KTL = DynPals::Utils::GetKTL();
+            RC::Unreal::UClass* UserWidgetClass = DynPals::Utils::GetUserWidgetClass();
             
             if (UserWidgetClass && Cls->IsChildOf(UserWidgetClass)) {
-                RC::Unreal::UObject* WBL = RC::Unreal::UObjectGlobals::StaticFindObject<RC::Unreal::UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
-                if (WBL) {
+                RC::Unreal::UObject* WBL = DynPals::Utils::GetWBL();
+                RC::Unreal::UFunction* CreateFunc = DynPals::Utils::GetWBLFunction(STR("Create"));
+
+                if (WBL && CreateFunc) {
                     RC::Unreal::UObject* PC = RC::Unreal::UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
                     struct { RC::Unreal::UObject* WorldContext; RC::Unreal::UClass* WidgetType; RC::Unreal::UObject* OwningPlayer; RC::Unreal::UObject* ReturnValue; } CreateParams{
                         PC, Cls, PC, nullptr
                     };
-                    WBL->ProcessEvent(WBL->GetFunctionByNameInChain(STR("Create")), &CreateParams);
+                    WBL->ProcessEvent(CreateFunc, &CreateParams);
                     Widget = CreateParams.ReturnValue;
                 }
             } else {
                 RC::Unreal::FStaticConstructObjectParameters Params{Cls, Outer};
                 Params.Name = RC::Unreal::FName(); 
                 Widget = RC::Unreal::UObjectGlobals::StaticConstructObject(Params);
+
             }
         }
 
@@ -163,54 +165,118 @@ namespace DynPals {
         }
 
         WidgetBuilder& DesiredSizeOverride(double Width, double Height) {
-            FVector2D_Builder Size{Width, Height};
-            struct { FVector2D_Builder InSize; } Params{Size};
-            Utils::CallFunction(Widget, STR("SetDesiredSizeOverride"), &Params);
+            if (!Widget) return *this;
+
+            // 1. First choice: If it's a SizeBox, modify width and height overrides
+            RC::Unreal::UFunction* SetWidthFunc = Widget->GetFunctionByNameInChain(STR("SetWidthOverride"));
+            RC::Unreal::UFunction* SetHeightFunc = Widget->GetFunctionByNameInChain(STR("SetHeightOverride"));
+            if (SetWidthFunc && SetHeightFunc) {
+                struct { float InWidth; } WParams{ static_cast<float>(Width) };
+                struct { float InHeight; } HParams{ static_cast<float>(Height) };
+                Widget->ProcessEvent(SetWidthFunc, &WParams);
+                Widget->ProcessEvent(SetHeightFunc, &HParams);
+                return *this;
+            }
+
+            // 2. Second choice: Try standard SetDesiredSizeOverride
+            RC::Unreal::UFunction* SetDesiredSizeFunc = Widget->GetFunctionByNameInChain(STR("SetDesiredSizeOverride"));
+            if (SetDesiredSizeFunc) {
+                struct { FVector2D_Builder InSize; } Params{ {Width, Height} };
+                Widget->ProcessEvent(SetDesiredSizeFunc, &Params);
+                return *this;
+            }
+
+            // 3. Third choice: If it's a wrapper like WBP_CommonButton_C, unwrap it and size the inner PalInvisibleButton
+            RC::Unreal::UObject* InnerBtn = nullptr;
+            if (Utils::GetPropertyValue<RC::Unreal::UObject*>(Widget, STR("WBP_PalInvisibleButton"), InnerBtn, true) && InnerBtn) {
+                RC::Unreal::UFunction* SetMinDimFunc = InnerBtn->GetFunctionByNameInChain(STR("SetMinDimensions"));
+                if (SetMinDimFunc) {
+                    struct { int32_t MinW; int32_t MinH; } DimParams{ static_cast<int32_t>(Width), static_cast<int32_t>(Height) };
+                    InnerBtn->ProcessEvent(SetMinDimFunc, &DimParams);
+                    return *this;
+                }
+            }
+
+            // 4. Fourth choice: If the widget IS the CommonButtonBase natively
+            RC::Unreal::UFunction* SetMinDimFunc = Widget->GetFunctionByNameInChain(STR("SetMinDimensions"));
+            if (SetMinDimFunc) {
+                struct { int32_t MinW; int32_t MinH; } DimParams{ static_cast<int32_t>(Width), static_cast<int32_t>(Height) };
+                Widget->ProcessEvent(SetMinDimFunc, &DimParams);
+                return *this;
+            }
+
+            // 5. Critical Warning: Only print if all sizing paths failed
+            DP_LOG(Warning, "[WidgetBuilder] DesiredSizeOverride FAILED: No sizing function ('SetMinDimensions', 'SetWidth/HeightOverride', 'SetDesiredSizeOverride') found on object '{}'", Widget->GetName());
             return *this;
         }
+
 
         WidgetBuilder& UnlockButtonSize(float TargetWidth) {
             if (!Widget) return *this;
-            RC::Unreal::UObject* WidgetTree = nullptr;
-            if (Utils::GetPropertyValue(Widget, STR("WidgetTree"), WidgetTree) && WidgetTree) {
-                RC::Unreal::TArray<RC::Unreal::UObject*> AllWidgets;
-                RC::Unreal::UFunction* GetWidgetsFunc = WidgetTree->GetFunctionByNameInChain(STR("GetAllWidgets"));
-                if (GetWidgetsFunc) {
-                    struct { RC::Unreal::TArray<RC::Unreal::UObject*> OutWidgets; } Params;
-                    WidgetTree->ProcessEvent(GetWidgetsFunc, &Params);
-                    AllWidgets = Params.OutWidgets;
+
+            bool bFoundText = false;
+            bool bFoundBtn = false;
+
+            // 1. Target the text block directly (exposed because bIsVariable = true)
+            RC::Unreal::UObject* TextMain = nullptr;
+            if (Utils::GetPropertyValue<RC::Unreal::UObject*>(Widget, STR("Text_Main"), TextMain, true) && TextMain) {
+                Utils::SetPropertyValue<float>(TextMain, STR("MaxWidth"), TargetWidth);
+                Utils::SetPropertyValue<bool>(TextMain, STR("AutoWrapText"), false);
+                Utils::SetPropertyValue<bool>(TextMain, STR("IsAutoAdjustScale"), false);
+                bFoundText = true;
+            }
+
+            // 2. Expand the native clickable hit-box of the inner button
+            RC::Unreal::UObject* InnerBtn = nullptr;
+            if (Utils::GetPropertyValue<RC::Unreal::UObject*>(Widget, STR("WBP_PalInvisibleButton"), InnerBtn, true) && InnerBtn) {
+                RC::Unreal::UFunction* SetMinDimFunc = InnerBtn->GetFunctionByNameInChain(STR("SetMinDimensions"));
+                if (SetMinDimFunc) {
+                    struct { int32_t MinW; int32_t MinH; } DimParams{ static_cast<int32_t>(TargetWidth), 45 };
+                    InnerBtn->ProcessEvent(SetMinDimFunc, &DimParams);
                 }
+                bFoundBtn = true;
+            }
+
+            // 3. Diagnostic Fallback: If both fail, inject a searchable Tooltip for UE4SS Live View
+            if (!bFoundText && !bFoundBtn) {
+                std::wstring className = Widget->GetClassPrivate()->GetName();
+                std::wstring objName = Widget->GetName();
                 
-                for (int32_t i = 0; i < AllWidgets.Num(); ++i) {
-                    RC::Unreal::UObject* Child = AllWidgets[i];
-                    if (!Child) continue;
-                    std::wstring ChildClass = Child->GetClassPrivate()->GetName();
-                    
-                    if (ChildClass.find(L"SizeBox") != std::wstring::npos) {
-                        Utils::CallFunction(Child, STR("ClearMaxDesiredWidth"));
-                        Utils::CallFunction(Child, STR("ClearMinDesiredWidth"));
-                        struct { float W; } SizeParams{ TargetWidth };
-                        Utils::CallFunction(Child, STR("SetWidthOverride"), &SizeParams);
-                    }
-                    if (ChildClass.find(L"TextBlock") != std::wstring::npos || ChildClass.find(L"PalTextBlock") != std::wstring::npos) {
-                        Utils::SetPropertyValue<bool>(Child, STR("AutoWrapText"), false);
-                        Utils::SetPropertyValue<bool>(Child, STR("IsAutoAdjustScale"), false); 
-                        Utils::SetPropertyValue<float>(Child, STR("MaxWidth"), TargetWidth); 
-                    }
+                wchar_t addressBuf[32];
+                swprintf(addressBuf, 32, L"0x%p", (void*)Widget);
+                std::wstring uniqueDebugTag = L"DYNPALS_DEBUG_FAILED_WIDGET_ADDR_" + std::wstring(addressBuf);
+
+                DP_LOG(Warning, "[WidgetBuilder] UnlockButtonSize: Mismatch! Class: '{}' | Name: '{}' | Addr: {}. Injecting tag into ToolTipText...", 
+                       className, objName, addressBuf);
+
+                // Construct an FText with the unique address tag
+                RC::Unreal::UObject* KTL = Utils::GetKTL();
+                RC::Unreal::UFunction* ConvFunc = Utils::GetKTLFunction(STR("Conv_StringToText"));
+                if (KTL && ConvFunc) {
+                    struct { RC::Unreal::FString InStr; RC::Unreal::FText OutText; } ConvParams{ RC::Unreal::FString(uniqueDebugTag.c_str()), RC::Unreal::FText() };
+                    KTL->ProcessEvent(ConvFunc, &ConvParams);
+                    // Write to ToolTipText so it can be dumped via Live View query
+                    Utils::SetPropertyValue<RC::Unreal::FText>(Widget, STR("ToolTipText"), ConvParams.OutText, true);
                 }
             }
+
             return *this;
         }
 
+
         WidgetBuilder& Text(const std::wstring& Str) {
+            // Fully qualify UFunction with its namespace
+            RC::Unreal::UFunction* ConvFunc = DynPals::Utils::GetKTLFunction(STR("Conv_StringToText"));
+            if (!KTL || !ConvFunc) return *this;
+
             struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(Str.c_str()), RC::Unreal::FText() };
-            KTL->ProcessEvent(KTL->GetFunctionByNameInChain(STR("Conv_StringToText")), &P1);
-            struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
+            KTL->ProcessEvent(ConvFunc, &P1);
             
-            std::wstring className = Widget->GetClassPrivate()->GetName();
+            struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
             Utils::CallFunction(Widget, STR("SetText"), &P2);
             return *this;
         }
+
 
         WidgetBuilder& TextColor(const FLinearColor_UE5& Col) {
             FBuilderSlateColor SlateCol{Col, 0, {0,0,0}};
@@ -289,10 +355,39 @@ namespace DynPals {
         }
 
         WidgetBuilder& BackgroundColor(const FLinearColor_UE5& Col) {
-            struct { FLinearColor_UE5 InColor; } Params{Col};
-            Utils::CallFunction(Widget, STR("SetBackgroundColor"), &Params);
+            if (!Widget) return *this;
+            struct { FLinearColor_UE5 Color; } Params{Col};
+
+            // 1. First choice: Use SetColorAndOpacity if it's a UserWidget/TextBlock
+            RC::Unreal::UFunction* SetColorFunc = Widget->GetFunctionByNameInChain(STR("SetColorAndOpacity"));
+            if (SetColorFunc) {
+                struct FBuilderSlateColor { FLinearColor_UE5 SpecifiedColor; uint8_t ColorUseRule; uint8_t Pad[3]; };
+                struct { FBuilderSlateColor InColorAndOpacity; } SCParams{ {Col, 0, {0,0,0}} };
+                Widget->ProcessEvent(SetColorFunc, &SCParams);
+                return *this;
+            }
+
+            // 2. Second choice: Try SetBackgroundColor (standard for UButtons)
+            RC::Unreal::UFunction* SetBgColorFunc = Widget->GetFunctionByNameInChain(STR("SetBackgroundColor"));
+            if (SetBgColorFunc) {
+                Widget->ProcessEvent(SetBgColorFunc, &Params);
+                return *this;
+            }
+
+            // 3. Third choice: Try SetBrushColor (standard for UBorders)
+            RC::Unreal::UFunction* SetBrushColorFunc = Widget->GetFunctionByNameInChain(STR("SetBrushColor"));
+            if (SetBrushColorFunc) {
+                Widget->ProcessEvent(SetBrushColorFunc, &Params);
+                return *this;
+            }
+
+            // 4. Critical Warning: Only print if all coloring paths failed
+            DP_LOG(Warning, "[WidgetBuilder] BackgroundColor FAILED: No coloring function ('SetColorAndOpacity', 'SetBackgroundColor', 'SetBrushColor') found on object '{}'", Widget->GetName());
             return *this;
         }
+
+
+
         
         WidgetBuilder& BrushColor(const FLinearColor_UE5& Col) {
             struct { FLinearColor_UE5 InColor; } Params{Col};
@@ -467,4 +562,3 @@ namespace DynPals {
         }
     }
 }
-// --- END OF FILE include/UI/WidgetBuilder.hpp ---

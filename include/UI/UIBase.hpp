@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/UIBase.hpp ---
 #pragma once
 #include <Unreal/UObjectGlobals.hpp>
 
@@ -44,4 +43,3 @@ namespace DynPals {
         bool bWasEscapeDown = false;
     };
 }
-// --- END OF FILE include/UI/UIBase.hpp ---

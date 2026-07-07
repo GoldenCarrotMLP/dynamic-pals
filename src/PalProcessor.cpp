@@ -172,17 +172,15 @@ namespace DynPals {
         bool bBeingDestroyed = false;
         if (Utils::GetPropertyValue<bool>(Pal, STR("bActorIsBeingDestroyed"), bBeingDestroyed) && bBeingDestroyed) {
             return false;
+            DP_LOG(Verbose, "Pal '{}' is being destroyed. Skipping.", OutBlueprintName);
         }
 
-        bool bBegunPlay = false;
-        if (Utils::GetPropertyValue<bool>(Pal, STR("bHasBegunPlay"), bBegunPlay)) {
-            if (!bBegunPlay) return false;
-        }
+        //Disabled to allow pals inside of the box to be swapped
 
-        bool bIsActive = true;
-        if (Utils::GetPropertyValue<bool>(Pal, STR("bIsPalActiveActor"), bIsActive)) {
-            //if (!bIsActive) return false;
-        }
+        //bool bIsActive = true;
+        //if (Utils::GetPropertyValue<bool>(Pal, STR("bIsPalActiveActor"), bIsActive)) {
+        //    if (!bIsActive) return false;
+        //}
 
         UObject* MeshComp = nullptr;
         Utils::CallFunction(Pal, STR("GetMainMesh"), &MeshComp);
@@ -190,13 +188,15 @@ namespace DynPals {
             return false;
         }
 
-        bool bRegistered = false;
-        if (Utils::GetPropertyValue<bool>(MeshComp, STR("bRegistered"), bRegistered)) {
-            if (!bRegistered) return false;
+        // CORRECTED: Validate that the component is alive and tracked by the engine
+        if (!Utils::IsObjectValid(MeshComp)) {
+            return false;
         }
 
-        struct { bool ReturnValue; } ColParams{true};
-        Utils::CallFunction(Pal, STR("GetActorEnableCollision"), &ColParams);
+        //Disabled so pals inside of the palbox can get their skeleton swapped
+
+        //struct { bool ReturnValue; } ColParams{true};
+        //Utils::CallFunction(Pal, STR("GetActorEnableCollision"), &ColParams);
         //if (!ColParams.ReturnValue) return false;
 
         bool bHidden = false;
@@ -368,18 +368,21 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
     void PalProcessor::DelayedReroll(UObject* Character, const std::wstring& CompName) {
         if (!Character) return;
         
-        // 1. Play the visual composition instantly
         float DelaySeconds = VFXManager::Get().PlayComposition(Character, CompName);
-
-        // 2. Schedule a randomized evaluation for later
         int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
+        
         std::thread([Character, DelayMs]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
             AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Character]() {
+                
+                // SAFE CHECK: Consolidated & cached validation
+                if (!Utils::IsObjectValid(Character)) return; 
+
                 PalProcessor::Get().ProcessPal(Character, true);
             });
         }).detach();
     }
+
 
     void PalProcessor::ForceSwap(UObject* Character, int SwapIndex, int DelayMs) {
         if (!Character || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
@@ -415,7 +418,6 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             ExistingData->SwapLabel = config.SwapLabel;
             ExistingData->SkelMeshPath = config.SkelMeshPath;
             
-            // FIX: Wipe the persistent materials and morphs so the new skin rolls fresh ones!
             ExistingData->MorphSet.clear();
             ExistingData->MatSet.clear();
             ExistingData->MatColorSet.clear();
@@ -423,16 +425,19 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             SaveManager::Get().SetPersistData(InstanceID, *ExistingData, true); 
         }
 
-        // FIX: Launch a fire-and-forget background timer, then safely dispatch the swap to the Game Thread! [1]
         std::thread([Character, SwapIndex, DelayMs]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
             
             AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Character, SwapIndex]() {
+                
+                // SAFE CHECK: Consolidated & cached validation
+                if (!Utils::IsObjectValid(Character)) return; 
+
                 PalProcessor::Get().ExecuteSwap(Character, false, SwapIndex);
             });
         }).detach();
+
     }
-    
     int PalProcessor::EvaluateIdealSwapIndex(UObject* Character, std::wstring& OutInstanceID) {
         return -1; 
     }
@@ -735,8 +740,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp) return;
 
-        struct { bool bPause; } PauseAnim{ true };
-        Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &PauseAnim);
+        Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), true, false);
 
         struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ true };
         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &EnablePP);
@@ -1050,60 +1054,43 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                 }
 
                 // Create the Dynamic Material Instance
-                UObject* KML = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetMaterialLibrary"));
-                UFunction* CreateMIDFunc = KML ? KML->GetFunctionByNameInChain(STR("CreateDynamicMaterialInstance")) : nullptr;
+                // Resolve the material library and the target function with zero path string duplication
+                UObject* KML = Utils::GetKML();
+                UFunction* CreateFunc = Utils::GetKMLFunction(STR("CreateDynamicMaterialInstance"));
+
+                // Explicit local caching for properties
+                static FProperty* WCProp = CreateFunc ? CreateFunc->GetPropertyByNameInChain(STR("WorldContextObject")) : nullptr;
+                static FProperty* ParentProp = CreateFunc ? CreateFunc->GetPropertyByNameInChain(STR("Parent")) : nullptr;
+                static FProperty* NameProp = CreateFunc ? CreateFunc->GetPropertyByNameInChain(STR("OptionalName")) : nullptr;
+                static FProperty* RetProp = CreateFunc ? CreateFunc->GetPropertyByNameInChain(STR("ReturnValue")) : nullptr;
+
                 UObject* MID = nullptr;
 
-                if (CreateMIDFunc) {
+                if (KML && CreateFunc) {
                     alignas(8) uint8_t MIDParams[128] = {0};
 
-                    FProperty* WCProp = CreateMIDFunc->GetPropertyByNameInChain(STR("WorldContextObject"));
                     if (WCProp) *WCProp->ContainerPtrToValuePtr<UObject*>(MIDParams) = Character;
-
-                    FProperty* ParentProp = CreateMIDFunc->GetPropertyByNameInChain(STR("Parent"));
                     if (ParentProp) *ParentProp->ContainerPtrToValuePtr<UObject*>(MIDParams) = NewMat;
-
-                    FProperty* NameProp = CreateMIDFunc->GetPropertyByNameInChain(STR("OptionalName"));
                     if (NameProp) *NameProp->ContainerPtrToValuePtr<FName>(MIDParams) = FName();
 
-                    KML->ProcessEvent(CreateMIDFunc, MIDParams);
+                    KML->ProcessEvent(CreateFunc, MIDParams);
 
-                    FProperty* RetProp = CreateMIDFunc->GetPropertyByNameInChain(STR("ReturnValue"));
                     if (RetProp) MID = *RetProp->ContainerPtrToValuePtr<UObject*>(MIDParams);
                 }
 
                 if (MID) {
-                    UFunction* SetVecFunc = MID->GetFunctionByNameInChain(STR("SetVectorParameterValue"));
+                    static UFunction* SetVecFunc = MID->GetFunctionByNameInChain(STR("SetVectorParameterValue"));
+                    static FProperty* NamePropVec = SetVecFunc ? SetVecFunc->GetPropertyByNameInChain(STR("ParameterName")) : nullptr;
+                    static FProperty* ValPropVec = SetVecFunc ? SetVecFunc->GetPropertyByNameInChain(STR("Value")) : nullptr;
+
                     if (SetVecFunc) {
                         alignas(8) uint8_t VecParams[128] = {0};
-                        
-                        FProperty* NameProp = SetVecFunc->GetPropertyByNameInChain(STR("ParameterName"));
-                        if (NameProp) *NameProp->ContainerPtrToValuePtr<FName>(VecParams) = FName(STR("Hue"), FNAME_Add);
-                        
-                        FProperty* ValProp = SetVecFunc->GetPropertyByNameInChain(STR("Value"));
-                        if (ValProp) *ValProp->ContainerPtrToValuePtr<FLinearColor_UE5>(VecParams) = appliedColor;
+                        if (NamePropVec) *NamePropVec->ContainerPtrToValuePtr<FName>(VecParams) = FName(STR("Hue"), FNAME_Add);
+                        if (ValPropVec) *ValPropVec->ContainerPtrToValuePtr<FLinearColor_UE5>(VecParams) = appliedColor;
                         
                         MID->ProcessEvent(SetVecFunc, VecParams);
                     }
                     
-                    // Verify that the color applied correctly using engine readbacks
-                    UFunction* GetVecFunc = MID->GetFunctionByNameInChain(STR("K2_GetVectorParameterValue"));
-                    if (GetVecFunc) {
-                        alignas(8) uint8_t GetParams[128] = {0};
-                        FProperty* NamePropGet = GetVecFunc->GetPropertyByNameInChain(STR("ParameterName"));
-                        if (NamePropGet) *NamePropGet->ContainerPtrToValuePtr<FName>(GetParams) = FName(STR("Hue"), FNAME_Add);
-                        
-                        MID->ProcessEvent(GetVecFunc, GetParams);
-                        
-                        FProperty* RetPropGet = GetVecFunc->GetPropertyByNameInChain(STR("ReturnValue"));
-                        if (RetPropGet) {
-                            FLinearColor_UE5* ReadColor = RetPropGet->ContainerPtrToValuePtr<FLinearColor_UE5>(GetParams);
-                            //DP_LOG(Default, "[RandomHue] Successfully pushed Hue Shift to MID on slot {}. Readback Color -> R:{:.2f} G:{:.2f} B:{:.2f}", idx, ReadColor->R, ReadColor->G, ReadColor->B);
-                        }
-                    }
-                    // --------------------------
-                    
-                    // Apply the tinted Dynamic Instance directly to the mesh
                     struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, MID};
                     Utils::CallFunction(CurrentMeshComp, STR("SetMaterial"), &MatParams);
                     continue;
@@ -1196,8 +1183,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
         struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
-        struct { bool bPause; } UnpauseAnim{ false };
-        Utils::CallFunction(MeshComp, STR("SetPauseAnims"), &UnpauseAnim);
+        Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), false, false);
 
         // -------------------------------------------------------------
         // FIX: Re-initialize Facial UV Warping to prevent weird body stretching

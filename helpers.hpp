@@ -163,6 +163,20 @@ inline void ParseAssetPath(const std::wstring& Path, std::wstring& OutPackage, s
 // Pure reflection asset loader using custom-aligned structures
 inline UObject* LoadAssetSafely(const std::wstring& AssetPath)
 {
+    // Fast-path memory cache: Check if the asset is already in RAM before doing a heavy KSL execution
+    std::wstring formatted = FormatAssetPath(AssetPath); 
+    UObject* ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, formatted.c_str());
+    if (ExistingObj) {
+        std::wstring ClassName = ExistingObj->GetClassPrivate()->GetName();
+        if (ClassName == L"ObjectRedirector") {
+            UObject* Destination = nullptr;
+            if (GetPropertyValue<UObject*>(ExistingObj, STR("DestinationObject"), Destination)) {
+                return Destination;
+            }
+        }
+        return ExistingObj;
+    }
+
     std::wstring package, asset;
     ParseAssetPath(AssetPath, package, asset);
 
@@ -172,10 +186,11 @@ inline UObject* LoadAssetSafely(const std::wstring& AssetPath)
     SoftPtr.ObjectID.AssetName = FName(asset.c_str(), FNAME_Add);
     SoftPtr.ObjectID.SubPathString = FString(STR(""));
 
-    UObject* KismetLib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetSystemLibrary"));
+    // Resolve the library and function using the superior centralized pipeline
+    UObject* KismetLib = GetKSL();
     if (!KismetLib) return nullptr;
 
-    UFunction* LoadFunc = KismetLib->GetFunctionByNameInChain(STR("LoadAsset_Blocking"));
+    UFunction* LoadFunc = GetKSLFunction(STR("LoadAsset_Blocking"));
     if (!LoadFunc) return nullptr;
 
     struct {
@@ -185,5 +200,17 @@ inline UObject* LoadAssetSafely(const std::wstring& AssetPath)
     
     KismetLib->ProcessEvent(LoadFunc, &LoadParams);
 
-    return LoadParams.ReturnValue;
+    // Resolve redirectors if applicable
+    UObject* LoadedObj = LoadParams.ReturnValue;
+    if (LoadedObj) {
+        std::wstring ClassName = LoadedObj->GetClassPrivate()->GetName();
+        if (ClassName == L"ObjectRedirector") {
+            UObject* Destination = nullptr;
+            if (GetPropertyValue<UObject*>(LoadedObj, STR("DestinationObject"), Destination)) {
+                return Destination;
+            }
+        }
+    }
+
+    return LoadedObj;
 }

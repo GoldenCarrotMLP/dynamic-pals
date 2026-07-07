@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Controls.hpp ---
 #pragma once
 #include <string>
 #include <vector>
@@ -144,4 +143,3 @@ namespace DynPals::UI {
         std::function<void(int32_t)> OnChangeCallback;
     };
 }
-// --- END OF FILE include/UI/Controls.hpp ---

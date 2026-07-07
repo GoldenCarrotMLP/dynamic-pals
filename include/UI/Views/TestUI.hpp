@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Views/TestUI.hpp ---
 #pragma once
 #include "UI/UIBase.hpp"
 #include "UI/Components/Button.hpp"
@@ -48,4 +47,3 @@ namespace DynPals {
         std::vector<std::wstring> DropdownOptions;
     };
 }
-// --- END OF FILE include/UI/Views/TestUI.hpp ---

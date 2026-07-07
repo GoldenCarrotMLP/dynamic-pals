@@ -24,22 +24,22 @@ namespace DynPals {
 
 #define DP_LOG(Level, Format, ...) \
     do { \
-        RC::Output::send<RC::LogLevel::Level>(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__); \
+        RC::Output::send<RC::LogLevel::Level>(STR("[DynPals] " Format"\n") __VA_OPT__(,) __VA_ARGS__); \
         if constexpr (RC::LogLevel::Level == RC::LogLevel::Error) { \
             DynPals::EnqueueUIToast( \
-                fmt::format(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__), \
+                fmt::format(STR("[DynPals] " Format"\n") __VA_OPT__(,) __VA_ARGS__), \
                 3, \
                 1 \
             ); \
         } else if constexpr (RC::LogLevel::Level == RC::LogLevel::Warning) { \
             DynPals::EnqueueUIToast( \
-                fmt::format(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__), \
+                fmt::format(STR("[DynPals] " Format"\n") __VA_OPT__(,) __VA_ARGS__), \
                 2, \
                 1 \
             ); \
         } else if constexpr (RC::LogLevel::Level == RC::LogLevel::Normal) { \
             DynPals::EnqueueUIToast( \
-                fmt::format(STR("[DynPals] " Format) __VA_OPT__(,) __VA_ARGS__), \
+                fmt::format(STR("[DynPals] " Format"\n") __VA_OPT__(,) __VA_ARGS__), \
                 1, \
                 1 \
             ); \

@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/UIRegistry.hpp ---
 #pragma once
 #include <vector>
 #include <Unreal/UObjectGlobals.hpp>
@@ -33,4 +32,3 @@ namespace DynPals {
         bool bRequiresTick = false;
     };
 }
-// --- END OF FILE include/UI/UIRegistry.hpp ---

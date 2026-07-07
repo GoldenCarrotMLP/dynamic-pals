@@ -1,4 +1,3 @@
-// --- START OF FILE src/HooksManager.cpp ---
 #define NOMINMAX 
 #include "HooksManager.hpp"
 #include "PalProcessor.hpp"
@@ -402,4 +401,3 @@ namespace DynPals {
         }
     }
 }
-// --- END OF FILE src/HooksManager.cpp ---
