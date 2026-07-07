@@ -7,18 +7,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_subdirectory(RE-UE4SS)
 
 # Common files shared by both the online and offline builds
-set(COMMON_SRC_FILES 
+set(COMMON_SRC_FILES
     "src/dllmain.cpp"
     "src/HooksManager.cpp"
     "src/ConfigManager.cpp"
     "src/SaveManager.cpp"
     "src/PalProcessor.cpp"
-    "src/UIManager.cpp"
     "src/NotificationManager.cpp" 
     "src/AsyncHelper.cpp"
     "src/VFXManager.cpp"
     "src/FileWatcher.cpp"
     "src/safetyhook.cpp" # Compiling your manually added safetyhook file!
+    
+    "src/UI/UIBase.cpp"       # New UI Framework
+    "src/UI/UIRegistry.cpp"   # New UI Framework
+    "src/UI/views/TestUI.cpp"      
+    "src/UI/views/UIManager.cpp"    
 )
 
 # -------------------------------------------------------------------------

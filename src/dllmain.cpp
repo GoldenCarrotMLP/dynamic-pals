@@ -1,3 +1,4 @@
+// --- START OF FILE src/dllmain.cpp ---
 #define NOMINMAX 
 #include <Windows.h>
 
@@ -7,11 +8,13 @@
 #include "ConfigManager.hpp"
 #include "SaveManager.hpp"
 #include "HooksManager.hpp"
-#include "UIManager.hpp"
 #include "Utils.hpp"
 #include "AsyncHelper.hpp"
 #include "VFXManager.hpp"
 #include "FileWatcher.hpp"
+
+#include "UI/Views/UIManager.hpp" 
+#include "UI/Views/TestUI.hpp"    
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -34,15 +37,16 @@ public:
         static bool bPrevKeyPressed = false;
         static bool bNextKeyPressed = false;
 
+        // 1. Check hotkey triggers
         if (GetAsyncKeyState(VK_MENU) & 0x8000) {
-            if (GetAsyncKeyState(VK_LEFT) & 0x8000) { // Alt + Left Arrow [1]
+            if (GetAsyncKeyState(VK_LEFT) & 0x8000) { 
                 if (!bPrevKeyPressed) {
                     bPrevKeyPressed = true;
                     DynPals::VFXManager::Get().CyclePrevious();
                 }
             } else { bPrevKeyPressed = false; }
 
-            if (GetAsyncKeyState(VK_RIGHT) & 0x8000) { // Alt + Right Arrow [1]
+            if (GetAsyncKeyState(VK_RIGHT) & 0x8000) { 
                 if (!bNextKeyPressed) {
                     bNextKeyPressed = true;
                     DynPals::VFXManager::Get().CycleNext();
@@ -57,23 +61,31 @@ public:
         if ((GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(0x4E) & 0x8000)) {
             if (!bMenuKeyPressed) {
                 bMenuKeyPressed = true;
-                
-                // Instantly execute ToggleMenu on the Game Thread
                 DynPals::AsyncHelper::AsyncTask(DynPals::ENamedThreads::GameThread, [](){
-                    DynPals::UIManager::Get().ToggleMenu();
+                    DynPals::UIManager::Get().RequestToggle(); 
                 });
             }
         } else {
             bMenuKeyPressed = false;
         }
+
+        static bool bTestMenuKeyPressed = false;
+        if ((GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(0x47) & 0x8000)) { 
+            if (!bTestMenuKeyPressed) {
+                bTestMenuKeyPressed = true;
+                DynPals::AsyncHelper::AsyncTask(DynPals::ENamedThreads::GameThread, [](){
+                    DynPals::TestUI::Get().RequestToggle();
+                });
+            }
+        } else {
+            bTestMenuKeyPressed = false;
+        }
     }
     
     auto on_unreal_init() -> void override
     {
-        // 1. Initialize the independent scanner
         DynPals::AsyncHelper::Initialize();
 
-        // 2. Initialize the rest of the mod
         UObject* KismetLib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetSystemLibrary"));
         if (KismetLib) {
             FString ContentDir;
@@ -81,15 +93,14 @@ public:
             std::wstring BasePath = DynPals::Utils::FStringToWString(ContentDir);
 
             DynPals::SaveManager::Get().Initialize(BasePath);
-            
-            // Initialize the config manager
             DynPals::ConfigManager::Get().Initialize(BasePath);
-            
-            // Start the modular native file watcher on a background thread!
             DynPals::FileWatcher::Start(BasePath + L"Paks/~mods/");
-
             DynPals::VFXManager::Get().Initialize(); 
             DynPals::HooksManager::RegisterHooks();
+
+            // Register singletons natively into UIRegistry immediately
+            DynPals::TestUI::Get();
+            DynPals::UIManager::Get();
         }
     }
 };
@@ -105,3 +116,4 @@ extern "C"
         delete mod;
     }
 }
+// --- END OF FILE src/dllmain.cpp ---

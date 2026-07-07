@@ -905,7 +905,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
             } else {
                 // UI WARNING: Fails to load custom skeletal mesh asset (e.g. wrong path or missing mod files)
-                DP_LOG(Error, "Failed to load Skeletal Mesh for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, swap.SkelMeshPath);
+                DP_LOG(Warning, "Failed to load Skeletal Mesh for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, swap.SkelMeshPath);
             }
         }
 

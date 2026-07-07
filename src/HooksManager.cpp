@@ -1,16 +1,18 @@
+// --- START OF FILE src/HooksManager.cpp ---
 #define NOMINMAX 
 #include "HooksManager.hpp"
 #include "PalProcessor.hpp"
 #include "SaveManager.hpp"
-#include "UIManager.hpp"
+#include "UI/Views/UIManager.hpp" 
 #include "NotificationManager.hpp"
 #include "Utils.hpp"
 #include "AsyncHelper.hpp"
 #include "Updater.hpp"
 #include "VFXManager.hpp"
+#include "UI/UIRegistry.hpp"
 #include <fstream>
 #include <safetyhook.hpp> 
-#include <Zydis/Zydis.h> // Linked natively! Used to disassemble thunks.
+#include <Zydis/Zydis.h> 
 
 #include <Unreal/CoreUObject/UObject/Class.hpp> 
 #include <Unreal/UObjectGlobals.hpp>
@@ -33,10 +35,10 @@ namespace DynPals {
     static SafetyHookInline Hook_AddFriendship;
 
     // --- DYNAMIC NATIVE THUNK DISASSEMBLER ---
-    // Reads the exec thunk at runtime, finds the CALL instruction, and resolves the raw C++ address
     static void* ResolveNativeFromThunk(void* ThunkAddress) {
         if (!ThunkAddress) return nullptr;
 
+        ZyanStatus status;
         ZydisDecoder decoder;
         if (!ZYAN_SUCCESS(ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64))) {
             return nullptr;
@@ -47,9 +49,8 @@ namespace DynPals {
         ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
         void* lastCallTarget = nullptr;
 
-        // Disassemble up to 150 bytes of the thunk to find the final CALL
         while (offset < 150) {
-            ZyanStatus status = ZydisDecoderDecodeFull(
+            status = ZydisDecoderDecodeFull(
                 &decoder, 
                 reinterpret_cast<uint8_t*>(ThunkAddress) + offset, 
                 150 - offset, 
@@ -61,13 +62,11 @@ namespace DynPals {
                 break;
             }
 
-            // Stop disassembling if we hit a RET (return)
             if (instruction.mnemonic == ZYDIS_MNEMONIC_RET) {
                 break;
             }
 
             if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL) {
-                // Resolve the relative immediate call target
                 if (operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
                     uintptr_t rip = reinterpret_cast<uintptr_t>(ThunkAddress) + offset + instruction.length;
                     uintptr_t target = rip + operands[0].imm.value.s;
@@ -81,68 +80,48 @@ namespace DynPals {
         return lastCallTarget;
     }
 
-    // Helper: Safely retrieves the native C++ address from a UFunction object
     static void* GetNativeAddress(const wchar_t* FunctionPath) {
         UFunction* FuncObj = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, FunctionPath);
         if (!FuncObj) return nullptr;
         
-        // Read the native Func pointer at the UFunction::Func offset (0xD8)
         void* ThunkAddr = *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(FuncObj) + 0xD8);
-
-        // Resolve the raw C++ address from the thunk
         void* NativeAddr = ResolveNativeFromThunk(ThunkAddr);
         if (NativeAddr) {
             return NativeAddr; 
         }
-
-        // Fallback: If no CALL was found (inlined), detour the thunk itself
         return ThunkAddr;
     }
 
-    // --- DETOUR CALLBACKS (RAW ASSEMBLY SIGNATURES) ---
-
-    // Member Function of APalCharacter: Fires on Level-up
+    // --- DETOUR CALLBACKS ---
     void __fastcall NativeMasterWazaUpdate_Hook(UObject* This, int32_t AddLevel, int32_t NowLevel) {
         Hook_MasterWazaUpdate.call<void, UObject*, int32_t, int32_t>(This, AddLevel, NowLevel);
-
         if (This) {
             std::wstring actorName = This->GetName();
-            DP_LOG(Default, "[Native Hook] Pal {} Leveled Up to {}! Checking evolution...", 
-                actorName, NowLevel);
-            
+            DP_LOG(Default, "[Native Hook] Pal {} Leveled Up to {}! Checking evolution...", actorName, NowLevel);
             PalProcessor::Get().ProcessPal(This, false);
         }
     }
 
-    // Member Function of UPalPartnerSkillParameterComponent: Fires on Condensation Rank-up
     void __fastcall NativeOnUpdateCharacterRank_Hook(UObject* This, int32_t NewRank, int32_t OldRank) {
         Hook_OnUpdateCharacterRank.call<void, UObject*, int32_t, int32_t>(This, NewRank, OldRank);
-
         if (This) {
-            // A component's outer is always its owning APalCharacter actor!
             UObject* PalActor = This->GetOuterPrivate();
-
             if (PalActor) {
                 std::wstring actorName = PalActor->GetName();
-                DP_LOG(Default, "[Native Hook] Pal {} Condensation Rank Up to {}! Checking evolution...", 
-                    actorName, NewRank);
+                DP_LOG(Default, "[Native Hook] Pal {} Condensation Rank Up to {}! Checking evolution...", actorName, NewRank);
                 PalProcessor::Get().ProcessPal(PalActor, false);
             }
         }
     }
 
-    // Member Function of UPalIndividualCharacterParameter: Fires on Friendship update
     void __fastcall NativeAddFriendship_Hook(UObject* This, int32_t Value) {
         Hook_AddFriendship.call<void, UObject*, int32_t>(This, Value);
-
         if (This) {
             UObject* PalActor = nullptr;
             Utils::GetPropertyValue<UObject*>(This, STR("IndividualActor"), PalActor);
-
             if (PalActor) {
                 std::wstring actorName = PalActor->GetName();
-                DP_LOG(Default, "[Native Hook] Pal {} Friendship updated! Checking evolution...", 
-                    actorName);
+                DP_LOG(Default, "[Native Hook] Pal {} Friendship updated! Checking evolution...", actorName);
                 PalProcessor::Get().ProcessPal(PalActor, false);
             }
         }
@@ -158,36 +137,37 @@ namespace DynPals {
         if (bIsReentrant) return;
         bIsReentrant = true;
 
+        // 1. Tick VFX Manager timeline events (extremely fast check)
         VFXManager::Get().Tick();
 
-        if (!UIManager::Get().IsMenuOpen()) {
+        // 2. ULTRA-PERFORMANT EXIT: Skip reflection logic entirely if no menus need to tick!
+        if (!UIRegistry::Get().RequiresTick()) {
             bIsReentrant = false;
-            return;
+            return; 
         }
 
+        // Only run slow reflection queries if the menu is actually active or transitioning
         static auto LastTickTime = std::chrono::steady_clock::now();
         auto Now = std::chrono::steady_clock::now();
         
         if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastTickTime).count() >= 16) {
             LastTickTime = Now;
             
-            if (UIManager::Get().IsMenuOpen()) {
-                UObject* ActorContext = Context.Context;
-                if (ActorContext) {
-                    UObject* Level = ActorContext->GetOuterPrivate();
-                    UObject* World = Level ? Level->GetOuterPrivate() : nullptr;
+            UObject* ActorContext = Context.Context;
+            if (ActorContext) {
+                UObject* Level = ActorContext->GetOuterPrivate();
+                UObject* World = Level ? Level->GetOuterPrivate() : nullptr;
 
-                    if (World && World == LastWorld) {
-                        UObject* PlayerController = nullptr;
-                        UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
-                        if (GameplayStatics) {
-                            struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{ActorContext, 0, nullptr};
-                            Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
-                            PlayerController = GSParams.ReturnValue;
-                        }
-                        if (PlayerController) {
-                            UIManager::Get().TickUI(PlayerController);
-                        }
+                if (World && World == LastWorld) {
+                    UObject* PlayerController = nullptr;
+                    UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+                    if (GameplayStatics) {
+                        struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{ActorContext, 0, nullptr};
+                        Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
+                        PlayerController = GSParams.ReturnValue;
+                    }
+                    if (PlayerController) {
+                        UIRegistry::Get().TickAll(PlayerController);
                     }
                 }
             }
@@ -365,6 +345,7 @@ namespace DynPals {
             DP_LOG(Default, "Successfully hooked ClientRestart for map transitions.\n");
         }
 
+        // Restored: Re-hook K2_GetActorRotation to guarantee Game Thread access context!
         UFunction* ActorRotFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Engine.Actor:K2_GetActorRotation"));
         if (ActorRotFunc) {
             ActorRotFunc->RegisterPreHook(OnGameThreadTick, nullptr);
@@ -377,11 +358,10 @@ namespace DynPals {
         }
 
         // ==================================================
-        // MIXED NATIVE ASSEMBLY DETOURS (0.00ms OVERHEAD)
+        // MIXED NATIVE ASSEMBLY DETOURS
         // ==================================================
         uintptr_t BaseAddr = reinterpret_cast<uintptr_t>(GetModuleHandleA(NULL));
         
-        // 1. Level-Up: Hardcoded RVA offset of APalCharacter::MasterWazaUpdateWhenLevelUp (142e55330 - 140000000 = 0x2E55330) [1, 2]
         void* MasterWazaUpdateAddr = reinterpret_cast<void*>(BaseAddr + 0x2E55330); 
         if (MasterWazaUpdateAddr) {
             Hook_MasterWazaUpdate = safetyhook::create_inline(MasterWazaUpdateAddr, NativeMasterWazaUpdate_Hook);
@@ -390,7 +370,6 @@ namespace DynPals {
             DP_LOG(Error, "Failed to resolve Native MasterWazaUpdateWhenLevelUp!");
         }
 
-        // 2. Rank-Up (Condensation): Detoured natively from UPalPartnerSkillParameterComponent::OnUpdateCharacterRank (142af9080 - 140000000 = 0x2AF9080) [1]
         void* SetRankAddr = reinterpret_cast<void*>(BaseAddr + 0x2AF9080);
         if (SetRankAddr) {
             Hook_OnUpdateCharacterRank = safetyhook::create_inline(SetRankAddr, NativeOnUpdateCharacterRank_Hook);
@@ -399,7 +378,6 @@ namespace DynPals {
             DP_LOG(Error, "Failed to resolve Native OnUpdateCharacterRank!");
         }
 
-        // 3. Friendship-Up: Resolved dynamically from Thunk
         void* FriendshipAddr = GetNativeAddress(STR("/Script/Pal.PalIndividualCharacterParameter:AddFriendShip"));
         if (FriendshipAddr) {
             Hook_AddFriendship = safetyhook::create_inline(FriendshipAddr, NativeAddFriendship_Hook);
@@ -424,3 +402,4 @@ namespace DynPals {
         }
     }
 }
+// --- END OF FILE src/HooksManager.cpp ---
