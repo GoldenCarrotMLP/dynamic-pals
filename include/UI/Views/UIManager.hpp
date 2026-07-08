@@ -1,3 +1,4 @@
+// --- START OF FILE include/UI/Views/UIManager.hpp ---
 #pragma once
 #include "UI/UIBase.hpp"
 #include "UI/Components/Button.hpp"
@@ -36,6 +37,11 @@ namespace DynPals {
         UIManager() = default;
         
         void UpdateTarget();
+        
+        // --- NEW: Camera Helper Methods ---
+        void EnablePalCamera();
+        void DisablePalCamera();
+        void UpdatePalCameraRotation(double Yaw);
 
         // State Tracking
         bool bHideInvalidSwaps = true; 
@@ -51,13 +57,21 @@ namespace DynPals {
         std::unique_ptr<UI::Switch> HideInvalidSwitch;
         std::unique_ptr<UI::Button> RerollButton;
         std::vector<ActiveMorphSlider> MorphSliders;
+        
+        // --- NEW: UI Elements ---
+        std::unique_ptr<UI::Switch> FocusPalSwitch;
+        std::unique_ptr<UI::Slider> CameraRotationSlider;
 
         // Native Widget Pointers (For direct queries)
         RC::Unreal::UObject* MainScrollBoxObj = nullptr;
-        RC::Unreal::UFunction* GetScrollOffsetFunc = nullptr; // Cached Pointer
+        RC::Unreal::UFunction* GetScrollOffsetFunc = nullptr; 
 
         // Data Models
         std::vector<std::wstring> DropdownOptions;
         std::vector<int> DropdownConfigIndices;
+
+        // Camera Members
+        RC::Unreal::UObject* OriginalViewTarget = nullptr; 
+        bool bIsPalCameraActive = false;                   
     };
 }

@@ -1,3 +1,4 @@
+// --- START OF FILE include/SaveManager.hpp ---
 #pragma once
 #include <string>
 #include <map>
@@ -6,6 +7,12 @@
 #include "DataTypes.hpp"
 
 namespace DynPals {
+
+    struct DynPalsSettings {
+        bool bFocusPal = true;
+        double CameraRotation = 180.0;
+    };
+
     class SaveManager {
     public:
         static SaveManager& Get() {
@@ -22,6 +29,8 @@ namespace DynPals {
 
         // Clears cached save IDs and states on world transition
         void Reset();
+
+        DynPalsSettings Settings;
 
     private:
         SaveManager() = default;

@@ -19,6 +19,10 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
+    // --- NEW: Helper function to retrieve the Pal's FollowCamera component ---
+    
+    // --- END NEW HELPER ---
+
     void UIManager::UpdateTarget() {
         TargetPal = nullptr;
         TargetInstanceID = L"";
@@ -111,12 +115,135 @@ namespace DynPals {
         }
     }
 
+    void UIManager::EnablePalCamera() {
+        if (!CurrentPlayerController || !TargetPal || bIsPalCameraActive) return;
+
+        // 1. Locate and Force-Activate the Pal's FollowCamera Component
+        UObject* FollowCameraObj = nullptr;
+        bool bCamDirectFound = Utils::GetPropertyValue<UObject*>(TargetPal, STR("FollowCamera"), FollowCameraObj, true);
+        
+        if (!bCamDirectFound || !FollowCameraObj) {
+            UClass* CameraClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Engine.CameraComponent"));
+            if (CameraClass) {
+                struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{CameraClass, nullptr};
+                Utils::CallFunction(TargetPal, STR("GetComponentByClass"), &GetCompParams, true);
+                FollowCameraObj = GetCompParams.ReturnValue;
+            }
+        }
+
+        if (FollowCameraObj) {
+            Utils::SetPropertyValue<bool>(FollowCameraObj, STR("bIsActive"), true);
+            struct { bool bReset; } ActParams{ false };
+            Utils::CallFunction(FollowCameraObj, STR("Activate"), &ActParams, true);
+        }
+
+        // 2. Customize the CameraBoom (SpringArm) of the Pal
+        UObject* CameraBoomObj = nullptr;
+        bool bDirectFound = Utils::GetPropertyValue<UObject*>(TargetPal, STR("CameraBoom"), CameraBoomObj, true);
+        
+        if (!bDirectFound || !CameraBoomObj) {
+            UClass* SpringArmClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Engine.SpringArmComponent"));
+            if (SpringArmClass) {
+                struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{SpringArmClass, nullptr};
+                Utils::CallFunction(TargetPal, STR("GetComponentByClass"), &GetCompParams, true);
+                CameraBoomObj = GetCompParams.ReturnValue;
+            }
+        }
+
+        if (CameraBoomObj) {
+            Utils::SetPropertyValue<float>(CameraBoomObj, STR("TargetArmLength"), 2000.0f);
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bUsePawnControlRotation"), false);
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bDoCollisionTest"), false); 
+            
+            struct FRotator_UE5 { double Pitch, Yaw, Roll; };
+            FRotator_UE5 FrontRot{ 0.0, SaveManager::Get().Settings.CameraRotation, 0.0 };
+            Utils::SetPropertyValue<FRotator_UE5>(CameraBoomObj, STR("RelativeRotation"), FrontRot);
+        }
+
+        // 3. Switch to Pal's camera via SetViewTargetWithBlend
+        RC::Unreal::UFunction* SetViewTargetFunc = CurrentPlayerController->GetFunctionByNameInChain(STR("SetViewTargetWithBlend"));
+        if (SetViewTargetFunc) {
+            alignas(8) uint8_t SetViewParams[128] = {0};
+            RC::Unreal::FProperty* TargetProp = SetViewTargetFunc->GetPropertyByNameInChain(STR("NewViewTarget"));
+            if (TargetProp) *TargetProp->ContainerPtrToValuePtr<RC::Unreal::UObject*>(SetViewParams) = TargetPal;
+            CurrentPlayerController->ProcessEvent(SetViewTargetFunc, SetViewParams);
+            bIsPalCameraActive = true;
+        }
+    }
+    void UIManager::UpdatePalCameraRotation(double Yaw) {
+        if (!TargetPal) return;
+        
+        UObject* CameraBoomObj = nullptr;
+        bool bDirectFound = Utils::GetPropertyValue<UObject*>(TargetPal, STR("CameraBoom"), CameraBoomObj, true);
+        
+        if (!bDirectFound || !CameraBoomObj) {
+            UClass* SpringArmClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Engine.SpringArmComponent"));
+            if (SpringArmClass) {
+                struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{SpringArmClass, nullptr};
+                Utils::CallFunction(TargetPal, STR("GetComponentByClass"), &GetCompParams, true);
+                CameraBoomObj = GetCompParams.ReturnValue;
+            }
+        }
+
+        if (CameraBoomObj) {
+            struct FRotator_UE5 { double Pitch, Yaw, Roll; };
+            FRotator_UE5 NewRot{ 0.0, Yaw, 0.0 };
+            Utils::SetPropertyValue<FRotator_UE5>(CameraBoomObj, STR("RelativeRotation"), NewRot);
+        }
+    }
+
+    void UIManager::DisablePalCamera() {
+        if (!bIsPalCameraActive || !CurrentPlayerController) return;
+
+        RC::Unreal::UFunction* SetViewTargetFunc = CurrentPlayerController->GetFunctionByNameInChain(STR("SetViewTargetWithBlend"));
+        if (SetViewTargetFunc) {
+            alignas(8) uint8_t Params[128] = {0};
+            RC::Unreal::FProperty* TargetProp = SetViewTargetFunc->GetPropertyByNameInChain(STR("NewViewTarget"));
+            if (TargetProp) {
+                *TargetProp->ContainerPtrToValuePtr<RC::Unreal::UObject*>(Params) = OriginalViewTarget ? OriginalViewTarget : CurrentPlayerController;
+            }
+            CurrentPlayerController->ProcessEvent(SetViewTargetFunc, Params);
+        }
+
+        bIsPalCameraActive = false;
+    }
+
+
+
+    // --- MODIFIED: OnSetup to handle camera switch ---
     bool UIManager::OnSetup() {
         UpdateTarget();
+        
+        if (!CurrentPlayerController) {
+            EnqueueUIToast(L"Player controller not found. Cannot switch camera.", 2, 1);
+            return false;
+        }
+
         if (!TargetPal) {
             EnqueueUIToast(L"No valid Pal found in range!", 2, 1);
             return false; 
         }
+
+        // 1. Store original view target safely via Reflection
+        RC::Unreal::UFunction* GetViewTargetFunc = CurrentPlayerController->GetFunctionByNameInChain(STR("GetViewTarget")); 
+        if (GetViewTargetFunc) {
+            alignas(8) uint8_t Params[32] = {0};
+            CurrentPlayerController->ProcessEvent(GetViewTargetFunc, Params);
+            RC::Unreal::FProperty* RetProp = GetViewTargetFunc->GetPropertyByNameInChain(STR("ReturnValue"));
+            if (RetProp) OriginalViewTarget = *RetProp->ContainerPtrToValuePtr<RC::Unreal::UObject*>(Params);
+        }
+
+        // Fallback to Pawn if GetViewTarget failed
+        if (!OriginalViewTarget) {
+            struct { RC::Unreal::UObject* ReturnValue; } GetPawnParams{nullptr};
+            Utils::CallFunction(CurrentPlayerController, STR("K2_GetPawn"), &GetPawnParams, true);
+            OriginalViewTarget = GetPawnParams.ReturnValue;
+        }
+
+        if (SaveManager::Get().Settings.bFocusPal) {
+            EnablePalCamera();
+        }
+
         return true;
     }
 
@@ -128,9 +255,18 @@ namespace DynPals {
         HideInvalidSwitch = nullptr;
         RerollButton = nullptr;
         MorphSliders.clear();
+        FocusPalSwitch = nullptr;
+        CameraRotationSlider = nullptr;
         MainScrollBoxObj = nullptr;
         GetScrollOffsetFunc = nullptr;
+
+        DisablePalCamera();
+        OriginalViewTarget = nullptr;
     }
+
+
+
+    // --- END MODIFIED OnClose ---
 
     void UIManager::BuildWidget() {
         if (!CurrentPlayerController || !TargetPal) return;
@@ -141,6 +277,8 @@ namespace DynPals {
         MorphSliders.clear();
         MainScrollBoxObj = nullptr;
         GetScrollOffsetFunc = nullptr;
+        FocusPalSwitch = nullptr;
+        CameraRotationSlider = nullptr;
 
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
         UClass* WidgetClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.UserWidget"));
@@ -420,6 +558,24 @@ namespace DynPals {
             RequestRebuild(); 
         });
 
+        FocusPalSwitch = std::make_unique<UI::Switch>(MyWidget, SaveManager::Get().Settings.bFocusPal);
+        FocusPalSwitch->OnChanged([this](bool bState) {
+            SaveManager::Get().Settings.bFocusPal = bState;
+            SaveManager::Get().SaveWorldData();
+            if (bState) {
+                EnablePalCamera();
+            } else {
+                DisablePalCamera();
+            }
+            
+            if (MainScrollBoxObj && GetScrollOffsetFunc) {
+                struct { float Offset; } Params{ 0.0f };
+                MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
+                LastScrollOffset = Params.Offset;
+            }
+            RequestRebuild();
+        });
+
         auto RerollBtnBuilder = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget)
             .Text(L"      Reroll Pal      ")
             .BackgroundColor(PalBlue)
@@ -465,6 +621,28 @@ namespace DynPals {
             .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Hide Invalid").Font(PalFont, L"Medium", 18).TextColor(White), [](DynPals::BoxSlotBuilder& Slot) { Slot.VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); });
         
         InnerContentBox.AddToVerticalBox(FilterRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,25); });
+
+        auto CameraSettingsRow = UI::HorizontalBox(MyWidget)
+            .AddToHorizontalBox(DynPals::WidgetBuilder(FocusPalSwitch->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,10,0); })
+            .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Focus Pal Camera").Font(PalFont, L"Medium", 18).TextColor(White), [](DynPals::BoxSlotBuilder& Slot) { Slot.VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); });
+        
+        InnerContentBox.AddToVerticalBox(CameraSettingsRow, [this](DynPals::BoxSlotBuilder& Slot) { 
+            Slot.Padding(0, 0, 0, SaveManager::Get().Settings.bFocusPal ? 15.0f : 25.0f); 
+        });
+
+        if (SaveManager::Get().Settings.bFocusPal) {
+            CameraRotationSlider = std::make_unique<UI::Slider>(MyWidget, 0.0, 360.0, SaveManager::Get().Settings.CameraRotation);
+            CameraRotationSlider->OnChanged([this](double NewValue) {
+                SaveManager::Get().Settings.CameraRotation = NewValue;
+                SaveManager::Get().SaveWorldData();
+                UpdatePalCameraRotation(NewValue);
+            });
+
+            InnerContentBox.AddToVerticalBox(
+                UI::Text(MyWidget).Text(L"Camera Rotation").Font(PalFont, L"Medium", 18).TextColor(White)
+            );
+            InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(CameraRotationSlider->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,5,0,25); });
+        }
 
         if (currentPersist && persistConfigIndex != -1) {
             auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
@@ -584,7 +762,6 @@ namespace DynPals {
             if (RootProp) *RootProp->ContainerPtrToValuePtr<UObject*>(WidgetTree) = Canvas;
         }
 
-        //Utils::CallFunction(MyWidget, STR("Initialize")); //Redundant
         struct { int32_t ZOrder; } ViewportParams{9999};
         Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
 
@@ -593,19 +770,19 @@ namespace DynPals {
             Utils::CallFunction(MainScrollBoxObj, STR("SetScrollOffset"), &ScrollParams);
         }
     }
-
+    
     void UIManager::OnTickUI() {
-        // Safe check: If the target Pal was deleted, swept, or despawned, abort instantly.
         if (TargetPal && !Utils::IsObjectValid(TargetPal)) {
             TargetPal = nullptr;
-            RequestToggle(); // Safely closes the menu
+            RequestToggle(); 
             return;
         }
 
-        if (SkinDropdown)      SkinDropdown->Tick();
-        if (HideInvalidSwitch) HideInvalidSwitch->Tick();
-        if (RerollButton)      RerollButton->Tick();
-
+        if (SkinDropdown)         SkinDropdown->Tick();
+        if (HideInvalidSwitch)    HideInvalidSwitch->Tick();
+        if (RerollButton)         RerollButton->Tick();
+        if (FocusPalSwitch)       FocusPalSwitch->Tick();
+        if (CameraRotationSlider) CameraRotationSlider->Tick();
 
         for (auto& as : MorphSliders) {
             if (as.SliderCtrl) as.SliderCtrl->Tick();
@@ -616,5 +793,9 @@ namespace DynPals {
             MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
             LastScrollOffset = Params.Offset;
         }
+
+        
+            
+        
     }
 }

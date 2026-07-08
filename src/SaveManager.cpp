@@ -21,8 +21,10 @@ namespace DynPals {
     void SaveManager::Reset() {
         CurrentWorldSaveID = L"";
         PersistedSwaps.clear();
-        AccessOrder.clear(); // Clear order queue on world transition
+        AccessOrder.clear(); 
+        Settings = DynPalsSettings{};
     }
+
 
     void SaveManager::MarkAccessed(const std::wstring& InstanceID) {
         // 1. Remove from its current position in the queue (if it exists)
@@ -55,6 +57,7 @@ namespace DynPals {
         CurrentWorldSaveID = WorldSaveID;
         PersistedSwaps.clear();
         AccessOrder.clear(); 
+        Settings = DynPalsSettings{};
         PalProcessor::Get().ClearAllSwappedStatus(); 
 
         std::wstring persistPath = ConfigPath + PersistFileName + CurrentWorldSaveID + L".json";
@@ -62,9 +65,17 @@ namespace DynPals {
         if (content.empty()) return;
 
         try {
-            // FIX 1: Use auto to strictly inherit the ordered_json return type from the parser
             auto data = nlohmann::ordered_json::parse(content);
             
+            // --- NEW: Parse Config Settings ---
+            if (data.contains("Settings") && data.at("Settings").is_object()) {
+                Settings.bFocusPal = data.at("Settings").value("FocusPal", true);
+                Settings.CameraRotation = data.at("Settings").value("CameraRotation", 180.0);
+            } else {
+                Settings.bFocusPal = true;
+                Settings.CameraRotation = 180.0;
+            }
+
             if (data.contains("PersistencePals") && data.at("PersistencePals").is_object()) {
                 for (auto& [instanceIdStr, palNode] : data.at("PersistencePals").items()) {
                     PalPersistData pd;
@@ -75,7 +86,6 @@ namespace DynPals {
                     pd.SkelMeshPath = Utils::StringToWString(palNode.value("SkelMeshPath", ""));
                     pd.bIsManuallyLocked = palNode.value("IsLocked", false);
 
-                    
                     if (palNode.contains("Morphs") && palNode.at("Morphs").is_object()) {
                         for (auto& [morphName, morphVal] : palNode.at("Morphs").items()) {
                             pd.MorphSet[Utils::StringToWString(morphName)] = morphVal.get<double>();
@@ -86,8 +96,6 @@ namespace DynPals {
                             pd.MatSet[matIndex] = Utils::StringToWString(matPath.get<std::string>());
                         }
                     }
-                    
-                    // --- NEW: Deserialize Rolled Colors ---
                     if (palNode.contains("MatColors") && palNode.at("MatColors").is_object()) {
                         for (auto& [matIndex, colorArr] : palNode.at("MatColors").items()) {
                             if (colorArr.is_array() && colorArr.size() == 4) {
@@ -104,18 +112,24 @@ namespace DynPals {
         }
     }
 
+
     void SaveManager::SaveWorldData() {
         if (CurrentWorldSaveID.empty()) return;
         
         std::wstring persistPath = ConfigPath + PersistFileName + CurrentWorldSaveID + L".json";
         
-        // FIX 2: Create strictly ordered objects with NO initializer list {} conversions!
         nlohmann::ordered_json out;
         
         nlohmann::ordered_json systemObj;
         systemObj["ModVersion"] = "1.1.0";
         systemObj["WorldID"] = Utils::WStringToString(CurrentWorldSaveID);
         out["System"] = systemObj;
+        
+        // --- NEW: Write Config Settings ---
+        nlohmann::ordered_json settingsObj;
+        settingsObj["FocusPal"] = Settings.bFocusPal;
+        settingsObj["CameraRotation"] = Settings.CameraRotation;
+        out["Settings"] = settingsObj;
         
         nlohmann::ordered_json palsObj;
         
@@ -125,7 +139,6 @@ namespace DynPals {
                 auto& data = it->second;
                 if (!data.HasSavedSwap()) continue;
 
-                // Explicit ordered node
                 nlohmann::ordered_json palNode;
                 palNode["PackName"] = Utils::WStringToString(data.PackName);
                 palNode["SkinName"] = Utils::WStringToString(data.SkinName);
@@ -133,7 +146,6 @@ namespace DynPals {
                 palNode["SkelMeshPath"] = Utils::WStringToString(data.SkelMeshPath);
                 palNode["IsLocked"] = data.bIsManuallyLocked; 
                 
-                // Explicit ordered morphs
                 nlohmann::ordered_json morphsObj;
                 for (const auto& [mName, mVal] : data.MorphSet) {
                     morphsObj[Utils::WStringToString(mName)] = mVal;
@@ -146,7 +158,6 @@ namespace DynPals {
                 }
                 if (!matsObj.empty()) palNode["Mats"] = matsObj;
                 
-                // --- NEW: Serialize Rolled Colors ---
                 nlohmann::ordered_json matColorsObj;
                 for (const auto& [mIndex, mColor] : data.MatColorSet) {
                     matColorsObj[mIndex] = { mColor.R, mColor.G, mColor.B, mColor.A };
@@ -166,6 +177,7 @@ namespace DynPals {
             DP_LOG(Default, "Saved world persistence data cleanly to disk.\n");
         }
     }
+
     
    
     PalPersistData* SaveManager::GetPersistData(const std::wstring& InstanceID) {
