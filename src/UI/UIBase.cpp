@@ -49,6 +49,11 @@ namespace DynPals {
                         // Set visibility to Visible (0)
                         struct { uint8_t InVisibility; } VisParams{ 0 };
                         Utils::CallFunction(MyWidget, STR("SetVisibility"), &VisParams);
+
+                        // Restore rendering position to default (0, 0)
+                        struct FVector2D_Double { double X; double Y; };
+                        struct { FVector2D_Double Translation; } RenderParams{ {0.0, 0.0} };
+                        Utils::CallFunction(MyWidget, STR("SetRenderTranslation"), &RenderParams);
                     }
                     OnOpen();
                 }
@@ -59,6 +64,11 @@ namespace DynPals {
                     // Set visibility to Collapsed (1) to suspend rendering/layout
                     struct { uint8_t InVisibility; } VisParams{ 1 };
                     Utils::CallFunction(MyWidget, STR("SetVisibility"), &VisParams);
+
+                    // Move rendering offscreen (avoids breaking Viewport stretch/alignment)
+                    struct FVector2D_Double { double X; double Y; };
+                    struct { FVector2D_Double Translation; } RenderParams{ {-99999.0, -99999.0} };
+                    Utils::CallFunction(MyWidget, STR("SetRenderTranslation"), &RenderParams);
                 }
                 OnClose();
             }
@@ -85,8 +95,6 @@ namespace DynPals {
         if (bStateChanged) {
             UIRegistry::Get().UpdateTickState();
         }
-
-        if (!bIsOpen || !MyWidget) return;
 
         if (!bIsOpen || !MyWidget) return;
 

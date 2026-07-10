@@ -301,6 +301,20 @@ namespace DynPals {
             SkinDropdown = std::make_unique<UI::Dropdown>(std::vector<std::wstring>{}, 0);
         }
         
+        // --- PRELOAD AND CACHE CORE UI BLUEPRINTS TO PREVENT DISK STUTTER ---
+        std::vector<std::wstring> AssetsToCache = {
+            UI::Assets::Blueprints::CommonWindow,
+            UI::Assets::Blueprints::CommonButton,
+            UI::Assets::Blueprints::PalTextBlock,
+            UI::Assets::Blueprints::PalActionBar,
+            UI::Assets::Fonts::PalDefault,
+            UI::Assets::Borders::Frame1px,
+            UI::Assets::Borders::WhiteSolid
+        };
+        for (const auto& AssetPath : AssetsToCache) {
+            Utils::LoadAssetSafely(AssetPath);
+        }
+
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
         UClass* WidgetClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.UserWidget"));
         if (!WBL || !WidgetClass) return;
@@ -322,6 +336,11 @@ namespace DynPals {
 
             struct { uint8_t InVisibility; } VisParams{ 1 }; // Collapsed
             Utils::CallFunction(PreloadContainer, STR("SetVisibility"), &VisParams);
+            
+            // Move offscreen cleanly using Render Translation (Preserves viewport DPI/Layout)
+            struct FVector2D_Double { double X; double Y; };
+            struct { FVector2D_Double Translation; } RenderParams{ {-99999.0, -99999.0} };
+            Utils::CallFunction(PreloadContainer, STR("SetRenderTranslation"), &RenderParams);
             
             struct { int32_t ZOrder; } ViewportParams{ -9999 };
             Utils::CallFunction(PreloadContainer, STR("AddToViewport"), &ViewportParams);
