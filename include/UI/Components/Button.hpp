@@ -1,3 +1,4 @@
+// --- START OF FILE include/UI/Components/Button.hpp ---
 #pragma once
 #include <functional>
 #include <string>
@@ -31,14 +32,15 @@ namespace DynPals::UI {
             if (!Widget) return;
             bool isPressed = IsWidgetPressed();
             if (isPressed) {
-                if (!bWasPressed) {
-                    bWasPressed = true;
+                bWasPressed = true;
+            } else {
+                // Trigger action strictly on Mouse-Up (Release)
+                if (bWasPressed) {
+                    bWasPressed = false;
                     if (OnClickCallback) {
                         OnClickCallback();
                     }
                 }
-            } else {
-                bWasPressed = false;
             }
         }
 
@@ -54,7 +56,6 @@ namespace DynPals::UI {
             EvaluatedTargetBtn = Widget;
             
             RC::Unreal::UObject* Temp = nullptr;
-            // Pass true to silence logs during probing
             if (Utils::GetPropertyValue(Widget, STR("WBP_PalCommonButton"), Temp, true) && Temp) {
                 EvaluatedTargetBtn = Temp;
             } else if (Utils::GetPropertyValue(Widget, STR("WBP_PalInvisibleButton"), Temp, true) && Temp) {
@@ -66,7 +67,6 @@ namespace DynPals::UI {
             }
         }
 
-
         bool IsWidgetPressed() const {
             if (!EvaluatedTargetBtn || !IsPressedFunc) return false;
             struct { bool RetVal; } Params{false};
@@ -75,3 +75,4 @@ namespace DynPals::UI {
         }
     };
 }
+// --- END OF FILE include/UI/Components/Button.hpp ---

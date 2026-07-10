@@ -42,11 +42,24 @@ namespace DynPals {
                 // Try to acquire target/setup view. If false, abort opening.
                 if (OnSetup()) {
                     bIsOpen = true;
-                    BuildWidget();
+                    
+                    if (!MyWidget) {
+                        BuildWidget();
+                    } else {
+                        // Set visibility to Visible (0)
+                        struct { uint8_t InVisibility; } VisParams{ 0 };
+                        Utils::CallFunction(MyWidget, STR("SetVisibility"), &VisParams);
+                    }
+                    OnOpen();
                 }
             } else {
                 bIsOpen = false;
-                DestroyWidget();
+                
+                if (MyWidget) {
+                    // Set visibility to Collapsed (1) to suspend rendering/layout
+                    struct { uint8_t InVisibility; } VisParams{ 1 };
+                    Utils::CallFunction(MyWidget, STR("SetVisibility"), &VisParams);
+                }
                 OnClose();
             }
             
@@ -62,6 +75,7 @@ namespace DynPals {
             MyWidget = nullptr; 
             
             BuildWidget(); 
+            OnOpen(); 
             
             if (OldWidget) {
                 Utils::CallFunction(OldWidget, STR("RemoveFromParent")); 
@@ -88,7 +102,6 @@ namespace DynPals {
 
         OnTickUI();
     }
-
     void UIBase::DestroyWidget() {
         if (MyWidget) {
             Utils::CallFunction(MyWidget, STR("RemoveFromParent"));

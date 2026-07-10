@@ -195,6 +195,7 @@ namespace DynPals {
             SaveManager::Get().Reset();
             NotificationManager::Get().SetReady(false); 
             PalProcessor::Get().ClearAllSwappedStatus();
+            UIRegistry::Get().InvalidateAllUIs();
             
             DP_LOG(Default, "Transitioned to Main Menu (Detected via '{}'). Mod entering standby mode...\n", WidgetName);
 
@@ -208,6 +209,7 @@ namespace DynPals {
         bIsAtMenu = false;
         bCompletedInitReady = false;
         NotificationManager::Get().SetReady(false); 
+        UIRegistry::Get().InvalidateAllUIs();
     }
 
     static std::wstring GetFormattedVersionString() {

@@ -29,7 +29,9 @@ namespace DynPals {
 
     protected:
         virtual bool OnSetup() override;
+        virtual void OnOpen() override;
         virtual void OnClose() override;
+        virtual void OnInvalidate() override;
         virtual void BuildWidget() override;
         virtual void OnTickUI() override;
 
@@ -37,8 +39,9 @@ namespace DynPals {
         UIManager() = default;
         
         void UpdateTarget();
+        void RefreshUI();
         
-        // --- NEW: Camera Helper Methods ---
+        // --- Camera Helper Methods ---
         void EnablePalCamera();
         void DisablePalCamera();
         void UpdatePalCameraRotation(double Yaw);
@@ -56,19 +59,31 @@ namespace DynPals {
         std::unique_ptr<UI::Dropdown> SkinDropdown;
         std::unique_ptr<UI::Switch> HideInvalidSwitch;
         std::unique_ptr<UI::Button> RerollButton;
-        std::vector<ActiveMorphSlider> MorphSliders;
+        std::vector<std::unique_ptr<class DynPals::UI::Slider>> MorphSliderPool;
+        int ActiveMorphSlidersCount = 0;
         
-        // --- NEW: UI Elements ---
+        // UI Elements
         std::unique_ptr<UI::Switch> FocusPalSwitch;
         std::unique_ptr<UI::Slider> CameraRotationSlider;
 
-        // Native Widget Pointers (For direct queries)
+        // Native Widget Persistent Containers
         RC::Unreal::UObject* MainScrollBoxObj = nullptr;
         RC::Unreal::UFunction* GetScrollOffsetFunc = nullptr; 
-
+        
+        RC::Unreal::UObject* DynamicMorphBox = nullptr;
+        RC::Unreal::UObject* DynamicLogBox = nullptr;
+        RC::Unreal::UObject* CameraRotationContainer = nullptr;
+        RC::Unreal::UObject* PalFontCache = nullptr;
+        
+        RC::Unreal::UObject* HeaderTextObj = nullptr;
+        
+        RC::Unreal::UObject* WidgetTrashBin = nullptr; // Hidden container to prevent GC
         // Data Models
         std::vector<std::wstring> DropdownOptions;
         std::vector<int> DropdownConfigIndices;
+
+        // Text Widget Pool for Logging
+        std::vector<RC::Unreal::UObject*> LogTextPool;
 
         // Camera Members
         RC::Unreal::UObject* OriginalViewTarget = nullptr; 

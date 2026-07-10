@@ -22,6 +22,12 @@ namespace DynPals::UI {
             return *this;
         }
 
+        void UpdateValue(double NewValue, double Min, double Max) {
+            struct { double V; double M; double Mx; } Params{NewValue, Min, Max};
+            Utils::CallFunction(Widget, STR("SetValue"), &Params);
+            LastValue = NewValue;
+        }
+
         void Tick() {
             if (!Widget || !CurrentValueProp) return;
             double currentVal = LastValue;

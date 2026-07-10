@@ -25,6 +25,9 @@ namespace DynPals {
         // Evaluates UI states to recalculate tick requirements
         void UpdateTickState();
 
+        // Invalidates all registered widgets
+        void InvalidateAllUIs();
+
     private:
         UIRegistry() = default;
         std::vector<UIBase*> RegisteredUIs;
