@@ -23,7 +23,8 @@ namespace DynPals {
         virtual void OnTickUI() override;
 
     private:
-        TestUI() = default;
+        TestUI() { bCloseOnEscape = true; }
+
 
         // Tab State Tracking
         int32_t ActiveTab = 0;

@@ -88,8 +88,10 @@ namespace DynPals {
 
         if (!bIsOpen || !MyWidget) return;
 
+        if (!bIsOpen || !MyWidget) return;
+
         if (bCloseOnEscape) {
-            if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+            if ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) || (GetAsyncKeyState(VK_TAB) & 0x8000)) {
                 if (!bWasEscapeDown) {
                     bWasEscapeDown = true;
                     RequestToggle();
@@ -101,6 +103,7 @@ namespace DynPals {
         }
 
         OnTickUI();
+
     }
     void UIBase::DestroyWidget() {
         if (MyWidget) {

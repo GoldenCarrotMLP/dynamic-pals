@@ -1,4 +1,5 @@
-// --- START OF FILE src/UI/views/UIManager.cpp ---
+### 3. `src/UI/Views/UIManager.cpp`
+```cpp
 #define NOMINMAX 
 #include <Windows.h>
 
@@ -260,6 +261,7 @@ namespace DynPals {
             Utils::CallFunction(PreloadContainer, STR("RemoveFromParent"));
             PreloadContainer = nullptr;
         }
+
         HideInvalidSwitch = nullptr;
         RerollButton = nullptr;
         MorphSliderPool.clear(); 
@@ -296,9 +298,10 @@ namespace DynPals {
         OriginalViewTarget = nullptr;
     }
 
+
     void UIManager::PreloadUI(RC::Unreal::UObject* PC) {
         if (!SkinDropdown) {
-            SkinDropdown = std::make_unique<UI::Dropdown>(std::vector<std::wstring>{}, 0);
+            SkinDropdown = std::make_unique<class DynPals::UI::Dropdown>(std::vector<std::wstring>{}, 0);
         }
         
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
@@ -352,9 +355,6 @@ namespace DynPals {
         MorphSliderPool.clear();
         ActiveMorphSlidersCount = 0;
 
-        // Start Profiling Checkpoint
-        auto start = std::chrono::high_resolution_clock::now();
-
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
         UClass* WidgetClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.UserWidget"));
         if (!WBL || !WidgetClass) return;
@@ -381,10 +381,9 @@ namespace DynPals {
         Utils::CallFunction(WidgetTrashBin, STR("SetVisibility"), &VisParams);
 
         if (!SkinDropdown) {
-            SkinDropdown = std::make_unique<UI::Dropdown>(std::vector<std::wstring>{}, 0);
+            SkinDropdown = std::make_unique<class DynPals::UI::Dropdown>(std::vector<std::wstring>{}, 0);
         }
         SkinDropdown->SetTrashBin(WidgetTrashBin);
-
 
         SkinDropdown->OnChanged([this](int Index, std::wstring Choice) {
             if (Index >= 0 && Index < static_cast<int>(DropdownConfigIndices.size())) {
@@ -400,7 +399,7 @@ namespace DynPals {
             }
         });
 
-        HideInvalidSwitch = std::make_unique<UI::Switch>(MyWidget, bHideInvalidSwaps);
+        HideInvalidSwitch = std::make_unique<class DynPals::UI::Switch>(MyWidget, bHideInvalidSwaps);
         HideInvalidSwitch->OnChanged([this](bool bState) {
             bHideInvalidSwaps = bState;
             if (MainScrollBoxObj && GetScrollOffsetFunc) {
@@ -411,7 +410,7 @@ namespace DynPals {
             RefreshUI(); 
         });
 
-        FocusPalSwitch = std::make_unique<UI::Switch>(MyWidget, SaveManager::Get().Settings.bFocusPal);
+        FocusPalSwitch = std::make_unique<class DynPals::UI::Switch>(MyWidget, SaveManager::Get().Settings.bFocusPal);
         FocusPalSwitch->OnChanged([this](bool bState) {
             SaveManager::Get().Settings.bFocusPal = bState;
             SaveManager::Get().SaveWorldData();
@@ -436,7 +435,7 @@ namespace DynPals {
             .UnlockButtonSize(300.0f);
 
         UObject* RerollBtnObj = RerollBtnBuilder.Build();
-        RerollButton = std::make_unique<UI::Button>(RerollBtnObj);
+        RerollButton = std::make_unique<class DynPals::UI::Button>(RerollBtnObj);
         RerollButton->OnClicked([this]() {
             PalProcessor::Get().ProcessPal(TargetPal, true);
             if (MainScrollBoxObj && GetScrollOffsetFunc) {
@@ -517,20 +516,10 @@ namespace DynPals {
 
         struct { int32_t ZOrder; } ViewportParams{9999};
         Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
-
-        // End Profiling Checkpoint
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        DP_LOG(Default, "[Profile] UIManager::BuildWidget shell layout initialized in {} us ({:.3f} ms)", 
-               duration, duration / 1000.0f);
-
     }
 
     void UIManager::RefreshUI() {
         if (!TargetPal || !DynamicLogBox || !DynamicMorphBox || !CameraRotationContainer) return;
-
-        // Start Profiling Checkpoint
-        auto start = std::chrono::high_resolution_clock::now();
 
         const FLinearColor_UE5 PalBlue = {0.78f, 0.96f, 1.0f, 1.0f}; 
         const FLinearColor_UE5 White   = {1.0f, 1.0f, 1.0f, 1.0f};
@@ -904,7 +893,7 @@ namespace DynPals {
         // 5. Camera Rotation Logic
         Utils::CallFunction(CameraRotationContainer, STR("ClearChildren"));
         if (SaveManager::Get().Settings.bFocusPal) {
-            CameraRotationSlider = std::make_unique<UI::Slider>(MyWidget, 0.0, 360.0, SaveManager::Get().Settings.CameraRotation);
+            CameraRotationSlider = std::make_unique<class DynPals::UI::Slider>(MyWidget, 0.0, 360.0, SaveManager::Get().Settings.CameraRotation);
             CameraRotationSlider->OnChanged([this](double NewValue) {
                 SaveManager::Get().Settings.CameraRotation = NewValue;
                 SaveManager::Get().SaveWorldData();
@@ -1077,12 +1066,6 @@ namespace DynPals {
             struct { float NewScrollOffset; } ScrollParams{LastScrollOffset};
             Utils::CallFunction(MainScrollBoxObj, STR("SetScrollOffset"), &ScrollParams);
         }
-
-        // End Profiling Checkpoint
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        DP_LOG(Default, "[Profile] UIManager::RefreshUI completed in {} us ({:.3f} ms)", 
-               duration, duration / 1000.0f);
     }
 
     void UIManager::OnTickUI() {
@@ -1111,3 +1094,886 @@ namespace DynPals {
         }
     }
 }
+```
+
+### 4. `include/UI/Views/TestUI.hpp`
+```cpp
+#pragma once
+#include "UI/UIBase.hpp"
+#include "UI/Components/Button.hpp"
+#include "UI/Components/Dropdown.hpp"
+#include "UI/Components/Slider.hpp"
+#include "UI/Components/Switch.hpp"
+#include "UI/Components/Selector.hpp"
+#include <vector>
+#include <string>
+#include <memory>
+
+namespace DynPals {
+
+    class TestUI : public UIBase {
+    public:
+        static TestUI& Get() {
+            static TestUI instance;
+            return instance;
+        }
+
+    protected:
+        virtual void BuildWidget() override;
+        virtual void OnTickUI() override;
+
+    private:
+        TestUI() { bCloseOnEscape = false; }
+
+        // Tab State Tracking
+        int32_t ActiveTab = 0;
+        std::unique_ptr<class DynPals::UI::Button> TabBtn1;
+        std::unique_ptr<class DynPals::UI::Button> TabBtn2;
+
+        // Tab 0: Vanilla Controls Elements
+        std::unique_ptr<class DynPals::UI::Button> HighlightButton;
+        std::vector<RC::Unreal::UObject*> TextBlocks;
+        std::vector<RC::Unreal::UObject*> RowIcons;
+        bool bHighlight = false;
+
+        // Tab 1: Native Options Elements
+        std::unique_ptr<class DynPals::UI::Slider> TestSlider;
+        std::unique_ptr<class DynPals::UI::Switch> TestSwitch;
+        std::unique_ptr<class DynPals::UI::Selector> TestLR;
+
+        // Tab 1: Native Select List Popup
+        std::unique_ptr<class DynPals::UI::Dropdown> TestDropdown;
+        std::wstring CurrentDropdownChoice = L"Option A";
+        std::vector<std::wstring> DropdownOptions;
+    };
+}
+```
+
+### 5. `src/UI/Views/TestUI.cpp`
+```cpp
+#define NOMINMAX 
+#include <Windows.h>
+
+#include "UI/Views/TestUI.hpp"
+#include "UI/Components/WindowFrame.hpp"
+#include "UI/WidgetBuilder.hpp"
+#include "UI/IconLibrary.hpp"
+#include "Utils.hpp"
+
+using namespace RC;
+using namespace RC::Unreal;
+
+namespace DynPals {
+
+    static bool IsWidgetPressed(RC::Unreal::UObject* Widget) {
+        if (!Widget) return false;
+        RC::Unreal::UObject* TargetBtn = Widget;
+        RC::Unreal::UObject* Temp = nullptr;
+
+        if (Utils::GetPropertyValue(TargetBtn, STR("WBP_PalCommonButton"), Temp) && Temp) TargetBtn = Temp;
+        if (Utils::GetPropertyValue(TargetBtn, STR("WBP_PalInvisibleButton"), Temp) && Temp) TargetBtn = Temp;
+
+        struct { bool RetVal; } Params{false};
+        Utils::CallFunction(TargetBtn, STR("IsPressed"), &Params);
+        return Params.RetVal;
+    }
+
+    void TestUI::BuildWidget() {
+        if (!CurrentPlayerController) return;
+
+        TabBtn1 = nullptr;
+        TabBtn2 = nullptr;
+        TestSlider = nullptr;
+        TestSwitch = nullptr;
+        TestLR = nullptr;
+        HighlightButton = nullptr;
+        TextBlocks.clear();
+        RowIcons.clear();
+
+        if (DropdownOptions.empty()) {
+            DropdownOptions = {
+                L"Option A", L"Option B", L"Option C", L"Option D", L"Option E",
+                L"Option F", L"Option G", L"Option H", L"Option I", L"Option J",
+                L"Option K", L"Option L", L"Option M", L"Option N", L"Option O",
+                L"Option P", L"Option Q", L"Option R", L"Option S", L"Option T",
+                L"Option U", L"Option V", L"Option W", L"Option X", L"Option Y",
+                L"Option Z"
+            };
+        }
+
+        UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
+        UClass* WidgetClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.UserWidget"));
+        if (!WBL || !WidgetClass) return;
+
+        struct { UObject* WorldContext; UClass* WidgetType; UObject* OwningPlayer; UObject* ReturnValue; } CreateParams{
+            CurrentPlayerController, WidgetClass, CurrentPlayerController, nullptr
+        };
+        Utils::CallFunction(WBL, STR("Create"), &CreateParams);
+        MyWidget = CreateParams.ReturnValue;
+
+        UObject* PalFont = Utils::LoadAssetSafely(UI::Assets::Fonts::PalDefault);
+        const FLinearColor_UE5 PalBlue = {0.78f, 0.96f, 1.0f, 1.0f}; 
+        const FLinearColor_UE5 White   = {1.0f, 1.0f, 1.0f, 1.0f};
+
+        auto HeaderBox = UI::HorizontalBox(MyWidget)
+            .AddToHorizontalBox(UI::Image(MyWidget).ImageFromAsset(UI::Assets::Common::NoticeMark).ImageColor(PalBlue).ImageSize(24, 24), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
+            .AddToHorizontalBox(UI::Text(MyWidget).Text(L"DYN PALS SYSTEM TEST").Font(PalFont, L"Bold", 24).TextOutline(2, {0.0f, 0.0f, 0.0f, 1.0f}).TextColor(PalBlue));
+
+        auto TabLayout = UI::HorizontalBox(MyWidget);
+        auto Tab1Builder = UI::OptionTab(MyWidget).SetupTab(L"Settings", 0).SetTabActive(ActiveTab == 0);
+        auto Tab2Builder = UI::OptionTab(MyWidget).SetupTab(L"Visuals", 1).SetTabActive(ActiveTab == 1);
+
+        UObject* Tab1Widget = Tab1Builder.Build();
+        UObject* Tab2Widget = Tab2Builder.Build();
+
+        if (ActiveTab == 0) Utils::CallFunction(Tab1Widget, STR("SetTabActive"), &bHighlight); 
+        else Utils::CallFunction(Tab2Widget, STR("SetTabActive"), &bHighlight);
+
+        TabBtn1 = std::make_unique<class DynPals::UI::Button>(Tab1Widget);
+        TabBtn1->OnClicked([this]() {
+            if (ActiveTab != 0) { ActiveTab = 0; if (TestDropdown) TestDropdown->ClosePopup(); RequestRebuild(); }
+        });
+
+        TabBtn2 = std::make_unique<class DynPals::UI::Button>(Tab2Widget);
+        TabBtn2->OnClicked([this]() {
+            if (ActiveTab != 1) { ActiveTab = 1; RequestRebuild(); }
+        });
+
+        TabLayout.AddToHorizontalBox(Tab1Builder, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); }).AddToHorizontalBox(Tab2Builder);
+
+        auto ContentContainer = UI::VerticalBox(MyWidget);
+
+        if (ActiveTab == 0) {
+            auto ButtonBuilder = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget)
+                .Text(L"Highlight every second element")
+                .DesiredSizeOverride(400.0f, 45.0f)
+                .UnlockButtonSize(400.0f); // Unlocks internal truncation limits
+            
+            UObject* ButtonRoot = ButtonBuilder.Build();
+
+            HighlightButton = std::make_unique<class DynPals::UI::Button>(ButtonRoot);
+            HighlightButton->OnClicked([this]() {
+                bHighlight = !bHighlight; 
+
+                const FLinearColor_UE5 PalBlue = {0.78f, 0.96f, 1.0f, 1.0f};
+                const FLinearColor_UE5 White   = {1.0f, 1.0f, 1.0f, 1.0f};
+                const FLinearColor_UE5 DarkOut = {0.0f, 0.0f, 0.0f, 0.8f};
+                const FLinearColor_UE5 SoftOut = {0.0f, 0.0f, 0.0f, 0.5f};
+
+                for (size_t i = 0; i < TextBlocks.size(); ++i) {
+                    UObject* TextBlock = TextBlocks[i];
+                    UObject* RowIcon   = RowIcons[i];
+                    
+                    if (TextBlock && RowIcon) {
+                        bool bCondition = bHighlight && ((i + 1) % 2 == 0);
+                        UI::SetTextColor(TextBlock, bCondition ? PalBlue : White);
+                        UI::SetFontData(TextBlock, bCondition ? 32 : 22, bCondition ? DarkOut : SoftOut);
+                        UI::SetImageColor(RowIcon, bCondition ? PalBlue : White);
+                    }
+                }
+            });
+
+            auto ListBoxBuilder = UI::VerticalBox(MyWidget);
+            std::vector<std::wstring> labels = { L"A", L"B", L"C", L"D", L"E", L"F" };
+            for (size_t i = 0; i < labels.size(); ++i) {
+                auto RowIcon = UI::Image(MyWidget).ImageFromAsset(UI::Assets::Common::StatusArrow).ImageColor(White).ImageSize(16, 16);
+                auto TextWidget = UI::Text(MyWidget).Text(L"this is text " + labels[i]).Font(PalFont, L"Medium", 20).TextOutline(1, {0.0f, 0.0f, 0.0f, 0.5f}).TextColor(White);
+                TextBlocks.push_back(TextWidget.Build());
+                RowIcons.push_back(RowIcon.Build());
+
+                auto RowLayout = UI::HorizontalBox(MyWidget)
+                    .AddToHorizontalBox(RowIcon, [](BoxSlotBuilder& Slot) { Slot.Padding(0.0f, 0.0f, 12.0f, 0.0f).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
+                    .AddToHorizontalBox(TextWidget, [](BoxSlotBuilder& Slot) { Slot.VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); });
+                ListBoxBuilder.AddToVerticalBox(RowLayout, [](BoxSlotBuilder& Slot) { Slot.Padding(0.0f, 6.0f, 0.0f, 6.0f); });
+            }
+
+            ContentContainer
+                .AddToVerticalBox(ButtonBuilder, [](BoxSlotBuilder& Slot) { Slot.Padding(0.0f, 0.0f, 0.0f, 20.0f).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
+                .AddToVerticalBox(ListBoxBuilder);
+
+        } else if (ActiveTab == 1) {
+            TestSlider = std::make_unique<class DynPals::UI::Slider>(MyWidget, 0.0, 100.0, 50.0);
+            TestSwitch = std::make_unique<class DynPals::UI::Switch>(MyWidget, true);
+            TestLR = std::make_unique<class DynPals::UI::Selector>(MyWidget, std::vector<std::wstring>{L"Low", L"Medium", L"High", L"Epic"}, 2);
+
+            RC::Unreal::UObject* WidgetTrashBin = UI::VerticalBox(MyWidget).Build();
+            struct { uint8_t InVisibility; } VisParams{ 1 };
+            Utils::CallFunction(WidgetTrashBin, STR("SetVisibility"), &VisParams);
+
+            if (!TestDropdown) {
+                int initialIdx = 0;
+                for (size_t i = 0; i < DropdownOptions.size(); ++i) {
+                    if (DropdownOptions[i] == CurrentDropdownChoice) {
+                        initialIdx = static_cast<int>(i);
+                        break;
+                    }
+                }
+                TestDropdown = std::make_unique<class DynPals::UI::Dropdown>(DropdownOptions, initialIdx);
+                TestDropdown->OnChanged([this](int Index, std::wstring Choice) {
+                    CurrentDropdownChoice = Choice;
+                });
+            }
+            TestDropdown->SetTrashBin(WidgetTrashBin);
+
+            UObject* NativeDropdownWidget = TestDropdown->Build(MyWidget, CurrentPlayerController);
+
+            ContentContainer
+                .AddToVerticalBox(UI::Text(MyWidget).Text(L"Option Slider").Font(PalFont, L"Medium", 18))
+                .AddToVerticalBox(WidgetBuilder(TestSlider->GetWidget()), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 5, 0, 20); })
+                .AddToVerticalBox(UI::Text(MyWidget).Text(L"Option Switch").Font(PalFont, L"Medium", 18))
+                .AddToVerticalBox(WidgetBuilder(TestSwitch->GetWidget()), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 5, 0, 20); })
+                .AddToVerticalBox(UI::Text(MyWidget).Text(L"Left/Right Selector").Font(PalFont, L"Medium", 18))
+                .AddToVerticalBox(WidgetBuilder(TestLR->GetWidget()), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 5, 0, 20); })
+                .AddToVerticalBox(UI::Text(MyWidget).Text(L"Native Overlay Dropdown").Font(PalFont, L"Medium", 18))
+                .AddToVerticalBox(WidgetBuilder(L"/Script/UMG.SizeBox", MyWidget).AddChild(WidgetBuilder(NativeDropdownWidget)), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 5, 0, 20); })
+                .AddToVerticalBox(DynPals::WidgetBuilder(WidgetTrashBin));
+        }
+
+        UObject* Canvas = UI::WindowFrame(MyWidget, 600.0f)
+            .SetHeader(HeaderBox)
+            .AddAutoScaledRow(TabLayout) 
+            .AddContent(ContentContainer)
+            .SetFooter(UI::ActionBar(MyWidget))
+            .Build();
+
+        UObject* WidgetTree = nullptr;
+        if (Utils::GetPropertyValue(MyWidget, STR("WidgetTree"), WidgetTree) && WidgetTree) {
+            FProperty* RootProp = Utils::GetProperty(WidgetTree, STR("RootWidget"));
+            if (RootProp) *RootProp->ContainerPtrToValuePtr<UObject*>(WidgetTree) = Canvas;
+        }
+
+        struct { int32_t ZOrder; } ViewportParams{9999};
+        Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
+    }
+
+    void TestUI::OnTickUI() {
+        if (TabBtn1) TabBtn1->Tick();
+        if (TabBtn2) TabBtn2->Tick();
+
+        if (ActiveTab == 0) {
+            if (HighlightButton) HighlightButton->Tick();
+        } else if (ActiveTab == 1) {
+            if (TestSlider)   TestSlider->Tick();
+            if (TestSwitch)   TestSwitch->Tick();
+            if (TestLR)       TestLR->Tick();
+            if (TestDropdown) TestDropdown->Tick();
+        }
+    }
+}
+```
+
+### 6. `src/HooksManager.cpp`
+```cpp
+#define NOMINMAX
+
+#include <Zydis/Zydis.h>
+
+#include <Unreal/CoreUObject/UObject/Class.hpp>
+#include <Unreal/UObjectGlobals.hpp>
+#include <chrono>
+#include <fstream>
+#include <safetyhook.hpp>
+#include <thread>
+
+#include "AsyncHelper.hpp"
+#include "HooksManager.hpp"
+#include "NotificationManager.hpp"
+#include "PalProcessor.hpp"
+#include "SaveManager.hpp"
+#include "UI/UIRegistry.hpp"
+#include "UI/Views/UIManager.hpp"
+#include "Updater.hpp"
+#include "Utils.hpp"
+#include "VFXManager.hpp"
+
+using namespace RC;
+
+using namespace RC::Unreal;
+
+namespace DynPals {
+
+static bool bCompletedInitReady = false;
+
+static UObject* LastPlayerController = nullptr;
+
+static UObject* LastWorld = nullptr;
+
+static bool bIsAtMenu = false;
+
+// --- NATIVE DETOUR STORAGE ---
+
+static SafetyHookInline Hook_MasterWazaUpdate;
+
+static SafetyHookInline Hook_OnUpdateCharacterRank;
+
+static SafetyHookInline Hook_AddFriendship;
+
+// --- DYNAMIC NATIVE THUNK DISASSEMBLER ---
+
+static void* ResolveNativeFromThunk(void* ThunkAddress) {
+    if (!ThunkAddress) return nullptr;
+
+    ZyanStatus status;
+    ZydisDecoder decoder;
+    if (!ZYAN_SUCCESS(ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64))) {
+        return nullptr;
+    }
+
+    ZyanUSize offset = 0;
+    ZydisDecodedInstruction instruction;
+    ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
+
+    std::vector<void*> calls;
+
+    const uintptr_t thunkStart = reinterpret_cast<uintptr_t>(ThunkAddress);
+    const uintptr_t thunkEnd = thunkStart + 500; // Define the maximum structural boundary of a thunk
+
+    while (offset < 500) {
+        status = ZydisDecoderDecodeFull(&decoder, reinterpret_cast<uint8_t*>(ThunkAddress) + offset, 500 - offset, &instruction, operands);
+        if (!ZYAN_SUCCESS(status)) break;
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_RET) break;
+
+        // 1. Track standard CALL instructions
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL) {
+            if (operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
+                uintptr_t rip = thunkStart + offset + instruction.length;
+                uintptr_t target = rip + operands[0].imm.value.s;
+                calls.push_back(reinterpret_cast<void*>(target));
+            }
+        }
+        // 2. Track external JMP instructions (Tail-Calls)
+        else if (instruction.mnemonic == ZYDIS_MNEMONIC_JMP) {
+            if (operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
+                uintptr_t rip = thunkStart + offset + instruction.length;
+                uintptr_t target = rip + operands[0].imm.value.s;
+
+                // CRITICAL CHECK: Only count JMPs that escape the thunk's 500-byte boundary.
+                // This ignores all local if/else branches and isolates the true native function target.
+                if (target < thunkStart || target > thunkEnd) {
+                    calls.push_back(reinterpret_cast<void*>(target));
+                    break; // Unconditional JMP out of the thunk marks the end of execution
+                }
+            }
+        }
+
+        offset += instruction.length;
+    }
+
+    if (calls.empty()) return nullptr;
+
+    void* lastCallTarget = calls.back();
+
+    // FILTER: Prevent hooking MSVC's '__security_check_cookie'
+    status = ZydisDecoderDecodeFull(&decoder, lastCallTarget, 16, &instruction, operands);
+    if (ZYAN_SUCCESS(status)) {
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP && operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER && operands[0].reg.value == ZYDIS_REGISTER_RCX) {
+            if (calls.size() > 1) {
+                return calls[calls.size() - 2];
+            }
+        }
+    }
+
+    // SAFETY FILTER: If the target is FFrame::Step, the function was likely fully inlined.
+    // We detect this if all captured calls in the thunk point to the same address.
+    if (calls.size() > 1 && calls.front() == lastCallTarget) {
+        return nullptr; 
+    }
+
+    return lastCallTarget;
+}
+
+
+static void* GetNativeAddress(const wchar_t* FunctionPath) {
+  UFunction* FuncObj = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr, FunctionPath);
+
+  if (!FuncObj) return nullptr;
+
+  void* ThunkAddr =
+      *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(FuncObj) + 0xD8);
+
+  void* NativeAddr = ResolveNativeFromThunk(ThunkAddr);
+
+  if (NativeAddr) {
+    return NativeAddr;
+  }
+
+  return ThunkAddr;
+}
+
+// --- DETOUR CALLBACKS ---
+
+void __fastcall NativeMasterWazaUpdate_Hook(UObject* This, int32_t AddLevel,
+                                            int32_t NowLevel) {
+  Hook_MasterWazaUpdate.call<void, UObject*, int32_t, int32_t>(This, AddLevel,
+                                                               NowLevel);
+
+  if (This) {
+    std::wstring actorName = This->GetName();
+
+    DP_LOG(Default,
+           "[Native Hook] Pal {} Leveled Up to {}! Checking evolution...",
+           actorName, NowLevel);
+
+    PalProcessor::Get().ProcessPal(This, false);
+  }
+}
+
+void __fastcall NativeOnUpdateCharacterRank_Hook(UObject* This, int32_t NewRank,
+                                                 int32_t OldRank) {
+  Hook_OnUpdateCharacterRank.call<void, UObject*, int32_t, int32_t>(
+      This, NewRank, OldRank);
+
+  if (This) {
+    UObject* PalActor = This->GetOuterPrivate();
+
+    if (PalActor) {
+      std::wstring actorName = PalActor->GetName();
+
+      DP_LOG(Default,
+             "[Native Hook] Pal {} Condensation Rank Up to {}! Checking "
+             "evolution...",
+             actorName, NewRank);
+
+      PalProcessor::Get().ProcessPal(PalActor, false);
+    }
+  }
+}
+
+void __fastcall NativeAddFriendship_Hook(UObject* This, int32_t Value,
+                                         bool bApplyPassiveSkill) {
+  Hook_AddFriendship.call<void, UObject*, int32_t, bool>(This, Value,
+                                                         bApplyPassiveSkill);
+
+  if (This) {
+    UObject* PalActor = nullptr;
+
+    Utils::GetPropertyValue<UObject*>(This, STR("IndividualActor"), PalActor);
+
+    if (PalActor) {
+      std::wstring actorName = PalActor->GetName();
+
+      DP_LOG(Default,
+             "[Native Hook] Pal {} Friendship updated! Checking evolution...",
+             actorName);
+
+      PalProcessor::Get().ProcessPal(PalActor, false);
+    }
+  }
+}
+
+static void OnStartedWorldAutoSave(UnrealScriptFunctionCallableContext&,
+                                   void*) {
+  DP_LOG(Default, "Auto-Save triggered! Synchronizing world persistence...\n");
+
+  SaveManager::Get().SaveWorldData();
+}
+
+static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
+                             void*) {
+  static bool bIsReentrant = false;
+
+  if (bIsReentrant) return;
+
+  bIsReentrant = true;
+
+  // 1. Tick VFX Manager timeline events (extremely fast check)
+
+  VFXManager::Get().Tick();
+
+  // 2. ULTRA-PERFORMANT EXIT: Skip reflection logic entirely if no menus need
+  // to tick!
+
+  if (!UIRegistry::Get().RequiresTick()) {
+    bIsReentrant = false;
+
+    return;
+  }
+
+  // Only run slow reflection queries if the menu is actually active or
+  // transitioning
+
+  static auto LastTickTime = std::chrono::steady_clock::now();
+
+  auto Now = std::chrono::steady_clock::now();
+
+  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastTickTime)
+          .count() >= 16) {
+    LastTickTime = Now;
+
+    UObject* ActorContext = Context.Context;
+
+    if (ActorContext) {
+      UObject* Level = ActorContext->GetOuterPrivate();
+
+      UObject* World = Level ? Level->GetOuterPrivate() : nullptr;
+
+      if (World && World == LastWorld) {
+        UObject* PlayerController = nullptr;
+
+        UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(
+            nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+
+        if (GameplayStatics) {
+          struct {
+            UObject* WorldContextObject;
+            int32_t PlayerIndex;
+            UObject* ReturnValue;
+          } GSParams{ActorContext, 0, nullptr};
+
+          Utils::CallFunction(GameplayStatics, STR("GetPlayerController"),
+                              &GSParams);
+
+          PlayerController = GSParams.ReturnValue;
+        }
+
+        if (PlayerController) {
+          UIRegistry::Get().TickAll(PlayerController);
+        }
+      }
+    }
+  }
+
+  bIsReentrant = false;
+}
+
+static void OnWidgetAddedToViewport(
+    UnrealScriptFunctionCallableContext& Context, void*) {
+  if (bIsAtMenu) return;
+
+  UObject* Widget = Context.Context;
+
+  if (!Widget) return;
+
+  UClass* WidgetClass = Widget->GetClassPrivate();
+
+  if (!WidgetClass) return;
+
+  std::wstring WidgetName = WidgetClass->GetName();
+
+  if (WidgetName.find(L"WBP_Title") != std::wstring::npos ||
+
+      WidgetName.find(L"WBP_Login") != std::wstring::npos)
+
+  {
+    bIsAtMenu = true;
+
+    bCompletedInitReady = false;
+
+    SaveManager::Get().Reset();
+
+    NotificationManager::Get().SetReady(false);
+
+    PalProcessor::Get().ClearAllSwappedStatus();
+
+    UIRegistry::Get().InvalidateAllUIs();
+
+    DP_LOG(Default,
+           "Transitioned to Main Menu (Detected via '{}'). Mod entering "
+           "standby mode...\n",
+           WidgetName);
+
+    std::thread([]() {
+      Updater::CheckForUpdates();
+    }).detach();
+  }
+}
+
+static void OnOpenLevel(UnrealScriptFunctionCallableContext& Context, void*) {
+  bIsAtMenu = false;
+
+  bCompletedInitReady = false;
+
+  NotificationManager::Get().SetReady(false);
+
+  UIRegistry::Get().InvalidateAllUIs();
+}
+
+static std::wstring GetFormattedVersionString() {
+  HMODULE hModule = NULL;
+
+  GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+
+                     (LPCWSTR)&GetFormattedVersionString, &hModule);
+
+  wchar_t path[MAX_PATH];
+
+  GetModuleFileNameW(hModule, path, MAX_PATH);
+
+  std::wstring currentDllPath(path);
+
+  std::wstring dllDir =
+      currentDllPath.substr(0, currentDllPath.find_last_of(L"\\/") + 1);
+
+  std::wstring versionTxtPath = dllDir + L"version.txt";
+
+  std::ifstream file(versionTxtPath);
+
+  if (!file.is_open()) {
+    return L"v0.0.56";
+  }
+
+  std::string content((std::istreambuf_iterator<char>(file)),
+                      std::istreambuf_iterator<char>());
+
+  content.erase(0, content.find_first_not_of(" \t\r\n"));
+
+  size_t last = content.find_last_not_of(" \t\r\n");
+
+  if (last != std::string::npos) {
+    content.erase(last + 1);
+  }
+
+  if (content.empty()) {
+    return L"v0.0.56";
+  }
+
+  try {
+    int versionNum = std::stoi(content);
+
+    int major = versionNum / 1000;
+
+    int minor = (versionNum / 100) % 10;
+
+    int patch = versionNum % 100;
+
+    wchar_t buf[64];
+
+    swprintf(buf, 64, L"v%d.%d.%02d", major, minor, patch);
+
+    return std::wstring(buf);
+
+  } catch (...) {
+    std::wstring rawVersion;
+
+    rawVersion.assign(content.begin(), content.end());
+
+    return L"v" + rawVersion;
+  }
+}
+
+void HooksManager::OnPalSpawnedReady(
+    UnrealScriptFunctionCallableContext& Context, void*) {
+  UObject* PalNPC = Context.Context;
+
+  std::wstring palName = PalNPC ? PalNPC->GetName() : L"NULL";
+
+  DP_LOG(Default, "[Hook Monitor] OnPalSpawnedReady fired for {}", palName);
+
+  if (!bCompletedInitReady) {
+    DP_LOG(Default, "  -> Aborted: Mod is still in startup standby.");
+
+    return;
+  }
+
+  if (PalNPC) {
+    PalProcessor::Get().ProcessPal(PalNPC, false);
+  }
+}
+
+static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
+                            void*) {
+  UObject* PlayerController = Context.Context;
+
+  if (!PlayerController) return;
+
+  UObject* Level = PlayerController->GetOuterPrivate();
+
+  UObject* CurrentWorld = Level ? Level->GetOuterPrivate() : nullptr;
+
+  if (PlayerController != LastPlayerController || CurrentWorld != LastWorld) {
+    LastPlayerController = PlayerController;
+
+    LastWorld = CurrentWorld;
+
+    UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(
+        nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+
+    if (GameplayStatics) {
+      struct {
+        UObject* WorldContextObject;
+        bool bRemovePrefixString;
+        FString ReturnValue;
+      } Params{PlayerController, true, FString()};
+
+      Utils::CallFunction(GameplayStatics, STR("GetCurrentLevelName"), &Params);
+
+      std::wstring MapName = Utils::FStringToWString(Params.ReturnValue);
+
+      bool bIsMenu = (MapName.find(L"Title") != std::wstring::npos ||
+
+                      MapName.find(L"Login") != std::wstring::npos ||
+
+                      MapName.empty());
+
+      if (bIsMenu) {
+        bCompletedInitReady = false;
+
+        NotificationManager::Get().SetReady(false);
+
+        SaveManager::Get().Reset();
+
+        PalProcessor::Get().ClearAllSwappedStatus();
+
+      } else {
+        bIsAtMenu = false;
+
+        bCompletedInitReady = false;
+
+        NotificationManager::Get().SetReady(false);
+
+        SaveManager::Get().Reset();
+
+        PalProcessor::Get().ClearAllSwappedStatus();
+
+        DP_LOG(Default,
+               "New Session Detected (Map: '{}'). Spawning surge quarantine "
+               "active. Pausing swaps for 5 seconds...\n",
+               MapName);
+
+        std::thread([]() {
+          std::this_thread::sleep_for(std::chrono::seconds(8));
+
+          AsyncHelper::AsyncTask(ENamedThreads::GameThread, []() {
+            DP_LOG(Default,
+                   "Settle period complete. Running overworld Pal "
+                   "reconciliation...\n");
+
+            std::vector<UObject*> AllPals;
+
+            UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+
+            for (UObject* Pal : AllPals) {
+              if (Pal) {
+                PalProcessor::Get().ProcessPal(Pal, false);
+              }
+            }
+
+            // --- PRELOAD UI ---
+            UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+            if (PlayerController) {
+                UIManager::Get().PreloadUI(PlayerController);
+            }
+
+            bCompletedInitReady = true;
+
+            DP_LOG(Default,
+                   "Reconciliation complete. Mod entering zero-overhead "
+                   "standby.\n");
+
+            std::wstring verStr = GetFormattedVersionString();
+
+            DP_LOG(Normal, "Welcome to dynamic pals {} and happy palworld 1.0 <3", verStr);
+
+            NotificationManager::Get().FlushQueuedToasts();
+          });
+        }).detach();
+      }
+    }
+  }
+}
+
+void HooksManager::RegisterHooks() {
+  UFunction* InitFunc = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr, STR("/Script/Pal.PalNPC:OnCompletedInitParam"));
+
+  if (InitFunc) {
+    InitFunc->RegisterPostHook(OnPalSpawnedReady, nullptr);
+
+    DP_LOG(
+        Default,
+        "Successfully hooked OnCompletedInitParam (Native Pipeline Active!)\n");
+  }
+
+  UFunction* RestartFunc = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr, STR("/Script/Engine.PlayerController:ClientRestart"));
+
+  if (RestartFunc) {
+    RestartFunc->RegisterPostHook(OnClientRestart, nullptr);
+
+    DP_LOG(Default, "Successfully hooked ClientRestart for map transitions.\n");
+  }
+
+  // Restored: Re-hook K2_GetActorRotation to guarantee Game Thread access
+  // context!
+
+  UFunction* ActorRotFunc = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr, STR("/Script/Engine.Actor:K2_GetActorRotation"));
+
+  if (ActorRotFunc) {
+    ActorRotFunc->RegisterPreHook(OnGameThreadTick, nullptr);
+
+    DP_LOG(Default,
+           "Successfully hooked K2_GetActorRotation on the Game Thread.\n");
+  }
+
+  UFunction* SaveFunc = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr,
+      STR("/Script/Pal.PalSaveGameManager:StartWorldDataAutoSave"));
+
+  if (SaveFunc) {
+    SaveFunc->RegisterPostHook(OnStartedWorldAutoSave, nullptr);
+  }
+
+  // ==================================================
+
+  // MIXED NATIVE ASSEMBLY DETOURS
+
+  // ==================================================
+
+  uintptr_t BaseAddr = reinterpret_cast<uintptr_t>(GetModuleHandleA(NULL));
+
+  void* MasterWazaUpdateAddr = GetNativeAddress(STR("/Script/Pal.PalNPC:MasterWazaUpdateWhenLevelUp"));
+        if (MasterWazaUpdateAddr) {
+            Hook_MasterWazaUpdate = safetyhook::create_inline(MasterWazaUpdateAddr, NativeMasterWazaUpdate_Hook);
+            DP_LOG(Default, "[Native Hook] Detoured MasterWazaUpdateWhenLevelUp dynamically!");
+        } else {
+            DP_LOG(Error, "Failed to dynamically resolve Native MasterWazaUpdateWhenLevelUp!");
+        }
+
+
+        // 2. Scan and detour OnUpdateCharacterRank
+        void* SetRankAddr = AsyncHelper::FindPattern("40 53 48 83 EC 20 48 8B D9 48 8B 89 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 85 C0 75 ?? 48 8B D0 48 8B CB 48 83 C4 20 5B");
+        if (SetRankAddr) {
+            Hook_OnUpdateCharacterRank = safetyhook::create_inline(SetRankAddr, NativeOnUpdateCharacterRank_Hook);
+            DP_LOG(Default, "[Native Hook] Detoured OnUpdateCharacterRank via AOB!");
+        } else {
+            DP_LOG(Error, "Failed to resolve AOB for OnUpdateCharacterRank!");
+        }
+
+        // 3. Dynamically resolve and detour AddFriendShip
+        void* FriendshipAddr = GetNativeAddress(STR("/Script/Pal.PalIndividualCharacterParameter:AddFriendShip"));
+        if (FriendshipAddr) {
+            //Hook_AddFriendship = safetyhook::create_inline(FriendshipAddr, NativeAddFriendship_Hook);
+            DP_LOG(Default, "[Native Hook] Detoured AddFriendShip successfully!");
+        } else {
+            DP_LOG(Error, "Failed to resolve Native AddFriendShip!");
+
+  }
+
+  UFunction* AddToViewportFunc = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr, STR("/Script/UMG.UserWidget:AddToViewport"));
+
+  if (AddToViewportFunc) {
+    AddToViewportFunc->RegisterPostHook(OnWidgetAddedToViewport, nullptr);
+  }
+
+  UFunction* AddToPlayerScreenFunc =
+      UObjectGlobals::StaticFindObject<UFunction*>(
+          nullptr, nullptr, STR("/Script/UMG.UserWidget:AddToPlayerScreen"));
+
+  if (AddToPlayerScreenFunc) {
+    AddToPlayerScreenFunc->RegisterPostHook(OnWidgetAddedToViewport, nullptr);
+  }
+
+  UFunction* OpenLevelFunc = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr, STR("/Script/Engine.GameplayStatics:OpenLevel"));
+
+  if (OpenLevelFunc) {
+    OpenLevelFunc->RegisterPreHook(OnOpenLevel, nullptr);
+  }
+}
+
+}  // namespace DynPals
+```

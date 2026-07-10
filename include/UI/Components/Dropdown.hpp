@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Components/Dropdown.hpp ---
 #pragma once
 #include <string>
 #include <vector>
@@ -40,9 +39,59 @@ namespace DynPals::UI {
             }
             if (MaxWidth > 600.0f) MaxWidth = 600.0f;
         }
+        
+        void SetTrashBin(RC::Unreal::UObject* Bin) {
+            DropdownTrashBin = Bin;
+        }
+
+        void PreloadPool(RC::Unreal::UObject* Outer, int btnCount, int headerCount = 10) {
+            OuterContext = Outer;
+            
+            // Preload Headers
+            RC::Unreal::UObject* PalFont = Utils::LoadAssetSafely(DynPals::UI::Assets::Fonts::PalDefault);
+            for (int i = 0; i < headerCount; i++) {
+                auto TitleTxt = DynPals::UI::Text(OuterContext).Text(L"").Font(PalFont, L"Bold", 16).TextColor({0.063f, 0.725f, 0.506f, 1.0f}); 
+                RC::Unreal::UObject* TextObj = TitleTxt.Build();
+
+                auto HeaderVBox = DynPals::UI::VerticalBox(OuterContext);
+                HeaderVBox.AddToVerticalBox(DynPals::WidgetBuilder(TextObj), [](DynPals::BoxSlotBuilder& Slot) {
+                    Slot.Padding(10.0f, 14.0f, 10.0f, 4.0f);
+                });
+
+                auto DividerLine = DynPals::UI::SizeBox(OuterContext).HeightOverride(1.0f).AddChild(DynPals::UI::Border(OuterContext).BrushColor({0.063f, 0.725f, 0.506f, 0.3f}));
+                HeaderVBox.AddToVerticalBox(DividerLine, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(10.0f, 0.0f, 10.0f, 6.0f); });
+
+                RC::Unreal::UObject* RootObj = HeaderVBox.Build();
+                HeaderPool.push_back(PooledHeader{RootObj, TextObj});
+            }
+
+            // Preload Buttons
+            for (int i = 0; i < btnCount; i++) {
+                DynPals::WidgetBuilder Item(DynPals::UI::Assets::Blueprints::CommonButton, OuterContext);
+                Item.DesiredSizeOverride(600.0f - 40.0f, 45.0f);
+                Item.UnlockButtonSize(600.0f - 60.0f); 
+                
+                RC::Unreal::UObject* RootObj = Item.Build();
+                if (!RootObj) continue;
+                RC::Unreal::UObject* TextObj = nullptr;
+                Utils::GetPropertyValue(RootObj, STR("Text_Main"), TextObj, true);
+
+                auto Ctrl = std::make_unique<class DynPals::UI::Button>(RootObj);
+                class DynPals::UI::Button* RawCtrl = Ctrl.get();
+                AllButtonCtrls.push_back(std::move(Ctrl));
+                
+                ButtonPool.push_back(PooledButton{RootObj, TextObj, RawCtrl});
+            }
+        }
 
         RC::Unreal::UObject* Build(RC::Unreal::UObject* Outer, RC::Unreal::UObject* PC) {
-            OuterContext = Outer;
+            if (OuterContext != Outer) {
+                ClosePopup();
+                PopupOverlay = nullptr;
+                ScrollBoxList = nullptr;
+                bNeedsListRebuild = true;
+                OuterContext = Outer;
+            }
             PlayerController = PC;
 
             std::wstring DisplayText = Options.empty() ? L"" : Options[SelectedIndex];
@@ -83,6 +132,20 @@ namespace DynPals::UI {
                 Utils::CallFunction(PopupOverlay, STR("RemoveFromParent"));
             }
         }
+        
+        // Expose pools so PreloadUI can preserve their layouts
+        struct PooledHeader {
+            RC::Unreal::UObject* RootWidget;
+            RC::Unreal::UObject* TextWidget;
+        };
+        struct PooledButton {
+            RC::Unreal::UObject* RootWidget;
+            RC::Unreal::UObject* TextWidget;
+            class DynPals::UI::Button* BtnCtrl; 
+        };
+        
+        const std::vector<PooledHeader>& GetHeaderPool() const { return HeaderPool; }
+        const std::vector<PooledButton>& GetButtonPool() const { return ButtonPool; }
 
     private:
         std::vector<std::wstring> Options;
@@ -99,17 +162,7 @@ namespace DynPals::UI {
         RC::Unreal::UObject* PopupOverlay = nullptr;
         RC::Unreal::UObject* ScrollBoxList = nullptr;
         RC::Unreal::UObject* TargetWidget = nullptr;
-
-        // WIDGET POOLING STRUCTURES
-        struct PooledHeader {
-            RC::Unreal::UObject* RootWidget;
-            RC::Unreal::UObject* TextWidget;
-        };
-        struct PooledButton {
-            RC::Unreal::UObject* RootWidget;
-            RC::Unreal::UObject* TextWidget;
-            class DynPals::UI::Button* BtnCtrl; 
-        };
+        RC::Unreal::UObject* DropdownTrashBin = nullptr;
 
         std::vector<PooledHeader> HeaderPool;
         std::vector<PooledButton> ButtonPool;
@@ -132,8 +185,6 @@ namespace DynPals::UI {
 
         void RebuildList() {
             if (!ScrollBoxList) return;
-
-            auto start = std::chrono::high_resolution_clock::now();
 
             Utils::CallFunction(ScrollBoxList, STR("ClearChildren"));
 
@@ -190,6 +241,7 @@ namespace DynPals::UI {
                         Item.UnlockButtonSize(MaxWidth - 60.0f); 
                         
                         RC::Unreal::UObject* RootObj = Item.Build();
+                        if (!RootObj) continue;
                         RC::Unreal::UObject* TextObj = nullptr;
                         Utils::GetPropertyValue(RootObj, STR("Text_Main"), TextObj, true);
 
@@ -259,12 +311,23 @@ namespace DynPals::UI {
                 }
             }
 
-            bNeedsListRebuild = false;
+            // --- MOVE ALL UNUSED POOLED WIDGETS INTO TRASH BIN TO PREVENT GC ---
+            for (size_t i = headerUsed; i < HeaderPool.size(); ++i) {
+                if (Utils::IsObjectValid(HeaderPool[i].RootWidget) && DropdownTrashBin) {
+                    Utils::CallFunction(HeaderPool[i].RootWidget, STR("RemoveFromParent"));
+                    struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{HeaderPool[i].RootWidget, nullptr};
+                    Utils::CallFunction(DropdownTrashBin, STR("AddChild"), &AddParams);
+                }
+            }
+            for (size_t i = buttonUsed; i < ButtonPool.size(); ++i) {
+                if (Utils::IsObjectValid(ButtonPool[i].RootWidget) && DropdownTrashBin) {
+                    Utils::CallFunction(ButtonPool[i].RootWidget, STR("RemoveFromParent"));
+                    struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{ButtonPool[i].RootWidget, nullptr};
+                    Utils::CallFunction(DropdownTrashBin, STR("AddChild"), &AddParams);
+                }
+            }
 
-            auto end = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-            DP_LOG(Default, "[Profile] Dropdown::RebuildList recycled {} options in {} us ({:.3f} ms)", 
-                   Options.size(), duration, duration / 1000.0f);
+            bNeedsListRebuild = false;
         }
 
         void OpenPopup() {
@@ -349,4 +412,3 @@ namespace DynPals::UI {
         }
     };
 }
-// --- END OF FILE include/UI/Components/Dropdown.hpp ---

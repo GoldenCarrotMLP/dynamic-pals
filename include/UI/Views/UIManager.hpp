@@ -1,4 +1,3 @@
-// --- START OF FILE include/UI/Views/UIManager.hpp ---
 #pragma once
 #include "UI/UIBase.hpp"
 #include "UI/Components/Button.hpp"
@@ -14,7 +13,7 @@ namespace DynPals {
 
     struct ActiveMorphSlider {
         std::wstring MorphTargetName;
-        std::unique_ptr<UI::Slider> SliderCtrl;
+        std::unique_ptr<class DynPals::UI::Slider> SliderCtrl;
     };
 
     class UIManager : public UIBase {
@@ -27,6 +26,8 @@ namespace DynPals {
         void ToggleMenu() { RequestToggle(); }
         bool IsMenuOpen() const { return IsOpen(); }
 
+        void PreloadUI(RC::Unreal::UObject* PC);
+
     protected:
         virtual bool OnSetup() override;
         virtual void OnOpen() override;
@@ -36,7 +37,9 @@ namespace DynPals {
         virtual void OnTickUI() override;
 
     private:
-        UIManager() = default;
+        UIManager() { bCloseOnEscape = true; }
+        
+        RC::Unreal::UObject* PreloadContainer = nullptr;
         
         void UpdateTarget();
         void RefreshUI();
@@ -56,15 +59,15 @@ namespace DynPals {
         std::wstring TargetCharID = L"";
 
         // Smart Controllers
-        std::unique_ptr<UI::Dropdown> SkinDropdown;
-        std::unique_ptr<UI::Switch> HideInvalidSwitch;
-        std::unique_ptr<UI::Button> RerollButton;
+        std::unique_ptr<class DynPals::UI::Dropdown> SkinDropdown;
+        std::unique_ptr<class DynPals::UI::Switch> HideInvalidSwitch;
+        std::unique_ptr<class DynPals::UI::Button> RerollButton;
         std::vector<std::unique_ptr<class DynPals::UI::Slider>> MorphSliderPool;
         int ActiveMorphSlidersCount = 0;
         
         // UI Elements
-        std::unique_ptr<UI::Switch> FocusPalSwitch;
-        std::unique_ptr<UI::Slider> CameraRotationSlider;
+        std::unique_ptr<class DynPals::UI::Switch> FocusPalSwitch;
+        std::unique_ptr<class DynPals::UI::Slider> CameraRotationSlider;
 
         // Native Widget Persistent Containers
         RC::Unreal::UObject* MainScrollBoxObj = nullptr;

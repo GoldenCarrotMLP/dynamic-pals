@@ -484,6 +484,12 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
               }
             }
 
+            // --- PRELOAD UI ---
+            UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+            if (PlayerController) {
+                UIManager::Get().PreloadUI(PlayerController);
+            }
+
             bCompletedInitReady = true;
 
             DP_LOG(Default,

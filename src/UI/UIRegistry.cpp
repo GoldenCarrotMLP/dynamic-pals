@@ -1,231 +1,171 @@
-#include "UI/UIRegistry.hpp"
-
-#include "UI/UIBase.hpp"
-
-#include "Utils.hpp"
-
 #include <algorithm>
 
-
+#include "UI/UIBase.hpp"
+#include "UI/UIRegistry.hpp"
+#include "Utils.hpp"
 
 using namespace RC::Unreal;
 
-
-
 namespace DynPals {
 
+void UIRegistry::RegisterUI(UIBase* UI) {
+  RegisteredUIs.push_back(UI);
 
+  UpdateTickState();
+}
 
-    void UIRegistry::RegisterUI(UIBase* UI) {
+void UIRegistry::UnregisterUI(UIBase* UI) {
+  RegisteredUIs.erase(
+      std::remove(RegisteredUIs.begin(), RegisteredUIs.end(), UI),
+      RegisteredUIs.end());
 
-        RegisteredUIs.push_back(UI);
+  UpdateTickState();
+}
 
-        UpdateTickState();
+void UIRegistry::TickAll(UObject* PlayerController) {
+  for (UIBase* UI : RegisteredUIs) {
+    UI->ProcessTick(PlayerController);
+  }
+}
 
+void UIRegistry::UpdateTickState() {
+  bRequiresTick = false;
+
+  for (const UIBase* UI : RegisteredUIs) {
+    if (UI && (UI->IsOpen() || UI->IsToggleRequested())) {
+      bRequiresTick = true;
+
+      break;
     }
+  }
+}
 
+void UIRegistry::UpdateInputState(UObject* PlayerController) {
+  if (!PlayerController) return;
 
+  bool bNeedsLock = false;
 
-    void UIRegistry::UnregisterUI(UIBase* UI) {
+  UIBase* OpenUI = nullptr;
 
-        RegisteredUIs.erase(std::remove(RegisteredUIs.begin(), RegisteredUIs.end(), UI), RegisteredUIs.end());
+  for (UIBase* UI : RegisteredUIs) {
+    if (UI && UI->IsOpen() && UI->RequiresInputLock()) {
+      bNeedsLock = true;
 
-        UpdateTickState();
+      OpenUI = UI;
 
+      break;
     }
+  }
 
+  if (bNeedsLock && !bIsInputLocked) {
+    Utils::SetPropertyValue<bool>(PlayerController, STR("bShowMouseCursor"),
+                                  true);
 
+    Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableClickEvents"),
+                                  true);
 
-    void UIRegistry::TickAll(UObject* PlayerController) {
+    Utils::SetPropertyValue<bool>(PlayerController,
+                                  STR("bEnableMouseOverEvents"), true);
 
-        for (UIBase* UI : RegisteredUIs) {
+    // Ignore camera movement
 
-            UI->ProcessTick(PlayerController);
+    struct {
+      bool bNewLookInput;
+    } LookParams{true};
 
+    Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"),
+                        &LookParams);
+
+    // Ignore player/mount movement
+
+    struct {
+      bool bNewMoveInput;
+    } MoveParams{true};
+
+    Utils::CallFunction(PlayerController, STR("SetIgnoreMoveInput"),
+                        &MoveParams);
+
+    // --- Shift Focus and Released Cursor Capture to UI instantly ---
+
+    if (OpenUI && OpenUI->GetWidget()) {
+      UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(
+          nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
+
+      if (WBL) {
+        UFunction* InputModeFunc =
+            WBL->GetFunctionByNameInChain(STR("SetInputMode_GameAndUIEx"));
+
+        if (!InputModeFunc) {
+          InputModeFunc =
+              WBL->GetFunctionByNameInChain(STR("SetInputMode_GameAndUI"));
         }
 
+        if (InputModeFunc) {
+          struct {
+            UObject* TargetPlayerController;
+
+            UObject* InWidgetToFocus;
+
+            uint8_t InMouseLockMode;
+
+            bool bHideCursorDuringCapture;
+
+          } Params{PlayerController, OpenUI->GetWidget(), 0, false};
+
+          WBL->ProcessEvent(InputModeFunc, &Params);
+        }
+      }
+
+      Utils::CallFunction(OpenUI->GetWidget(), STR("SetKeyboardFocus"));
     }
 
+    bIsInputLocked = true;
 
+  }
 
-    void UIRegistry::UpdateTickState() {
-
-        bRequiresTick = false;
-
-        for (const UIBase* UI : RegisteredUIs) {
-
-            if (UI && (UI->IsOpen() || UI->IsToggleRequested())) {
-
-                bRequiresTick = true;
-
-                break;
-
-            }
-
-        }
-
-    }
-
-
-
-        void UIRegistry::UpdateInputState(UObject* PlayerController) {
-
-        if (!PlayerController) return;
-
-
-
-        bool bNeedsLock = false;
-
-        UIBase* OpenUI = nullptr;
-
-        for (UIBase* UI : RegisteredUIs) {
-
-            if (UI && UI->IsOpen() && UI->RequiresInputLock()) {
-
-                bNeedsLock = true;
-
-                OpenUI = UI;
-
-                break;
-
-            }
-
-        }
-
-
-
-        if (bNeedsLock && !bIsInputLocked) {
-
-            Utils::SetPropertyValue<bool>(PlayerController, STR("bShowMouseCursor"), true);
-
-            Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableClickEvents"), true);
-
-            Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableMouseOverEvents"), true);
-
-            
-
-            // Ignore camera movement
-
-            struct { bool bNewLookInput; } LookParams{ true };
-
+  else if (!bNeedsLock && bIsInputLocked) {
+            // Gently decrement the look/move ignore counters instead of wiping them globally
+            struct { bool bNewLookInput; } LookParams{ false };
             Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"), &LookParams);
 
-
-
-            // Ignore player/mount movement 
-
-            struct { bool bNewMoveInput; } MoveParams{ true };
-
+            struct { bool bNewMoveInput; } MoveParams{ false };
             Utils::CallFunction(PlayerController, STR("SetIgnoreMoveInput"), &MoveParams);
-
-
-
-            // --- Shift Focus and Released Cursor Capture to UI instantly ---
-
-            if (OpenUI && OpenUI->GetWidget()) {
+            
+            // Detect if the user closed our menu by pressing a key that natively triggers a game menu
+            bool bIsOpeningOtherMenu = (GetAsyncKeyState(VK_ESCAPE) & 0x8000) || 
+                                       (GetAsyncKeyState(VK_TAB) & 0x8000) || 
+                                       (GetAsyncKeyState('B') & 0x8000);
+            
+            // Only hide the mouse cursor and force GameOnly if no native menu is taking over
+            if (!bIsOpeningOtherMenu) {
+                Utils::SetPropertyValue<bool>(PlayerController, STR("bShowMouseCursor"), false);
+                Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableClickEvents"), false);
+                Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableMouseOverEvents"), false);
 
                 UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
-
                 if (WBL) {
-
-                    UFunction* InputModeFunc = WBL->GetFunctionByNameInChain(STR("SetInputMode_GameAndUIEx"));
-
-                    if (!InputModeFunc) {
-
-                        InputModeFunc = WBL->GetFunctionByNameInChain(STR("SetInputMode_GameAndUI"));
-
-                    }
-
-                    
-
+                    Utils::CallFunction(WBL, STR("SetFocusToGameViewport"));
+                    UFunction* InputModeFunc = WBL->GetFunctionByNameInChain(STR("SetInputMode_GameOnly"));
                     if (InputModeFunc) {
-
-                        struct {
-
-                            UObject* TargetPlayerController;
-
-                            UObject* InWidgetToFocus;
-
-                            uint8_t InMouseLockMode;
-
-                            bool bHideCursorDuringCapture;
-
-                        } Params{ PlayerController, OpenUI->GetWidget(), 0, false };
-
-                        WBL->ProcessEvent(InputModeFunc, &Params);
-
+                        struct { UObject* PC; bool bConsume; } InputModeParams{ PlayerController, false };
+                        WBL->ProcessEvent(InputModeFunc, &InputModeParams);
                     }
-
                 }
-
-                
-
-                Utils::CallFunction(OpenUI->GetWidget(), STR("SetKeyboardFocus"));
-
             }
-
-
-
-            bIsInputLocked = true;
-
-        } 
-
-        else if (!bNeedsLock && bIsInputLocked) {
-
-            Utils::SetPropertyValue<bool>(PlayerController, STR("bShowMouseCursor"), false);
-
-            Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableClickEvents"), false);
-
-            Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableMouseOverEvents"), false);
-
-
-
-            Utils::CallFunction(PlayerController, STR("ResetIgnoreLookInput"));
-
-            Utils::CallFunction(PlayerController, STR("ResetIgnoreMoveInput")); // wait, is it CurrentPlayerController or PlayerController? The function parameter is PlayerController.
-
-            // Let's verify what the original code had:
-
-            // "Utils::CallFunction(PlayerController, STR(\"ResetIgnoreLookInput\"));"
-
-            // "Utils::CallFunction(PlayerController, STR(\"ResetIgnoreMoveInput\"));"
-
-            
-
-            UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
-
-            if (WBL) {
-
-                Utils::CallFunction(WBL, STR("SetFocusToGameViewport"));
-
-                UFunction* InputModeFunc = WBL->GetFunctionByNameInChain(STR("SetInputMode_GameOnly"));
-
-                if (InputModeFunc) {
-
-                    struct { UObject* PC; bool bConsume; } InputModeParams{ PlayerController, false };
-
-                    WBL->ProcessEvent(InputModeFunc, &InputModeParams);
-
-                }
-
-            }
-
-
 
             bIsInputLocked = false;
 
-        }
-
-    }
-
-        void UIRegistry::InvalidateAllUIs() {
-        for (UIBase* UI : RegisteredUIs) {
-            if (UI) {
-                UI->InvalidateWidget();
-            }
-        }
-        bIsInputLocked = false;
-        UpdateTickState();
-    }
-
+  }
 }
+
+void UIRegistry::InvalidateAllUIs() {
+  for (UIBase* UI : RegisteredUIs) {
+    if (UI) {
+      UI->InvalidateWidget();
+    }
+  }
+  bIsInputLocked = false;
+  UpdateTickState();
+}
+
+}  // namespace DynPals

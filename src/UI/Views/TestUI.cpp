@@ -145,6 +145,10 @@ namespace DynPals {
             TestSwitch = std::make_unique<UI::Switch>(MyWidget, true);
             TestLR = std::make_unique<UI::Selector>(MyWidget, std::vector<std::wstring>{L"Low", L"Medium", L"High", L"Epic"}, 2);
 
+            RC::Unreal::UObject* WidgetTrashBin = UI::VerticalBox(MyWidget).Build();
+            struct { uint8_t InVisibility; } VisParams{ 1 };
+            Utils::CallFunction(WidgetTrashBin, STR("SetVisibility"), &VisParams);
+
             if (!TestDropdown) {
                 int initialIdx = 0;
                 for (size_t i = 0; i < DropdownOptions.size(); ++i) {
@@ -158,6 +162,7 @@ namespace DynPals {
                     CurrentDropdownChoice = Choice;
                 });
             }
+            TestDropdown->SetTrashBin(WidgetTrashBin);
 
             UObject* NativeDropdownWidget = TestDropdown->Build(MyWidget, CurrentPlayerController);
 
