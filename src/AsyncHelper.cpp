@@ -11,7 +11,7 @@ using namespace RC::Unreal;
 namespace DynPals {
 
     // Standalone, ultra-safe pattern scanner. Bypasses UE4SS locks completely!
-    static void* FindPattern(const std::string& patternStr) {
+    void* AsyncHelper::FindPattern(const std::string& patternStr) {
         uint8_t* base = reinterpret_cast<uint8_t*>(GetModuleHandleA(NULL));
         if (!base) return nullptr;
 

@@ -46,12 +46,10 @@ namespace DynPals {
         } \
     } while(0)
 
-using GenderType = std::wstring; 
-using MorphType = std::wstring;  
-
 struct FLinearColor_UE5 {
     float R, G, B, A;
 };
+
 struct MatReplace {
     std::string index;
     std::wstring matPath;
@@ -63,7 +61,7 @@ struct MorphTarget {
     double setVal = -1000.0;
     double minVal = 0.0;
     double maxVal = 1.0;
-    MorphType type = L"None"; 
+    std::wstring type = L"None"; 
 };
 
 struct SwapConfig {
@@ -71,7 +69,7 @@ struct SwapConfig {
     std::wstring CharacterID;
     std::wstring SkelMeshPath;
     std::wstring AnimTarget = L"";
-    GenderType Gender = L"None"; 
+    std::wstring Gender = L"None"; 
     std::wstring SkinName = L"";   
     std::wstring SwapLabel = L"";  // UI Display Name
     std::wstring SetNickname = L"";
@@ -100,11 +98,10 @@ struct SwapEvaluation {
 };
 
 struct FPalInstanceID {
-        DynPals::DynPalsGuid PlayerUId;
-        DynPals::DynPalsGuid InstanceId;
-        DynPals::DynPalsGuid DebugId; // Alignment padding to match the engine's 3-GUID structure
-    };
-
+    DynPals::DynPalsGuid PlayerUId;
+    DynPals::DynPalsGuid InstanceId;
+    DynPals::DynPalsGuid DebugId; // Alignment padding to match the engine's 3-GUID structure
+};
 
 struct PalPersistData {
     std::wstring InstanceID;
@@ -121,6 +118,7 @@ struct PalPersistData {
         return !SkelMeshPath.empty() || !SkinName.empty();
     }
 };
+
 struct AltrSoftObjectPath {
     RC::Unreal::FName PackageName;
     RC::Unreal::FName AssetName;
@@ -144,6 +142,7 @@ struct AltrSoftObjectPtr {
 struct FVector_UE5 {
     double X, Y, Z;
 };
+
 namespace DynPals {
     enum class EPalLogPriority : uint8_t { 
         None = 0, Normal = 1, Important = 2, VeryImportant = 3 
@@ -167,7 +166,10 @@ namespace DynPals {
         uint8_t Pad2[4];                        
         RC::Unreal::UClass* OverrideWidgetClass;
         FPalStaticItemIdAndNum ItemIDAndNum;    
-        uint8_t Pad3[4];                        
+        uint8_t Pad3[4];
+        FPalInstanceID IndividualId;
+        uint8_t LogType;
+        uint8_t Pad4[7];
     };
     #pragma pack(pop)
 
