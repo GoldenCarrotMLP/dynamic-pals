@@ -390,20 +390,28 @@ static std::wstring GetFormattedVersionString() {
 void HooksManager::OnPalSpawnedReady(
     UnrealScriptFunctionCallableContext& Context, void*) {
   UObject* PalNPC = Context.Context;
-
   std::wstring palName = PalNPC ? PalNPC->GetName() : L"NULL";
+
+  // Start telemetry timing
+  auto start = std::chrono::high_resolution_clock::now();
 
   DP_LOG(Default, "[Hook Monitor] OnPalSpawnedReady fired for {}", palName);
 
   if (!bCompletedInitReady) {
     DP_LOG(Default, "  -> Aborted: Mod is still in startup standby.");
-
     return;
   }
 
   if (PalNPC) {
     PalProcessor::Get().ProcessPal(PalNPC, false);
   }
+
+  // End telemetry timing
+  auto end = std::chrono::high_resolution_clock::now();
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+  
+  DP_LOG(Default, "[Telemetry] OnPalSpawnedReady end-to-end for {} took {} us ({:.3f} ms)", 
+         palName, duration, duration / 1000.0f);
 }
 
 static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,

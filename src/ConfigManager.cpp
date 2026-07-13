@@ -176,7 +176,9 @@ namespace DynPals {
                     JsonDict matDict(mat);
                     std::string rawIndex = SafeGetIndexString(matDict, "Index");
                     bool bRandomHue = SafeGetOptionalBool(matDict, "RandomHue").value_or(false);
-                    std::wstring matPath = Utils::StringToWString(matDict.get("MatPath").get<std::string>());
+                    std::wstring matPath;
+                    if (matDict.contains("MaterialAsset")) matPath = Utils::StringToWString(matDict.get("MaterialAsset").get<std::string>());
+                    else if (matDict.contains("MatPath")) matPath = Utils::StringToWString(matDict.get("MatPath").get<std::string>());
                     ParseMaterialIndices(rawIndex, matPath, bRandomHue, sc);
                 }
             }
@@ -408,9 +410,20 @@ namespace DynPals {
     std::vector<SwapEvaluation> ConfigManager::EvaluateAllSwaps(const std::wstring& CharID, bool IsRare, const std::wstring& GenderStr, const std::vector<std::wstring>& Traits, int Level, const std::wstring& SkinName, int Rank, int Trust, bool IsWild, const std::wstring& CurrentSwapLabel) const {
         std::vector<SwapEvaluation> results;
 
+        // Zero-allocation case-insensitive string comparison helper
+        auto IEquals = [](const std::wstring& a, const std::wstring& b) {
+            if (a.size() != b.size()) return false;
+            for (size_t i = 0; i < a.size(); ++i) {
+                if (std::towlower(a[i]) != std::towlower(b[i])) return false;
+            }
+            return true;
+        };
+
         for (size_t i = 0; i < Configs.size(); i++) {
             auto& swap = Configs[i];
-            if (ToLower(swap.CharacterID) != ToLower(CharID)) continue;
+            
+            // Immediately reject configs that don't match the Pal's ID without allocating memory
+            if (!IEquals(swap.CharacterID, CharID)) continue;
 
             SwapEvaluation eval;
             eval.ConfigIndex = (int)i;
@@ -421,8 +434,6 @@ namespace DynPals {
                 eval.IsValid = false;
             } else if (swap.MinLevel > 1 || swap.MaxLevel < 999) {
                 eval.Score -= 10; 
-                // EVOLUTION FIX: Higher MinLevel requirements inherently score better!
-                // This cleanly breaks ties between previous and next evolutions (e.g., Braixen vs Delphox)
                 if (swap.MinLevel > 1) eval.Score -= swap.MinLevel;
             }
 
@@ -430,7 +441,6 @@ namespace DynPals {
                 eval.IsValid = false;
             } else if (swap.MinRank > 0 || swap.MaxRank < 5) {
                 eval.Score -= 10; 
-                // Higher Condensation Ranks score better (Multiplied by 5 since ranks are only 1-5)
                 if (swap.MinRank > 0) eval.Score -= (swap.MinRank * 5); 
             }
 
@@ -440,8 +450,10 @@ namespace DynPals {
                 eval.Score -= 10; 
             }
 
-            std::wstring swapGender = ToLower(swap.Gender);
-            std::wstring charGender = ToLower(GenderStr);
+            std::wstring swapGender = swap.Gender;
+            std::transform(swapGender.begin(), swapGender.end(), swapGender.begin(), ::towlower);
+            std::wstring charGender = GenderStr;
+            std::transform(charGender.begin(), charGender.end(), charGender.begin(), ::towlower);
 
             if (swapGender == L"any" || swapGender == L"all" || swapGender == L"both" || swapGender.empty()) {
                 swapGender = L"none";
@@ -453,13 +465,11 @@ namespace DynPals {
             if (eval.IsValid && swapGender != L"none") {
                 if (swapGender != charGender) {
                     bool fallbackMatched = false;
-                    
                     if (swapGender == L"male" && (charGender == L"futa" || charGender == L"fullfuta")) {
                         fallbackMatched = true;
                     } else if (swapGender == L"female" && (charGender == L"andro" || charGender == L"neutered" || charGender == L"fullneutered")) {
                         fallbackMatched = true;
                     }
-                    
                     if (!fallbackMatched) {
                         eval.IsValid = false;
                     }
@@ -467,7 +477,7 @@ namespace DynPals {
             }
 
             if (eval.IsValid && !swap.SkinName.empty()) {
-                if (ToLower(SkinName) != ToLower(swap.SkinName)) eval.IsValid = false;
+                if (!IEquals(SkinName, swap.SkinName)) eval.IsValid = false;
                 else eval.Score -= 50; 
             }
 
@@ -487,7 +497,7 @@ namespace DynPals {
                 for (const auto& req : swap.ReqTrait) {
                     bool hasTrait = false;
                     for (const auto& t : Traits) {
-                        if (ToLower(t) == ToLower(req)) { hasTrait = true; break; }
+                        if (IEquals(t, req)) { hasTrait = true; break; }
                     }
                     if (!hasTrait) {
                         eval.IsValid = false;
@@ -501,11 +511,11 @@ namespace DynPals {
             if (eval.IsValid && !swap.ReqSwap.empty()) {
                 bool hasReqSwap = false;
 
-                if (!swap.SwapLabel.empty() && ToLower(swap.SwapLabel) == ToLower(CurrentSwapLabel)) {
+                if (!swap.SwapLabel.empty() && IEquals(swap.SwapLabel, CurrentSwapLabel)) {
                     hasReqSwap = true;
                 } else {
                     for (const auto& req : swap.ReqSwap) {
-                        if (ToLower(req) == ToLower(CurrentSwapLabel)) {
+                        if (IEquals(req, CurrentSwapLabel)) {
                             hasReqSwap = true;
                             break;
                         }
@@ -523,17 +533,18 @@ namespace DynPals {
                 for (const auto& pref : swap.PrefTrait) {
                     bool hasTrait = false;
                     for (const auto& t : Traits) {
-                        if (ToLower(t) == ToLower(pref)) { hasTrait = true; break; }
+                        if (IEquals(t, pref)) { hasTrait = true; break; }
                     }
                     if (hasTrait) eval.Score -= 10; 
                     else eval.Score += 10;          
                 }
             }
+            
             if (eval.IsValid) {
                 for (const auto& skip : swap.SkipTrait) {
                     bool hasBlacklistedTrait = false;
                     for (const auto& t : Traits) {
-                        if (ToLower(t) == ToLower(skip)) {
+                        if (IEquals(t, skip)) {
                             hasBlacklistedTrait = true;
                             break;
                         }

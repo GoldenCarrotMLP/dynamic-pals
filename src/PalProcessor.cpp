@@ -30,14 +30,24 @@ namespace DynPals {
         UFunction* GetRankFunc = nullptr;
         UFunction* GetFriendshipRankFunc = nullptr;
         UFunction* GetFriendshipPointFunc = nullptr;
+
+        // NEW: Fast Execution Cache
+        UFunction* GetCharacterIDFromCharacterFunc = nullptr;
+        UFunction* IsWildNPCFunc = nullptr;
+        UFunction* IsRarePalFunc = nullptr;
+        UFunction* GetGenderTypeFunc = nullptr;
+        UFunction* GetSkinNameFunc = nullptr;
+        UFunction* GetPassiveSkillListFunc = nullptr;
+        UFunction* GetDatabaseCharacterParameterFunc = nullptr;
+        UFunction* GetBPClassFunc = nullptr;
         
         bool bIsGlobalsInit = false;
         bool bIsStatsInit = false;
         bool bIsPropsInit = false;
+        bool bIsCoreGlobalsInit = false;
     };
     
     static FPalPropertyCache GCachedProps;
-
 
 
     
@@ -116,16 +126,20 @@ namespace DynPals {
 
         // 1. Fetch the active UPalDatabaseCharacterParameter subsystem instance
         struct { UObject* WorldCtx; UObject* DB; } GetDBParams{ WorldContext, nullptr };
-        UFunction* GetDBFunc = PalUtil->GetFunctionByNameInChain(STR("GetDatabaseCharacterParameter"));
-        if (!GetDBFunc) return false;
+        if (!GCachedProps.GetDatabaseCharacterParameterFunc) {
+            GCachedProps.GetDatabaseCharacterParameterFunc = PalUtil->GetFunctionByNameInChain(STR("GetDatabaseCharacterParameter"));
+        }
+        if (!GCachedProps.GetDatabaseCharacterParameterFunc) return false;
         
-        PalUtil->ProcessEvent(GetDBFunc, &GetDBParams);
+        PalUtil->ProcessEvent(GCachedProps.GetDatabaseCharacterParameterFunc, &GetDBParams);
         UObject* DB = GetDBParams.DB;
         if (!DB) return false;
 
         // 2. Fetch the native GetBPClass function
-        UFunction* GetBPClassFunc = DB->GetFunctionByNameInChain(STR("GetBPClass"));
-        if (!GetBPClassFunc) return false;
+        if (!GCachedProps.GetBPClassFunc) {
+            GCachedProps.GetBPClassFunc = DB->GetFunctionByNameInChain(STR("GetBPClass"));
+        }
+        if (!GCachedProps.GetBPClassFunc) return false;
 
         // 3. Package the parameter block (matches native UE5 alignment & size requirements)
         struct {
@@ -139,7 +153,7 @@ namespace DynPals {
         Params.bShowError = false;
 
         // 4. Fire the native function call! (Now 100% stack-safe)
-        DB->ProcessEvent(GetBPClassFunc, &Params);
+        DB->ProcessEvent(GCachedProps.GetBPClassFunc, &Params);
 
         // 5. Convert the returned SoftClassPtr (AltrSoftObjectPtr) to a std::wstring path
         std::wstring packageName = Params.ReturnValue.ObjectID.PackageName.ToString();
@@ -478,16 +492,35 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
         if (!World || World->GetClassPrivate()->GetName() != L"World") return;
 
         static UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+        
+        // --- 1. CORE GLOBALS CACHING ---
+        if (PalUtil && !GCachedProps.bIsCoreGlobalsInit) {
+            GCachedProps.GetCharacterIDFromCharacterFunc = PalUtil->GetFunctionByNameInChain(STR("GetCharacterIDFromCharacter"));
+            GCachedProps.IsWildNPCFunc = PalUtil->GetFunctionByNameInChain(STR("IsWildNPC"));
+            
+            if (IndivParam) {
+                GCachedProps.IsRarePalFunc = IndivParam->GetFunctionByNameInChain(STR("IsRarePal"));
+                GCachedProps.GetGenderTypeFunc = IndivParam->GetFunctionByNameInChain(STR("GetGenderType"));
+                GCachedProps.GetSkinNameFunc = IndivParam->GetFunctionByNameInChain(STR("GetSkinName"));
+                GCachedProps.GetPassiveSkillListFunc = IndivParam->GetFunctionByNameInChain(STR("GetPassiveSkillList"));
+            }
+            GCachedProps.bIsCoreGlobalsInit = true;
+        }
+
         struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
-        if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
+        if (PalUtil && GCachedProps.GetCharacterIDFromCharacterFunc) {
+            PalUtil->ProcessEvent(GCachedProps.GetCharacterIDFromCharacterFunc, &CharIDParams);
+        }
         std::wstring RawCharID = CharIDParams.RetVal.ToString();
 
         if (RawCharID.rfind(L"GYM_", 0) == 0 || RawCharID.find(L"_Gym_") != std::wstring::npos) return;
 
-        // --- DEBUG 1: FUNCTION ENTRANCE ---
-        //DP_LOG(Default, "[Debug Swap] ExecuteSwap called for Pal '{}' (ID: {}).", RawCharID, InstanceID);
-
-        SaveManager::Get().LoadWorldData(World);
+        // --- 2. OPTIMIZE SAVE MANAGER ACCESS ---
+        static UObject* LastWorldLoaded = nullptr;
+        if (World != LastWorldLoaded) {
+            SaveManager::Get().LoadWorldData(World);
+            LastWorldLoaded = World;
+        }
         PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
 
         std::wstring CharID = StripCharacterPrefix(RawCharID);
@@ -497,31 +530,35 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
         int RankNum = stats.Rank;
         int FriendshipNum = stats.Friendship;
 
+        // --- 3. ZERO-REFLECTION PARAMETER FETCHING ---
         struct { UObject* Actor; bool RetVal; } WildParams{Character, false};
-        if (PalUtil) Utils::CallFunction(PalUtil, STR("IsWildNPC"), &WildParams);
+        if (PalUtil && GCachedProps.IsWildNPCFunc) PalUtil->ProcessEvent(GCachedProps.IsWildNPCFunc, &WildParams);
         bool IsWild = WildParams.RetVal;
 
         struct { bool ReturnValue; } RareParams{false};
-        Utils::CallFunction(IndivParam, STR("IsRarePal"), &RareParams);
+        if (GCachedProps.IsRarePalFunc) IndivParam->ProcessEvent(GCachedProps.IsRarePalFunc, &RareParams);
         bool IsRare = RareParams.ReturnValue;
 
         struct { uint8_t RetVal; } GenderParams{0};
-        Utils::CallFunction(IndivParam, STR("GetGenderType"), &GenderParams);
+        if (GCachedProps.GetGenderTypeFunc) IndivParam->ProcessEvent(GCachedProps.GetGenderTypeFunc, &GenderParams);
         std::wstring GenderStr = (GenderParams.RetVal == 1) ? L"Male" : ((GenderParams.RetVal == 2) ? L"Female" : L"None");
 
         struct { FName RetVal; } SkinParams{FName()};
-        Utils::CallFunction(IndivParam, STR("GetSkinName"), &SkinParams);
+        if (GCachedProps.GetSkinNameFunc) IndivParam->ProcessEvent(GCachedProps.GetSkinNameFunc, &SkinParams);
         std::wstring SkinName = SkinParams.RetVal.ToString();
         if (SkinName == L"None") SkinName = L"";
 
         std::vector<std::wstring> Traits;
         struct { TArray<FName> RetVal; } TraitsParams;
-        Utils::CallFunction(IndivParam, STR("GetPassiveSkillList"), &TraitsParams);
-        for (int32_t i = 0; i < TraitsParams.RetVal.Num(); ++i) {
-            Traits.push_back(TraitsParams.RetVal[i].ToString());
+        if (GCachedProps.GetPassiveSkillListFunc) {
+            IndivParam->ProcessEvent(GCachedProps.GetPassiveSkillListFunc, &TraitsParams);
+            for (int32_t i = 0; i < TraitsParams.RetVal.Num(); ++i) {
+                Traits.push_back(TraitsParams.RetVal[i].ToString());
+            }
         }
 
         PalRuntimeStats& CachedStats = RuntimeStatsCache[InstanceID];
+
         
         // Extract the current skin label so the engine knows the Pal's evolutionary state
         std::wstring CurrentSwapLabel = ExistingData ? ExistingData->SwapLabel : L"";
@@ -758,122 +795,105 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
         std::wstring CharID = StripCharacterPrefix(CharIDParams.RetVal.ToString());
 
         std::wstring AnimPath = swap.AnimTarget;
-        if (AnimPath.empty()) {
-            AnimPath = CharID;
-        }
+        
+        // Helper to perform case-insensitive comparisons
+        auto ToLowerW = [](std::wstring str) {
+            std::transform(str.begin(), str.end(), str.begin(), ::towlower);
+            return str;
+        };
 
-        UClass* TargetBPClass = nullptr;
-        std::wstring TargetPackagePath = L"";
-        std::wstring TargetClassName = L"";
+        // ONLY perform a heavy blocking disk-load if the user explicitly requested a DIFFERENT animation blueprint!
+        bool bNeedsExternalAnimLoad = !AnimPath.empty() && ToLowerW(AnimPath) != ToLowerW(CharID);
 
-         if (AnimPath.find(L'/') == std::wstring::npos) {
-            std::wstring ResolvedPath;
-            if (ResolvePalBlueprintPath(Character, AnimPath, ResolvedPath)) {
-                TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(ResolvedPath));
-                if (TargetBPClass) {
-                    size_t dotPos = ResolvedPath.find(L'.');
-                    if (dotPos != std::wstring::npos) {
-                        TargetPackagePath = ResolvedPath.substr(0, dotPos);
-                        TargetClassName = ResolvedPath.substr(dotPos + 1);
-                    }
-                }
-            }
+        if (bNeedsExternalAnimLoad) {
+            UClass* TargetBPClass = nullptr;
+            std::wstring TargetPackagePath = L"";
+            std::wstring TargetClassName = L"";
 
-            // 2. Secondary Fallback: Guess paths if the ID isn't registered in the native Database
-            if (!TargetBPClass) {
-                DP_LOG(Normal, "Pal '{}' not found in native Database. Falling back to path-guessing...\n", AnimPath);
-                
-                std::wstring TryPath1 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
-                TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath1));
-
-                if (TargetBPClass) {
-                    TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath;
-                    TargetClassName = L"BP_" + AnimPath + L"_C";
-                } else {
-                    std::wstring FolderName = AnimPath;
-                    size_t uscorePos = FolderName.find(L'_');
-                    if (uscorePos != std::wstring::npos) {
-                        FolderName = FolderName.substr(0, uscorePos);
-                        std::wstring TryPath2 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
-                        TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath2));
-                        
-                        if (TargetBPClass) {
-                            TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath;
-                            TargetClassName = L"BP_" + AnimPath + L"_C";
+            if (AnimPath.find(L'/') == std::wstring::npos) {
+                std::wstring ResolvedPath;
+                if (ResolvePalBlueprintPath(Character, AnimPath, ResolvedPath)) {
+                    TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(ResolvedPath));
+                    if (TargetBPClass) {
+                        size_t dotPos = ResolvedPath.find(L'.');
+                        if (dotPos != std::wstring::npos) {
+                            TargetPackagePath = ResolvedPath.substr(0, dotPos);
+                            TargetClassName = ResolvedPath.substr(dotPos + 1);
                         }
                     }
                 }
-            }
-        } else {
-            TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
-            if (!TargetBPClass) {
-                DP_LOG(Warning, "Failed to load Animation Target Blueprint for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, AnimPath);
-            }
-            size_t dotPos = AnimPath.find(L'.');
-            if (dotPos != std::wstring::npos) {
-                TargetPackagePath = AnimPath.substr(0, dotPos);
-                TargetClassName = AnimPath.substr(dotPos + 1);
-            }
-        }
 
-        if (!IsPalBlueprintValid(Character, BPName)) return;
-        Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-        if (!MeshComp) return;
-
-        if (TargetBPClass && !TargetPackagePath.empty() && !TargetClassName.empty()) {
-            std::wstring CDOPath = TargetPackagePath + L".Default__" + TargetClassName;
-            UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
-            
-            if (TargetCDO) {
-                UObject* TargetMesh = nullptr;
-                Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
-                
-                if (TargetMesh) {
-                    Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
-                    if (TargetAnimClass) {
-                        Utils::GetPropertyValue<UObject*>(TargetAnimClass, STR("TargetSkeleton"), TargetSkeleton);
-                    }
-
-                    UObject* TargetSkelMesh = nullptr;
-                    Utils::GetPropertyValue<UObject*>(TargetMesh, STR("SkeletalMesh"), TargetSkelMesh);
-                    if (!TargetSkelMesh) {
-                        Utils::GetPropertyValue<UObject*>(TargetMesh, STR("SkinnedAsset"), TargetSkelMesh);
-                    }
-
-                    if (TargetSkelMesh && !TargetSkeleton) {
-                        Utils::GetPropertyValue<UObject*>(TargetSkelMesh, STR("Skeleton"), TargetSkeleton);
+                // Fallback: Guess paths if the ID isn't registered in the native Database
+                if (!TargetBPClass) {
+                    std::wstring TryPath1 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
+                    TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath1));
+                    if (TargetBPClass) {
+                        TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath;
+                        TargetClassName = L"BP_" + AnimPath + L"_C";
+                    } else {
+                        std::wstring FolderName = AnimPath;
+                        size_t uscorePos = FolderName.find(L'_');
+                        if (uscorePos != std::wstring::npos) {
+                            FolderName = FolderName.substr(0, uscorePos);
+                            std::wstring TryPath2 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
+                            TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath2));
+                            if (TargetBPClass) {
+                                TargetPackagePath = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + FolderName + L"/BP_" + AnimPath;
+                                TargetClassName = L"BP_" + AnimPath + L"_C";
+                            }
+                        }
                     }
                 }
-                Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+            } else {
+                TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(AnimPath));
+                size_t dotPos = AnimPath.find(L'.');
+                if (dotPos != std::wstring::npos) {
+                    TargetPackagePath = AnimPath.substr(0, dotPos);
+                    TargetClassName = AnimPath.substr(dotPos + 1);
+                }
             }
-        }
 
-        if (!TargetAnimClass) {
-            UClass* PalClass = Character->GetClassPrivate();
-            if (PalClass) {
-                std::wstring ClassName = PalClass->GetName();
-                std::wstring CDOName = L"Default__" + ClassName;
-                UObject* PalCDO = UObjectGlobals::StaticFindObject<UObject*>(nullptr, PalClass->GetOuterPrivate(), CDOName.c_str());
+            if (!IsPalBlueprintValid(Character, BPName)) return;
+            Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
+            if (!MeshComp) return;
+
+            if (TargetBPClass && !TargetPackagePath.empty() && !TargetClassName.empty()) {
+                std::wstring CDOPath = TargetPackagePath + L".Default__" + TargetClassName;
+                UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
                 
-                if (PalCDO) {
-                    UObject* CDOMesh = nullptr;
-                    Utils::GetPropertyValue<UObject*>(PalCDO, STR("Mesh"), CDOMesh);
-                    if (CDOMesh) {
-                        Utils::GetPropertyValue<UClass*>(CDOMesh, STR("AnimClass"), TargetAnimClass);
+                if (TargetCDO) {
+                    UObject* TargetMesh = nullptr;
+                    Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
+                    
+                    if (TargetMesh) {
+                        Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
                         if (TargetAnimClass) {
                             Utils::GetPropertyValue<UObject*>(TargetAnimClass, STR("TargetSkeleton"), TargetSkeleton);
                         }
 
-                        UObject* CDOSkelMesh = nullptr;
-                        if (!Utils::GetPropertyValue<UObject*>(CDOMesh, STR("SkeletalMesh"), CDOSkelMesh)) {
-                            Utils::GetPropertyValue<UObject*>(CDOMesh, STR("SkinnedAsset"), CDOSkelMesh);
+                        UObject* TargetSkelMesh = nullptr;
+                        if (!Utils::GetPropertyValue<UObject*>(TargetMesh, STR("SkeletalMesh"), TargetSkelMesh)) {
+                            Utils::GetPropertyValue<UObject*>(TargetMesh, STR("SkinnedAsset"), TargetSkelMesh);
                         }
-                        if (CDOSkelMesh && !TargetSkeleton) {
-                            Utils::GetPropertyValue<UObject*>(CDOSkelMesh, STR("Skeleton"), TargetSkeleton);
+
+                        if (TargetSkelMesh && !TargetSkeleton) {
+                            Utils::GetPropertyValue<UObject*>(TargetSkelMesh, STR("Skeleton"), TargetSkeleton);
                         }
                     }
-                    Utils::GetPropertyValue<UObject*>(PalCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+                    Utils::GetPropertyValue<UObject*>(TargetCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
                 }
+            }
+        } else {
+            // --- FAST PATH: Extract directly from the live Actor in RAM (Zero-Disk Overhead) ---
+            TargetAnimClass = CurrentAnimClass;
+            Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+            
+            UObject* CurrentSkelMesh = nullptr;
+            if (!Utils::GetPropertyValue<UObject*>(MeshComp, STR("SkeletalMesh"), CurrentSkelMesh)) {
+                Utils::GetPropertyValue<UObject*>(MeshComp, STR("SkinnedAsset"), CurrentSkelMesh);
+            }
+            if (CurrentSkelMesh) {
+                Utils::GetPropertyValue<UObject*>(CurrentSkelMesh, STR("Skeleton"), TargetSkeleton);
             }
         }
 
@@ -1002,12 +1022,6 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                 persist.MatSet[mat.index] = ChosenPath;
             }
 
-            UObject* NewMat = Utils::LoadAssetSafely(ChosenPath);
-            if (!NewMat) {
-                DP_LOG(Warning, "[Slot {}] LoadAssetSafely FAILED for path: '{}'", WideIndex, ChosenPath);
-                continue;
-            }
-
             if (!IsPalBlueprintValid(Character, BPName)) {
                 return;
             }
@@ -1020,6 +1034,25 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
 
             int idx = 0;
             try { idx = std::stoi(mat.index); } catch(...) { continue; }
+
+            UObject* NewMat = nullptr;
+            if (!ChosenPath.empty()) {
+                NewMat = Utils::LoadAssetSafely(ChosenPath);
+                if (!NewMat) {
+                    DP_LOG(Warning, "[Slot {}] LoadAssetSafely FAILED for path: '{}'", WideIndex, ChosenPath);
+                    continue;
+                }
+            } else {
+                struct { int32_t ElementIndex; UObject* ReturnValue; } GetMatParams{idx, nullptr};
+                Utils::CallFunction(CurrentMeshComp, STR("GetMaterial"), &GetMatParams);
+                NewMat = GetMatParams.ReturnValue;
+                
+                if (!NewMat) {
+                    DP_LOG(Warning, "[Slot {}] Failed to retrieve existing material for dynamic application.", WideIndex);
+                    continue;
+                }
+            }
+
 
             // --- DYNAMIC MATERIAL INSTANCE & HUE GENERATOR ---
             if (mat.bRandomHue) {
