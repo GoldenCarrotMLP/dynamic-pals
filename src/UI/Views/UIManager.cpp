@@ -408,14 +408,16 @@ namespace DynPals {
         SkinDropdown->OnChanged([this](int Index, std::wstring Choice) {
             if (Index >= 0 && Index < static_cast<int>(DropdownConfigIndices.size())) {
                 int TargetConfig = DropdownConfigIndices[Index];
-                PalProcessor::Get().ForceSwap(TargetPal, TargetConfig);
+                if (TargetConfig != -1) {
+                    PalProcessor::Get().ForceSwap(TargetPal, TargetConfig);
+                }
                 
                 if (MainScrollBoxObj && GetScrollOffsetFunc) {
                     struct { float Offset; } Params{ 0.0f };
                     MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
                     LastScrollOffset = Params.Offset;
                 }
-                RefreshUI(); 
+                bNeedsRefresh = true; 
             }
         });
 
@@ -427,7 +429,7 @@ namespace DynPals {
                 MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
                 LastScrollOffset = Params.Offset;
             }
-            RefreshUI(); 
+            bNeedsRefresh = true; 
         });
 
         FocusPalSwitch = std::make_unique<UI::Switch>(MyWidget, SaveManager::Get().Settings.bFocusPal);
@@ -445,7 +447,7 @@ namespace DynPals {
                 MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
                 LastScrollOffset = Params.Offset;
             }
-            RefreshUI(); 
+            bNeedsRefresh = true; 
         });
 
         auto RerollBtnBuilder = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget)
@@ -463,8 +465,9 @@ namespace DynPals {
                 MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
                 LastScrollOffset = Params.Offset;
             }
-            RefreshUI(); 
+            bNeedsRefresh = true; 
         });
+
 
         auto InnerContentBox = UI::VerticalBox(MyWidget);
 
@@ -803,6 +806,12 @@ namespace DynPals {
             }
         }
 
+        if (newDropdownOptions.empty()) {
+            newDropdownOptions.push_back(L"   (No Skins Available)");
+            newDropdownConfigIndices.push_back(-1);
+        }
+
+
         bool bOptionsChanged = false;
         if (newDropdownOptions.size() != DropdownOptions.size()) {
             bOptionsChanged = true;
@@ -1109,6 +1118,11 @@ namespace DynPals {
             TargetPal = nullptr;
             RequestToggle(); 
             return;
+        }
+
+        if (bNeedsRefresh) {
+            bNeedsRefresh = false;
+            RefreshUI();
         }
 
         if (SkinDropdown)         SkinDropdown->Tick();

@@ -364,10 +364,17 @@ namespace DynPals {
     }
 
     UObject* VFXManager::AttachVFXToPal(UObject* PalActor, const std::wstring& VfxPath, const std::wstring& SocketName, float ScaleMult, float ZOffsetMult) {
-        if (!PalActor) return nullptr;
+        if (!Utils::IsObjectValid(PalActor)) return nullptr;
+        
+        // Safety Shield: Do not attempt to calculate dynamic bounds or attach VFX to invisible/dormant actors
+        bool bHidden = false;
+        if (Utils::GetPropertyValue<bool>(PalActor, STR("bHidden"), bHidden, true) && bHidden) {
+            return nullptr;
+        }
         
         UObject* MeshComp = nullptr;
         Utils::CallFunction(PalActor, STR("GetMainMesh"), &MeshComp);
+
 
         UObject* RootComp = nullptr;
         Utils::GetPropertyValue(PalActor, STR("RootComponent"), RootComp);
@@ -389,10 +396,10 @@ namespace DynPals {
 
         // Fetch dynamic 3D bounds in world space
         struct { bool bOnlyCollidingComponents; uint8_t Pad[7]; FVector_UE5 Origin; FVector_UE5 BoxExtent; } BoundsParams{true, {0}, {0.0,0.0,0.0}, {0.0,0.0,0.0}};
-        UFunction* BoundsFunc = PalActor->GetFunctionByNameInChain(STR("GetActorBounds"));
-        if (BoundsFunc) PalActor->ProcessEvent(BoundsFunc, &BoundsParams);
+        Utils::CallFunction(PalActor, STR("GetActorBounds"), &BoundsParams, true);
         
         if (BoundsParams.BoxExtent.Z < 10.0) BoundsParams.BoxExtent = {50.0, 50.0, 50.0}; 
+
 
         double BaselineHalfHeight = 50.0;
         double ScaleFactor = (BoundsParams.BoxExtent.Z / BaselineHalfHeight) * ScaleMult;

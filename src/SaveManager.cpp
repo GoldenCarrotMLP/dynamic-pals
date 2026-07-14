@@ -45,23 +45,27 @@ namespace DynPals {
         if (!World) return;
 
         UObject* GI = nullptr;
-        Utils::GetPropertyValue<UObject*>(World, STR("OwningGameInstance"), GI);
+        Utils::GetPropertyValue<UObject*>(World, STR("OwningGameInstance"), GI, true);
         if (!GI) return;
 
         FString SaveDir;
-        Utils::GetPropertyValue<FString>(GI, STR("SelectedWorldSaveDirectoryName"), SaveDir);
+        Utils::GetPropertyValue<FString>(GI, STR("SelectedWorldSaveDirectoryName"), SaveDir, true);
         std::wstring WorldSaveID = Utils::FStringToWString(SaveDir);
 
-        if (WorldSaveID.empty() || WorldSaveID == CurrentWorldSaveID) return;
+        if (WorldSaveID.empty()) {
+            WorldSaveID = L"Multiplayer_Shared";
+        }
+
+        if (WorldSaveID == CurrentWorldSaveID) return;
 
         CurrentWorldSaveID = WorldSaveID;
         PersistedSwaps.clear();
         AccessOrder.clear(); 
         Settings = DynPalsSettings{};
-        PalProcessor::Get().ClearAllSwappedStatus(); 
 
         std::wstring persistPath = ConfigPath + PersistFileName + CurrentWorldSaveID + L".json";
         std::string content = Utils::ReadFileToString(persistPath);
+
         if (content.empty()) return;
 
         try {

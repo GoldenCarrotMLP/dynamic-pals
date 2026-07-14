@@ -52,6 +52,7 @@ namespace DynPals {
         // State Tracking
         bool bHideInvalidSwaps = true; 
         float LastScrollOffset = 0.0f;
+        bool bNeedsRefresh = false;
         
         // Target Context
         RC::Unreal::UObject* TargetPal = nullptr;

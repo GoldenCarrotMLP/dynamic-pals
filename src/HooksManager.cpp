@@ -212,28 +212,33 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
   bIsReentrant = true;
 
   // 1. Tick VFX Manager timeline events (extremely fast check)
-
   VFXManager::Get().Tick();
 
-  // 2. ULTRA-PERFORMANT EXIT: Skip reflection logic entirely if no menus need
-  // to tick!
+  // 2. Process exactly ONE mesh swap per 16ms frame! (Eliminates bulk spawn stutter)
+  static auto LastSwapTime = std::chrono::steady_clock::now();
+  static int VirtualFrameCount = 0;
+  auto Now = std::chrono::steady_clock::now();
+  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
+      LastSwapTime = Now;
+      VirtualFrameCount++;
+      if (VirtualFrameCount >= 10) { // Adjust this number to change the frame interval
+          VirtualFrameCount = 0;
+          PalProcessor::Get().Tick();
+      }
+  }
 
+  // 3. ULTRA-PERFORMANT EXIT: Skip reflection logic entirely if no menus need to tick!
   if (!UIRegistry::Get().RequiresTick()) {
     bIsReentrant = false;
-
     return;
   }
 
-  // Only run slow reflection queries if the menu is actually active or
-  // transitioning
 
-  static auto LastTickTime = std::chrono::steady_clock::now();
+  // Only run slow reflection queries if the menu is actually active or transitioning
+  static auto LastUITickTime = std::chrono::steady_clock::now();
+  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastUITickTime).count() >= 16) {
+    LastUITickTime = Now;
 
-  auto Now = std::chrono::steady_clock::now();
-
-  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastTickTime)
-          .count() >= 16) {
-    LastTickTime = Now;
 
     UObject* ActorContext = Context.Context;
 
@@ -410,8 +415,7 @@ void HooksManager::OnPalSpawnedReady(
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
   
-  DP_LOG(Default, "[Telemetry] OnPalSpawnedReady end-to-end for {} took {} us ({:.3f} ms)", 
-         palName, duration, duration / 1000.0f);
+  //DP_LOG(Default, "[Telemetry] OnPalSpawnedReady end-to-end for {} took {} us ({:.3f} ms)",  palName, duration, duration / 1000.0f);
 }
 
 static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
@@ -459,58 +463,47 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
         PalProcessor::Get().ClearAllSwappedStatus();
 
       } else {
-        bIsAtMenu = false;
+         bIsAtMenu = false;
 
+        // Enter standby mode to completely ignore Spawning Hooks during loading screens
         bCompletedInitReady = false;
 
         NotificationManager::Get().SetReady(false);
-
         SaveManager::Get().Reset();
-
         PalProcessor::Get().ClearAllSwappedStatus();
 
         DP_LOG(Default,
-               "New Session Detected (Map: '{}'). Spawning surge quarantine "
-               "active. Pausing swaps for 5 seconds...\n",
+               "New Session Detected (Map: '{}'). Standby active. Waiting 8 seconds for level load...\n",
                MapName);
 
+        // Staggered background thread to safely initialize once the world is fully loaded
         std::thread([]() {
-          std::this_thread::sleep_for(std::chrono::seconds(8));
+          std::this_thread::sleep_for(std::chrono::seconds(8)); 
 
           AsyncHelper::AsyncTask(ENamedThreads::GameThread, []() {
-            DP_LOG(Default,
-                   "Settle period complete. Running overworld Pal "
-                   "reconciliation...\n");
+            DP_LOG(Default, "Settle period complete. Safely resolving player active party...\n");
 
-            std::vector<UObject*> AllPals;
-
-            UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
-
-            for (UObject* Pal : AllPals) {
-              if (Pal) {
-                PalProcessor::Get().ProcessPal(Pal, false);
-              }
+            UObject* PlayerControllerObj = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+            if (PlayerControllerObj) {
+                // Instantly queues your 5 party Pals directly from their preloaded slots! (0ms overhead)
+                PalProcessor::Get().ProcessPlayerParty(PlayerControllerObj);
+                
+                // --- PRELOAD UI ---
+                UIManager::Get().PreloadUI(PlayerControllerObj);
             }
 
-            // --- PRELOAD UI ---
-            UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-            if (PlayerController) {
-                UIManager::Get().PreloadUI(PlayerController);
-            }
-
+            // Arm spawning hooks for all future overworld/base spawns
             bCompletedInitReady = true;
 
-            DP_LOG(Default,
-                   "Reconciliation complete. Mod entering zero-overhead "
-                   "standby.\n");
-
             std::wstring verStr = GetFormattedVersionString();
-
             DP_LOG(Normal, "Welcome to dynamic pals {} and happy palworld 1.0 <3", verStr);
 
+            // Safely allow notifications to render and flush the queue
+            NotificationManager::Get().SetReady(true);
             NotificationManager::Get().FlushQueuedToasts();
           });
         }).detach();
+
       }
     }
   }

@@ -9,18 +9,23 @@
 #include <Unreal/FString.hpp>
 #include <Unreal/FText.hpp> 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <fstream>
+#include <shared_mutex>
 
 namespace DynPals::Utils {
     using namespace RC::Unreal;
+
+    inline bool IsObjectValid(UObject* Obj); // Forward declaration to allow early functions to use it
 
     inline FField* GetNextField(FField* Field) {
         if (!Field) return nullptr;
         return *reinterpret_cast<FField**>(reinterpret_cast<uint8_t*>(Field) + 0x20);
     }
-    // Generates a stable structural fallback label for configs lacking explicit SkinLabels [1]
+
+
     inline std::wstring GenerateFallbackLabel(const std::wstring& SkelMeshPath, const std::vector<MatReplace>& MatReplaceList, const std::vector<MorphTarget>& MorphTargetList) {
         std::wstring meshName = SkelMeshPath;
         size_t lastSlash = meshName.find_last_of(L'/');
@@ -32,7 +37,6 @@ namespace DynPals::Utils {
             meshName = meshName.substr(0, lastDot);
         }
 
-        // Compute a stable structural hash based on materials and morphs [2]
         size_t hashVal = std::hash<std::wstring>{}(SkelMeshPath);
         for (const auto& mat : MatReplaceList) {
             hashVal ^= std::hash<std::string>{}(mat.index) + 0x9e3779b9 + (hashVal << 6) + (hashVal >> 2);
@@ -77,16 +81,45 @@ namespace DynPals::Utils {
     }
 
     inline FProperty* GetProperty(UObject* Object, const wchar_t* PropertyName, bool bSilenceLogs = false) {
-        if (!Object) return nullptr;
+        if (!Object || !IsObjectValid(Object)) return nullptr;
         auto* Class = Object->GetClassPrivate();
-        FProperty* Prop = Class ? Class->GetPropertyByNameInChain(PropertyName) : nullptr;
+        if (!Class || !IsObjectValid(Class)) return nullptr;
+
+        struct CacheKey {
+            UClass* Cls;
+            std::wstring_view Name;
+            bool operator<(const CacheKey& o) const {
+                if (Cls != o.Cls) return Cls < o.Cls;
+                return Name < o.Name;
+            }
+        };
+
+        static std::map<CacheKey, FProperty*> PropCache;
+        static std::shared_mutex PropMutex;
+        
+        CacheKey key{Class, std::wstring_view(PropertyName)};
+        
+        {
+            std::shared_lock<std::shared_mutex> read_lock(PropMutex);
+            auto it = PropCache.find(key);
+            if (it != PropCache.end()) {
+                return it->second;
+            }
+        }
+
+        FProperty* Prop = Class->GetPropertyByNameInChain(PropertyName);
+        
+        {
+            std::unique_lock<std::shared_mutex> write_lock(PropMutex);
+            PropCache[key] = Prop;
+        }
         
         if (!Prop && !bSilenceLogs) {
-            DP_LOG(Verbose, "[Utils] GetProperty: Could not find property '{}' on object '{}'", PropertyName, Object->GetName());
+            DP_LOG(Warning, "[Utils] GetProperty: Could not find property '{}' on object '{}'", PropertyName, Object->GetName());
         }
         return Prop;
-    }
 
+    }
 
     template<typename T>
     inline bool GetPropertyValue(UObject* Object, const wchar_t* PropertyName, T& OutValue, bool bSilenceLogs = false) {
@@ -146,14 +179,47 @@ namespace DynPals::Utils {
         return false;
     }
 
-
     inline void CallFunction(UObject* Object, const wchar_t* FunctionName, void* Params = nullptr, bool bSilenceLogs = false) {
-        if (!Object) return;
-        auto* Function = Object->GetFunctionByNameInChain(FunctionName);
+        if (!Object || !IsObjectValid(Object)) return;
+        auto* Class = Object->GetClassPrivate();
+        if (!Class || !IsObjectValid(Class)) return;
+
+        struct CacheKey {
+            UClass* Cls;
+            std::wstring_view Name;
+            bool operator<(const CacheKey& o) const {
+                if (Cls != o.Cls) return Cls < o.Cls;
+                return Name < o.Name;
+            }
+        };
+
+        static std::map<CacheKey, UFunction*> FuncCache;
+        static std::shared_mutex FuncMutex;
+        
+        CacheKey key{Class, std::wstring_view(FunctionName)};
+        UFunction* Function = nullptr;
+        
+        {
+            std::shared_lock<std::shared_mutex> read_lock(FuncMutex);
+            auto it = FuncCache.find(key);
+            if (it != FuncCache.end()) {
+                Function = it->second;
+                if (Function) Object->ProcessEvent(Function, Params);
+                return;
+            }
+        }
+
+        Function = Object->GetFunctionByNameInChain(FunctionName);
+        
+        {
+            std::unique_lock<std::shared_mutex> write_lock(FuncMutex);
+            FuncCache[key] = Function;
+        }
+
         if (Function) {
             Object->ProcessEvent(Function, Params);
         } else if (!bSilenceLogs) {
-            DP_LOG(Verbose, "[Utils] CallFunction FAILED: Could not find function '{}' on object '{}'", FunctionName, Object->GetName());
+            DP_LOG(Warning, "[Utils] CallFunction FAILED: Could not find function '{}' on object '{}'", FunctionName, Object->GetName());
         }
     }
 
@@ -175,20 +241,26 @@ namespace DynPals::Utils {
 
     inline UObject* GetLibrary(const wchar_t* LibraryPath) {
         static std::map<std::wstring, UObject*> LibraryCache;
-        auto it = LibraryCache.find(LibraryPath);
-        if (it != LibraryCache.end()) {
-            return it->second;
+        static std::shared_mutex LibraryMutex;
+
+        {
+            std::shared_lock<std::shared_mutex> read_lock(LibraryMutex);
+            auto it = LibraryCache.find(LibraryPath);
+            if (it != LibraryCache.end()) {
+                return it->second;
+            }
         }
+        
         UObject* Lib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, LibraryPath);
         if (!Lib) {
             DP_LOG(Warning, "[Utils] GetLibrary FAILED: Could not find core library at path: '{}'", LibraryPath);
         }
+        
+        std::unique_lock<std::shared_mutex> write_lock(LibraryMutex);
         LibraryCache[LibraryPath] = Lib;
         return Lib;
     }
 
-
-    // Retrieves and caches any UFunction belonging to a Class Library
     inline UFunction* GetLibraryFunction(const wchar_t* LibraryPath, const wchar_t* FunctionName) {
         struct Key {
             std::wstring Path;
@@ -199,11 +271,16 @@ namespace DynPals::Utils {
             }
         };
         static std::map<Key, UFunction*> FunctionCache;
+        static std::shared_mutex FuncMutex;
+
         Key k{ LibraryPath, FunctionName };
 
-        auto it = FunctionCache.find(k);
-        if (it != FunctionCache.end()) {
-            return it->second;
+        {
+            std::shared_lock<std::shared_mutex> read_lock(FuncMutex);
+            auto it = FunctionCache.find(k);
+            if (it != FunctionCache.end()) {
+                return it->second;
+            }
         }
 
         UObject* Lib = GetLibrary(LibraryPath);
@@ -213,26 +290,31 @@ namespace DynPals::Utils {
             DP_LOG(Warning, "[Utils] GetLibraryFunction FAILED: Could not find function '{}' in library '{}'", FunctionName, LibraryPath);
         }
         
+        std::unique_lock<std::shared_mutex> write_lock(FuncMutex);
         FunctionCache[k] = Func;
         return Func;
     }
 
-    // Retrieves and caches any Class (UClass*) pointer by path
     inline UClass* GetClassCached(const wchar_t* ClassPath) {
         static std::map<std::wstring, UClass*> ClassCache;
-        auto it = ClassCache.find(ClassPath);
-        if (it != ClassCache.end()) return it->second;
+        static std::shared_mutex ClassMutex;
+
+        {
+            std::shared_lock<std::shared_mutex> read_lock(ClassMutex);
+            auto it = ClassCache.find(ClassPath);
+            if (it != ClassCache.end()) return it->second;
+        }
 
         UClass* Cls = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, ClassPath);
         if (!Cls) {
             DP_LOG(Warning, "[Utils] GetClassCached FAILED: Could not find class at path: '{}'", ClassPath);
         }
         
+        std::unique_lock<std::shared_mutex> write_lock(ClassMutex);
         ClassCache[ClassPath] = Cls;
         return Cls;
     }
 
-    // UserWidget Class Pointer Wrapper
     inline UClass* GetUserWidgetClass() {
         return GetClassCached(STR("/Script/UMG.UserWidget"));
     }
@@ -242,22 +324,18 @@ namespace DynPals::Utils {
     inline UFunction* GetWBLFunction(const wchar_t* FunctionName) {
         return GetLibraryFunction(STR("/Script/UMG.Default__WidgetBlueprintLibrary"), FunctionName);
     }
-    // KismetTextLibrary Wrappers
     inline UObject* GetKTL() {
         return GetLibrary(STR("/Script/Engine.Default__KismetTextLibrary"));
     }
     inline UFunction* GetKTLFunction(const wchar_t* FunctionName) {
         return GetLibraryFunction(STR("/Script/Engine.Default__KismetTextLibrary"), FunctionName);
     }
-    // KismetMaterialLibrary Wrappers
     inline UObject* GetKML() {
         return GetLibrary(STR("/Script/Engine.Default__KismetMaterialLibrary"));
     }
     inline UFunction* GetKMLFunction(const wchar_t* FunctionName) {
         return GetLibraryFunction(STR("/Script/Engine.Default__KismetMaterialLibrary"), FunctionName);
     }
-
-    // KismetSystemLibrary Wrappers
     inline UObject* GetKSL() {
         return GetLibrary(STR("/Script/Engine.Default__KismetSystemLibrary"));
     }
@@ -265,67 +343,94 @@ namespace DynPals::Utils {
         return GetLibraryFunction(STR("/Script/Engine.Default__KismetSystemLibrary"), FunctionName);
     }
 
-
-     // Globally caches and retrieves the KismetSystemLibrary Class Default Object
     inline UObject* GetKismetSystemLibrary() {
         static UObject* KSL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetSystemLibrary"));
         return KSL;
     }
 
-    // Globally caches and retrieves any Kismet function by name
     inline UFunction* GetKismetFunction(const wchar_t* FunctionName) {
         static std::map<std::wstring, UFunction*> FunctionCache;
+        static std::shared_mutex FuncMutex;
         
-        auto it = FunctionCache.find(FunctionName);
-        if (it != FunctionCache.end()) {
-            return it->second;
+        {
+            std::shared_lock<std::shared_mutex> read_lock(FuncMutex);
+            auto it = FunctionCache.find(FunctionName);
+            if (it != FunctionCache.end()) {
+                return it->second;
+            }
         }
 
         UObject* KSL = GetKismetSystemLibrary();
         UFunction* Func = KSL ? KSL->GetFunctionByNameInChain(FunctionName) : nullptr;
+        
+        std::unique_lock<std::shared_mutex> write_lock(FuncMutex);
         FunctionCache[FunctionName] = Func;
         return Func;
     }
 
-    
-
-    // Bulletproof validation check leveraging Kismet's native static verification
     inline bool IsObjectValid(UObject* Obj) {
         if (!Obj) return false;
         
+        // Low-level 4GB x64 alignment safety shield (garbage pointers/relative offsets always have zero upper 32-bits)
+        uintptr_t addr = reinterpret_cast<uintptr_t>(Obj);
+        if (addr < 0x100000000ULL || (addr % 8) != 0) return false;
+
         UObject* KSL = GetKismetSystemLibrary();
         static UFunction* IsValidFunc = GetKismetFunction(STR("IsValid"));
-        if (!KSL || !IsValidFunc) return true; // Safe fallback
+        if (!KSL || !IsValidFunc) return false; // Fail safe if Kismet is not ready
 
         struct { UObject* Object; bool ReturnValue; } Params{ Obj, false };
         KSL->ProcessEvent(IsValidFunc, &Params);
         return Params.ReturnValue;
     }
 
+
+
     inline UObject* LoadAssetInternal(const std::wstring& AssetPath) {
         std::wstring formatted = FormatAssetPath(AssetPath); 
         
-        // --- ZERO-RISK CACHE CHECK ---
-        // Ask the Engine if the asset is already in RAM. This takes microseconds and prevents disk stalls!
+        static std::map<std::wstring, UObject*> AssetCache;
+        static std::shared_mutex AssetMutex;
+
+        {
+            std::shared_lock<std::shared_mutex> read_lock(AssetMutex);
+            auto cacheIt = AssetCache.find(formatted);
+            if (cacheIt != AssetCache.end()) {
+                if (IsObjectValid(cacheIt->second)) {
+                    return cacheIt->second;
+                } else {
+                    //DP_LOG(Default, "[Cache STALE] Asset became invalid, reloading: {}", formatted);
+                }
+            } else {
+                //DP_LOG(Default, "[Cache MISS] Loading Asset: {}", formatted);
+            }
+        }
+
         UObject* ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, formatted.c_str());
         if (ExistingObj) {
             std::wstring ClassName = ExistingObj->GetClassPrivate()->GetName();
             if (ClassName == L"ObjectRedirector") {
                 UObject* Destination = nullptr;
                 if (GetPropertyValue<UObject*>(ExistingObj, STR("DestinationObject"), Destination)) {
+                    std::unique_lock<std::shared_mutex> write_lock(AssetMutex);
+                    AssetCache[formatted] = Destination;
                     return Destination;
                 }
             }
-            return ExistingObj; // Asset is already loaded! Return instantly.
+            
+            std::unique_lock<std::shared_mutex> write_lock(AssetMutex);
+            AssetCache[formatted] = ExistingObj;
+            return ExistingObj; 
         }
 
-        // --- EXPENSIVE FALLBACK ---
         std::wstring package, asset;
         size_t dot = formatted.find(L'.');
         if (dot != std::wstring::npos) {
             package = formatted.substr(0, dot);
             asset = formatted.substr(dot + 1);
         } else {
+            std::unique_lock<std::shared_mutex> write_lock(AssetMutex);
+            AssetCache[formatted] = nullptr;
             return nullptr;
         }
 
@@ -338,10 +443,15 @@ namespace DynPals::Utils {
         if (!KismetLib) return nullptr;
 
         UFunction* LoadFunc = KismetLib->GetFunctionByNameInChain(STR("LoadAsset_Blocking"));
-        if (!LoadFunc) return nullptr;
+        if (!LoadFunc) {
+            std::unique_lock<std::shared_mutex> write_lock(AssetMutex);
+            AssetCache[formatted] = nullptr;
+            return nullptr;
+        }
 
+        //DP_LOG(Default, "[DISK STALL] Triggering Blocking Load for: {}", formatted);
         struct { AltrSoftObjectPtr Asset; UObject* ReturnValue; } LoadParams{SoftPtr, nullptr};
-        KismetLib->ProcessEvent(LoadFunc, &LoadParams); // <--- This is what caused the hitching!
+        KismetLib->ProcessEvent(LoadFunc, &LoadParams);
         
         UObject* LoadedObj = LoadParams.ReturnValue;
         if (LoadedObj) {
@@ -349,10 +459,15 @@ namespace DynPals::Utils {
             if (ClassName == L"ObjectRedirector") {
                 UObject* Destination = nullptr;
                 if (GetPropertyValue<UObject*>(LoadedObj, STR("DestinationObject"), Destination)) {
+                    std::unique_lock<std::shared_mutex> write_lock(AssetMutex);
+                    AssetCache[formatted] = Destination;
                     return Destination;
                 }
             }
         }
+        
+        std::unique_lock<std::shared_mutex> write_lock(AssetMutex);
+        AssetCache[formatted] = LoadedObj;
         return LoadedObj;
     }
 
@@ -388,10 +503,14 @@ namespace DynPals::Utils {
         return nullptr;
     }
 
-    // Safely reads the virtual folder hierarchy using static padded buffers and filters only Material types
     inline std::vector<std::wstring> GetAssetsInVirtualFolder(const std::wstring& FolderPath) {
         static std::map<std::wstring, std::vector<std::wstring>> FolderCache;
-        if (FolderCache.find(FolderPath) != FolderCache.end()) return FolderCache[FolderPath];
+        static std::shared_mutex FolderMutex;
+
+        {
+            std::shared_lock<std::shared_mutex> read_lock(FolderMutex);
+            if (FolderCache.find(FolderPath) != FolderCache.end()) return FolderCache[FolderPath];
+        }
 
         std::vector<std::wstring> Results;
         UObject* ARH = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/AssetRegistry.Default__AssetRegistryHelpers"));
@@ -410,10 +529,9 @@ namespace DynPals::Utils {
 
         DP_LOG(Default, "[Asset Scanner] Initializing search for folder: '{}'", FolderPath);
 
-        // 1. Force the Engine to parse the .pak file for this specific folder before we query it
         UFunction* ScanFunc = AssetRegistry->GetFunctionByNameInChain(STR("ScanPathsSynchronous"));
         if (ScanFunc) {
-            alignas(8) uint8_t ScanBuffer[512] = {0}; // Zero-initialized memory replaces InitializeValue
+            alignas(8) uint8_t ScanBuffer[512] = {0}; 
             
             FArrayProperty* InPathsProp = CastField<FArrayProperty>(ScanFunc->GetPropertyByNameInChain(STR("InPaths")));
             if (InPathsProp) {
@@ -433,14 +551,13 @@ namespace DynPals::Utils {
             DP_LOG(Warning, "[Asset Scanner] ScanPathsSynchronous function missing. Unregistered .pak assets may not be found.");
         }
 
-        // 2. Query the Registry for the contents of the folder
         UFunction* GetAssetsFunc = AssetRegistry->GetFunctionByNameInChain(STR("GetAssetsByPath"));
         if (!GetAssetsFunc) {
             DP_LOG(Error, "[Asset Scanner] Failed: GetAssetsByPath function not found.");
             return Results;
         }
 
-        alignas(8) uint8_t ParamsBuffer[512] = {0}; // Zero-initialized memory replaces InitializeValue
+        alignas(8) uint8_t ParamsBuffer[512] = {0}; 
 
         FProperty* PackagePathProp = GetAssetsFunc->GetPropertyByNameInChain(STR("PackagePath"));
         if (PackagePathProp) {
@@ -456,7 +573,6 @@ namespace DynPals::Utils {
 
         AssetRegistry->ProcessEvent(GetAssetsFunc, ParamsBuffer);
 
-        // 3. Extract, filter, and log the results
         FArrayProperty* OutAssetDataProp = CastField<FArrayProperty>(GetAssetsFunc->GetPropertyByNameInChain(STR("OutAssetData")));
         if (OutAssetDataProp) {
             FScriptArray* ScriptArray = static_cast<FScriptArray*>(OutAssetDataProp->ContainerPtrToValuePtr<void>(ParamsBuffer));
@@ -473,12 +589,11 @@ namespace DynPals::Utils {
                 
                 for (int32_t i = 0; i < NumAssets; ++i) {
                     if (GetFullNameFunc) {
-                        alignas(8) uint8_t FNParams[512] = {0}; // Zero-initialized memory
+                        alignas(8) uint8_t FNParams[512] = {0}; 
                         
                         FProperty* InAssetDataProp = GetFullNameFunc->GetPropertyByNameInChain(STR("InAssetData"));
                         if (InAssetDataProp && ArrayData) {
                             void* Dest = InAssetDataProp->ContainerPtrToValuePtr<void>(FNParams);
-                            // Direct memcpy replaces CopyCompleteValue
                             if (Dest) memcpy(Dest, ArrayData + (i * ElementSize), InAssetDataProp->GetSize());
                         }
 
@@ -494,7 +609,6 @@ namespace DynPals::Utils {
                                     std::wstring ClassName = FullName.substr(0, SpacePos);
                                     std::wstring Path = FullName.substr(SpacePos + 1);
 
-                                    // Strictly filter for Materials and MaterialInstances
                                     if (ClassName.find(L"Material") != std::wstring::npos) {
                                         Results.push_back(Path);
                                         DP_LOG(Default, "  -> [Accepted Material] Class: '{}', Path: '{}'", ClassName, Path);
@@ -513,6 +627,7 @@ namespace DynPals::Utils {
             }
         }
 
+        std::unique_lock<std::shared_mutex> write_lock(FolderMutex);
         FolderCache[FolderPath] = Results;
         return Results;
     }
