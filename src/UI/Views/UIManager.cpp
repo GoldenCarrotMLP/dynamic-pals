@@ -159,7 +159,17 @@ namespace DynPals {
         double closestDistSq = 999999999.0;
 
         for (UObject* Pal : AllPals) {
-            if (Pal == PlayerPawn || !Pal) continue;
+            if (Pal == PlayerPawn || !Utils::IsObjectValid(Pal)) continue;
+
+            // STRICT FILTER: Ignore invisible or dying Pals!
+            bool bHidden = false;
+            Utils::GetPropertyValue<bool>(Pal, STR("bHidden"), bHidden, true);
+            bool bBeingDestroyed = false;
+            Utils::GetPropertyValue<bool>(Pal, STR("bActorIsBeingDestroyed"), bBeingDestroyed, true);
+
+            if (bHidden || bBeingDestroyed) {
+                continue;
+            }
 
             FVector_UE5 PalLoc{ 0.0, 0.0, 0.0 };
             struct { FVector_UE5 RetVal; } PalLocParams;
@@ -195,6 +205,11 @@ namespace DynPals {
         TargetPal = aimedPal ? aimedPal : closestPal;
 
         if (TargetPal) {
+            bool bIsHidden = false;
+            Utils::GetPropertyValue<bool>(TargetPal, STR("bHidden"), bIsHidden, true);
+            std::wstring targetName = TargetPal->GetName();
+            DP_LOG(Default, "[UIManager] Alt+N Targeted Pal: {} | bHidden: {}", targetName, bIsHidden ? L"True" : L"False");
+
             UObject* ParamComp = nullptr;
             Utils::GetPropertyValue(TargetPal, STR("CharacterParameterComponent"), ParamComp);
             if (!ParamComp) return;
@@ -212,8 +227,11 @@ namespace DynPals {
             struct { UObject* Char; FName RetVal; } CharIDParams{TargetPal, FName()};
             if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
             TargetCharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams.RetVal.ToString());
+        } else {
+            DP_LOG(Default, "[UIManager] Alt+N Targeted Pal: NONE (No valid visible Pals in range)");
         }
     }
+
 
     bool UIManager::OnSetup() {
         UpdateTarget();

@@ -1,4 +1,5 @@
 #define NOMINMAX
+#include <Windows.h>
 
 #include <Zydis/Zydis.h>
 
@@ -21,7 +22,6 @@
 #include "VFXManager.hpp"
 
 using namespace RC;
-
 using namespace RC::Unreal;
 
 namespace DynPals {
@@ -34,15 +34,11 @@ static UObject* LastWorld = nullptr;
 
 static bool bIsAtMenu = false;
 
-// --- NATIVE DETOUR STORAGE ---
-
 static SafetyHookInline Hook_MasterWazaUpdate;
 
 static SafetyHookInline Hook_OnUpdateCharacterRank;
 
 static SafetyHookInline Hook_AddFriendship;
-
-// --- DYNAMIC NATIVE THUNK DISASSEMBLER ---
 
 static void* ResolveNativeFromThunk(void* ThunkAddress) {
     if (!ThunkAddress) return nullptr;
@@ -60,14 +56,13 @@ static void* ResolveNativeFromThunk(void* ThunkAddress) {
     std::vector<void*> calls;
 
     const uintptr_t thunkStart = reinterpret_cast<uintptr_t>(ThunkAddress);
-    const uintptr_t thunkEnd = thunkStart + 500; // Define the maximum structural boundary of a thunk
+    const uintptr_t thunkEnd = thunkStart + 500; 
 
     while (offset < 500) {
         status = ZydisDecoderDecodeFull(&decoder, reinterpret_cast<uint8_t*>(ThunkAddress) + offset, 500 - offset, &instruction, operands);
         if (!ZYAN_SUCCESS(status)) break;
         if (instruction.mnemonic == ZYDIS_MNEMONIC_RET) break;
 
-        // 1. Track standard CALL instructions
         if (instruction.mnemonic == ZYDIS_MNEMONIC_CALL) {
             if (operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
                 uintptr_t rip = thunkStart + offset + instruction.length;
@@ -75,17 +70,14 @@ static void* ResolveNativeFromThunk(void* ThunkAddress) {
                 calls.push_back(reinterpret_cast<void*>(target));
             }
         }
-        // 2. Track external JMP instructions (Tail-Calls)
         else if (instruction.mnemonic == ZYDIS_MNEMONIC_JMP) {
             if (operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
                 uintptr_t rip = thunkStart + offset + instruction.length;
                 uintptr_t target = rip + operands[0].imm.value.s;
 
-                // CRITICAL CHECK: Only count JMPs that escape the thunk's 500-byte boundary.
-                // This ignores all local if/else branches and isolates the true native function target.
                 if (target < thunkStart || target > thunkEnd) {
                     calls.push_back(reinterpret_cast<void*>(target));
-                    break; // Unconditional JMP out of the thunk marks the end of execution
+                    break; 
                 }
             }
         }
@@ -97,7 +89,6 @@ static void* ResolveNativeFromThunk(void* ThunkAddress) {
 
     void* lastCallTarget = calls.back();
 
-    // FILTER: Prevent hooking MSVC's '__security_check_cookie'
     status = ZydisDecoderDecodeFull(&decoder, lastCallTarget, 16, &instruction, operands);
     if (ZYAN_SUCCESS(status)) {
         if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP && operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER && operands[0].reg.value == ZYDIS_REGISTER_RCX) {
@@ -107,8 +98,6 @@ static void* ResolveNativeFromThunk(void* ThunkAddress) {
         }
     }
 
-    // SAFETY FILTER: If the target is FFrame::Step, the function was likely fully inlined.
-    // We detect this if all captured calls in the thunk point to the same address.
     if (calls.size() > 1 && calls.front() == lastCallTarget) {
         return nullptr; 
     }
@@ -134,8 +123,6 @@ static void* GetNativeAddress(const wchar_t* FunctionPath) {
 
   return ThunkAddr;
 }
-
-// --- DETOUR CALLBACKS ---
 
 void __fastcall NativeMasterWazaUpdate_Hook(UObject* This, int32_t AddLevel,
                                             int32_t NowLevel) {
@@ -211,30 +198,25 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
 
   bIsReentrant = true;
 
-  // 1. Tick VFX Manager timeline events (extremely fast check)
   VFXManager::Get().Tick();
 
-  // 2. Process exactly ONE mesh swap per 16ms frame! (Eliminates bulk spawn stutter)
   static auto LastSwapTime = std::chrono::steady_clock::now();
   static int VirtualFrameCount = 0;
   auto Now = std::chrono::steady_clock::now();
   if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
       LastSwapTime = Now;
       VirtualFrameCount++;
-      if (VirtualFrameCount >= 10) { // Adjust this number to change the frame interval
+      if (VirtualFrameCount >= 10) { 
           VirtualFrameCount = 0;
           PalProcessor::Get().Tick();
       }
   }
 
-  // 3. ULTRA-PERFORMANT EXIT: Skip reflection logic entirely if no menus need to tick!
   if (!UIRegistry::Get().RequiresTick()) {
     bIsReentrant = false;
     return;
   }
 
-
-  // Only run slow reflection queries if the menu is actually active or transitioning
   static auto LastUITickTime = std::chrono::steady_clock::now();
   if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastUITickTime).count() >= 16) {
     LastUITickTime = Now;
@@ -320,13 +302,13 @@ static void OnWidgetAddedToViewport(
 
 static void OnOpenLevel(UnrealScriptFunctionCallableContext& Context, void*) {
   bIsAtMenu = false;
-
   bCompletedInitReady = false;
 
   NotificationManager::Get().SetReady(false);
-
   UIRegistry::Get().InvalidateAllUIs();
+  Utils::Caches::ClearAll(); 
 }
+
 
 static std::wstring GetFormattedVersionString() {
   HMODULE hModule = NULL;
@@ -397,7 +379,6 @@ void HooksManager::OnPalSpawnedReady(
   UObject* PalNPC = Context.Context;
   std::wstring palName = PalNPC ? PalNPC->GetName() : L"NULL";
 
-  // Start telemetry timing
   auto start = std::chrono::high_resolution_clock::now();
 
   DP_LOG(Default, "[Hook Monitor] OnPalSpawnedReady fired for {}", palName);
@@ -411,11 +392,8 @@ void HooksManager::OnPalSpawnedReady(
     PalProcessor::Get().ProcessPal(PalNPC, false);
   }
 
-  // End telemetry timing
   auto end = std::chrono::high_resolution_clock::now();
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-  
-  //DP_LOG(Default, "[Telemetry] OnPalSpawnedReady end-to-end for {} took {} us ({:.3f} ms)",  palName, duration, duration / 1000.0f);
 }
 
 static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
@@ -454,29 +432,27 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
                       MapName.empty());
 
       if (bIsMenu) {
-        bCompletedInitReady = false;
+            bCompletedInitReady = false;
+            NotificationManager::Get().SetReady(false);
+            SaveManager::Get().Reset();
+            PalProcessor::Get().ClearAllSwappedStatus();
+            Utils::Caches::ClearAll(); 
 
-        NotificationManager::Get().SetReady(false);
+          } else {
+            bIsAtMenu = false;
 
-        SaveManager::Get().Reset();
+            bCompletedInitReady = false;
 
-        PalProcessor::Get().ClearAllSwappedStatus();
+            NotificationManager::Get().SetReady(false);
+            SaveManager::Get().Reset();
+            PalProcessor::Get().ClearAllSwappedStatus();
+            Utils::Caches::ClearAll(); 
 
-      } else {
-         bIsAtMenu = false;
+            DP_LOG(Default,
+                   "New Session Detected (Map: '{}'). AAAAAAAAAAAAAAAAAAAAAAAAAA Standby active. Waiting 8 seconds for level load...\n",
+                   MapName);
 
-        // Enter standby mode to completely ignore Spawning Hooks during loading screens
-        bCompletedInitReady = false;
 
-        NotificationManager::Get().SetReady(false);
-        SaveManager::Get().Reset();
-        PalProcessor::Get().ClearAllSwappedStatus();
-
-        DP_LOG(Default,
-               "New Session Detected (Map: '{}'). Standby active. Waiting 8 seconds for level load...\n",
-               MapName);
-
-        // Staggered background thread to safely initialize once the world is fully loaded
         std::thread([]() {
           std::this_thread::sleep_for(std::chrono::seconds(8)); 
 
@@ -485,20 +461,16 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
 
             UObject* PlayerControllerObj = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
             if (PlayerControllerObj) {
-                // Instantly queues your 5 party Pals directly from their preloaded slots! (0ms overhead)
                 PalProcessor::Get().ProcessPlayerParty(PlayerControllerObj);
                 
-                // --- PRELOAD UI ---
                 UIManager::Get().PreloadUI(PlayerControllerObj);
             }
 
-            // Arm spawning hooks for all future overworld/base spawns
             bCompletedInitReady = true;
 
             std::wstring verStr = GetFormattedVersionString();
             DP_LOG(Normal, "Welcome to dynamic pals {} and happy palworld 1.0 <3", verStr);
 
-            // Safely allow notifications to render and flush the queue
             NotificationManager::Get().SetReady(true);
             NotificationManager::Get().FlushQueuedToasts();
           });
@@ -530,9 +502,6 @@ void HooksManager::RegisterHooks() {
     DP_LOG(Default, "Successfully hooked ClientRestart for map transitions.\n");
   }
 
-  // Restored: Re-hook K2_GetActorRotation to guarantee Game Thread access
-  // context!
-
   UFunction* ActorRotFunc = UObjectGlobals::StaticFindObject<UFunction*>(
       nullptr, nullptr, STR("/Script/Engine.Actor:K2_GetActorRotation"));
 
@@ -551,12 +520,6 @@ void HooksManager::RegisterHooks() {
     SaveFunc->RegisterPostHook(OnStartedWorldAutoSave, nullptr);
   }
 
-  // ==================================================
-
-  // MIXED NATIVE ASSEMBLY DETOURS
-
-  // ==================================================
-
   uintptr_t BaseAddr = reinterpret_cast<uintptr_t>(GetModuleHandleA(NULL));
 
   void* MasterWazaUpdateAddr = GetNativeAddress(STR("/Script/Pal.PalNPC:MasterWazaUpdateWhenLevelUp"));
@@ -568,7 +531,6 @@ void HooksManager::RegisterHooks() {
         }
 
 
-        // 2. Scan and detour OnUpdateCharacterRank
         void* SetRankAddr = AsyncHelper::FindPattern("40 53 48 83 EC 20 48 8B D9 48 8B 89 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 85 C0 75 ?? 48 8B D0 48 8B CB 48 83 C4 20 5B");
         if (SetRankAddr) {
             Hook_OnUpdateCharacterRank = safetyhook::create_inline(SetRankAddr, NativeOnUpdateCharacterRank_Hook);
@@ -577,10 +539,8 @@ void HooksManager::RegisterHooks() {
             DP_LOG(Error, "Failed to resolve AOB for OnUpdateCharacterRank!");
         }
 
-        // 3. Dynamically resolve and detour AddFriendShip
         void* FriendshipAddr = GetNativeAddress(STR("/Script/Pal.PalIndividualCharacterParameter:AddFriendShip"));
         if (FriendshipAddr) {
-            //Hook_AddFriendship = safetyhook::create_inline(FriendshipAddr, NativeAddFriendship_Hook);
             DP_LOG(Default, "[Native Hook] Detoured AddFriendShip successfully!");
         } else {
             DP_LOG(Error, "Failed to resolve Native AddFriendShip!");

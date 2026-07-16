@@ -1,25 +1,25 @@
+#define NOMINMAX
+#include <Windows.h>
 #include "VFXManager.hpp"
 #include "Utils.hpp"
 #include "AsyncHelper.hpp"
 #include "NotificationManager.hpp"
 #include "json.hpp"
 #include <sstream>
-#include <filesystem> // Required for platform-independent path resolution [1, 2]
+#include <filesystem> 
 
 using namespace RC::Unreal;
 namespace fs = std::filesystem;
 
 namespace DynPals {
 
-    // Unique local representation to bypass UE4SS incomplete header structure definitions
     struct VFXLinearColor {
         float R, G, B, A;
     };
 
-    // Safe stack reflection helper to invoke Unreal's native DrawDebugBox
     static void DrawDebugBoxDirect(UObject* WorldContext, FVector_UE5 Center, FVector_UE5 Extent, VFXLinearColor Color, float Duration, float Thickness) {
         UObject* Lib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetSystemLibrary"));
-        if (!Lib) return;
+        if (!Lib || !Utils::IsObjectValid(Lib)) return;
 
         UFunction* DrawFunc = Lib->GetFunctionByNameInChain(STR("DrawDebugBox"));
         if (!DrawFunc) return;
@@ -41,10 +41,9 @@ namespace DynPals {
         FillProp(STR("Duration"), Duration);
         FillProp(STR("Thickness"), Thickness);
 
-        Lib->ProcessEvent(DrawFunc, Params);
+        Utils::SafeProcessEvent(Lib, DrawFunc, Params);
     }
 
-    // Dynamic Directory Resolver: Traverses upwards from the executing DLL to find the /vfx folder [3]
     static std::wstring GetVfxFolderPath() {
         HMODULE hModule = NULL;
         GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -55,7 +54,6 @@ namespace DynPals {
         fs::path dllPath(path);
         fs::path currentDir = dllPath.parent_path();
 
-        // Traverse upwards up to 3 levels to locate the "vfx" folder [3]
         for (int i = 0; i < 4; ++i) {
             fs::path testPath = currentDir / "vfx";
             if (fs::exists(testPath) && fs::is_directory(testPath)) {
@@ -68,12 +66,11 @@ namespace DynPals {
             }
         }
 
-        // Default fallback if folder structure isn't found
         return dllPath.parent_path().wstring() + L"/vfx/";
     }
 
     void VFXManager::AddComposerTask(UObject* PalActor, const std::vector<VFXTimelineEvent>& Events) {
-        if (!PalActor || Events.empty()) return;
+        if (!PalActor || Events.empty() || !Utils::IsObjectValid(PalActor)) return;
         VFXComposerTask task;
         task.TargetPal = PalActor;
         task.Events = Events;
@@ -82,42 +79,38 @@ namespace DynPals {
     }
 
     float VFXManager::PlayComposition(UObject* PalActor, const std::wstring& CompName) {
-        if (!PalActor) return 0.0f;
+        if (!PalActor || !Utils::IsObjectValid(PalActor)) return 0.0f;
 
-        // Dynamic File Read for rapid iteration!
         if (bHotReloadCompositions) LoadCompositions(true);
 
         auto it = Compositions.find(CompName);
         if (it == Compositions.end()) {
-            DP_LOG(Warning, "VFXManager: Composition '{}' not found in JSON.", CompName);
             return 0.0f;
         }
 
         std::vector<VFXTimelineEvent> sequence;
 
         for (const auto& tmpl : it->second.Events) {
-            // We use a shared_ptr to store the component pointer across lambdas safely
             auto compState = std::make_shared<UObject*>(nullptr);
             
-            // Event to spawn
             sequence.push_back({
                 tmpl.Time,
                 [this, PalActor, tmpl, compState]() {
+                    if (!Utils::IsObjectValid(PalActor)) return;
                     *compState = AttachVFXToPal(PalActor, tmpl.VfxPath, tmpl.Socket, tmpl.Scale, tmpl.ZOffset);
                 }
             });
 
-            // Event to kill (if duration was specified)
             if (tmpl.Duration > 0.0f) {
                 sequence.push_back({
                     tmpl.Time + tmpl.Duration,
                     [compState]() {
-                        if (*compState) {
+                        if (*compState && Utils::IsObjectValid(*compState)) {
                             UFunction* DestroyFunc = (*compState)->GetFunctionByNameInChain(STR("K2_DestroyComponent"));
                             if (!DestroyFunc) DestroyFunc = (*compState)->GetFunctionByNameInChain(STR("DestroyComponent"));
                             if (DestroyFunc) {
                                 alignas(8) uint8_t Params[16] = {0};
-                                (*compState)->ProcessEvent(DestroyFunc, Params);
+                                Utils::SafeProcessEvent(*compState, DestroyFunc, Params);
                             }
                         }
                     }
@@ -126,12 +119,11 @@ namespace DynPals {
         }
         AddComposerTask(PalActor, sequence);
         
-        // RETURN the JSON-defined swap delay!
         return it->second.SwapTime; 
     }
 
     float VFXManager::PlayAnimMontage(UObject* Character, UObject* MontageAsset, float PlayRate) {
-        if (!Character || !MontageAsset) return 0.0f;
+        if (!Character || !Utils::IsObjectValid(Character) || !MontageAsset) return 0.0f;
         UFunction* Func = Character->GetFunctionByNameInChain(STR("PlayAnimMontage"));
         if (!Func) return 0.0f;
         alignas(8) uint8_t Params[64] = {0};
@@ -139,18 +131,18 @@ namespace DynPals {
         if (P_Montage) *P_Montage->ContainerPtrToValuePtr<UObject*>(Params) = MontageAsset;
         FProperty* P_Rate = Func->GetPropertyByNameInChain(STR("InPlayRate"));
         if (P_Rate) *P_Rate->ContainerPtrToValuePtr<float>(Params) = PlayRate;
-        Character->ProcessEvent(Func, Params);
+        Utils::SafeProcessEvent(Character, Func, Params);
         FProperty* RetProp = Func->GetPropertyByNameInChain(STR("ReturnValue"));
         return RetProp ? *RetProp->ContainerPtrToValuePtr<float>(Params) : 0.0f;
     }
 
     void VFXManager::KillCurrentPreview() {
-        if (ActivePreviewComponent) {
+        if (ActivePreviewComponent && Utils::IsObjectValid(ActivePreviewComponent)) {
             UFunction* DestroyFunc = ActivePreviewComponent->GetFunctionByNameInChain(STR("K2_DestroyComponent"));
             if (!DestroyFunc) DestroyFunc = ActivePreviewComponent->GetFunctionByNameInChain(STR("DestroyComponent"));
             if (DestroyFunc) {
                 alignas(8) uint8_t Params[16] = {0}; 
-                ActivePreviewComponent->ProcessEvent(DestroyFunc, Params);
+                Utils::SafeProcessEvent(ActivePreviewComponent, DestroyFunc, Params);
             }
             ActivePreviewComponent = nullptr;
         }
@@ -160,8 +152,6 @@ namespace DynPals {
         std::wstring CompPath = ModsPath + L"vfx_composition.json";
         std::string fileContent = Utils::ReadFileToString(CompPath);
         if (fileContent.empty()) {
-            // Add the Error warning here!
-            DP_LOG(Error, "Missing 'vfx_composition.json' please download the latest release from GitHub.");
             return;
         }
 
@@ -194,24 +184,18 @@ namespace DynPals {
                     Compositions[Utils::StringToWString(compName)] = comp;
                 }
             }
-            if (!bForceReload) DP_LOG(Default, "VFXManager: Loaded {} dynamic VFX compositions.", Compositions.size());
         } catch (...) {
             DP_LOG(Warning, "VFXManager: Failed to parse vfx_composition.json!");
         }
     }
 
     void VFXManager::PlaySwapEffect(UObject* PalActor, const std::wstring& VfxPath, float ZOffset) {
-        if (!PalActor) return;
-        DP_LOG(Default, "VFXManager: Playing manual swap effect on Pal '{}' using path: '{}' (ZOffset: {:.2f})", 
-            PalActor->GetName(), VfxPath, ZOffset);
-
-        UObject* Spawned = AttachVFXToPal(PalActor, VfxPath, L"None", 1.0f, ZOffset);
+        if (!PalActor || !Utils::IsObjectValid(PalActor)) return;
+        AttachVFXToPal(PalActor, VfxPath, L"None", 1.0f, ZOffset);
     }
 
     void VFXManager::Initialize() {
-        // Find the absolute folder path of the visual assets dynamically!
         ModsPath = GetVfxFolderPath();
-        
         LoadCompositions();
 
         std::wstring ListPath = ModsPath + L"vfx_list.txt";
@@ -225,11 +209,7 @@ namespace DynPals {
                 if (last != std::string::npos) line.erase(last + 1);
                 if (!line.empty()) VFXList.push_back(Utils::StringToWString(line));
             }
-            DP_LOG(Default, "VFXManager initialized with {} effects from vfx_list.txt.", VFXList.size());
-        } else {
-            // Add the Error warning here!
-            DP_LOG(Error, "Missing 'vfx_list.txt'! Please download the latest release from GitHub.");
-        }
+        } 
     }
 
     void VFXManager::SpawnCurrentPreview() {
@@ -237,7 +217,7 @@ namespace DynPals {
         KillCurrentPreview();
 
         UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-        if (!PlayerController) return;
+        if (!PlayerController || !Utils::IsObjectValid(PlayerController)) return;
 
         struct FRotator_UE5 { double Pitch, Yaw, Roll; };
         struct { FVector_UE5 Location; FRotator_UE5 Rotation; } ViewParams;
@@ -271,7 +251,7 @@ namespace DynPals {
         std::wstring TemplateName = bIsNiagara ? L"SystemTemplate" : L"EmitterTemplate";
 
         UObject* Lib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, LibraryPath.c_str());
-        if (Lib) {
+        if (Lib && Utils::IsObjectValid(Lib)) {
             UFunction* SpawnFunc = Lib->GetFunctionByNameInChain(FuncName.c_str());
             if (SpawnFunc) {
                 alignas(8) uint8_t Params[256] = {0};
@@ -295,7 +275,7 @@ namespace DynPals {
                     static_cast<FBoolProperty*>(AutoActProp)->SetPropertyValue(AutoActProp->ContainerPtrToValuePtr<void>(Params), true);
                 }
 
-                Lib->ProcessEvent(SpawnFunc, Params);
+                Utils::SafeProcessEvent(Lib, SpawnFunc, Params);
 
                 FProperty* RetProp = SpawnFunc->GetPropertyByNameInChain(STR("ReturnValue"));
                 if (RetProp) {
@@ -329,9 +309,13 @@ namespace DynPals {
     void VFXManager::Tick() {
         auto now = std::chrono::steady_clock::now();
 
-        // 1. Tick Composer tasks
         for (auto& task : ActiveTasks) {
             if (task.bIsComplete) continue;
+
+            if (!Utils::IsObjectValid(task.TargetPal)) {
+                task.bIsComplete = true;
+                continue;
+            }
 
             float elapsed = std::chrono::duration<float>(now - task.StartTime).count();
             bool allTriggered = true;
@@ -339,6 +323,7 @@ namespace DynPals {
             for (auto& ev : task.Events) {
                 if (!ev.bHasTriggered) {
                     if (elapsed >= ev.TriggerTime) {
+                        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [VFX Tick] Trace: Executing Event Action\n"));
                         ev.Action();
                         ev.bHasTriggered = true;
                     } else {
@@ -349,13 +334,11 @@ namespace DynPals {
             if (allTriggered) task.bIsComplete = true;
         }
 
-        // Clean up completed tasks
         ActiveTasks.erase(
             std::remove_if(ActiveTasks.begin(), ActiveTasks.end(), [](const VFXComposerTask& t) { return t.bIsComplete; }),
             ActiveTasks.end()
         );
 
-        // 2. Tick standard preview
         if (ActivePreviewComponent) {
             if (std::chrono::duration_cast<std::chrono::seconds>(now - SpawnTime).count() >= 10) {
                 KillCurrentPreview();
@@ -366,7 +349,12 @@ namespace DynPals {
     UObject* VFXManager::AttachVFXToPal(UObject* PalActor, const std::wstring& VfxPath, const std::wstring& SocketName, float ScaleMult, float ZOffsetMult) {
         if (!Utils::IsObjectValid(PalActor)) return nullptr;
         
-        // Safety Shield: Do not attempt to calculate dynamic bounds or attach VFX to invisible/dormant actors
+        UObject* Level = PalActor->GetOuterPrivate();
+        if (!Level || !Utils::IsObjectValid(Level)) return nullptr;
+        
+        UObject* World = Level->GetOuterPrivate();
+        if (!World || !Utils::IsObjectValid(World) || World->GetClassPrivate()->GetName() != L"World") return nullptr;
+
         bool bHidden = false;
         if (Utils::GetPropertyValue<bool>(PalActor, STR("bHidden"), bHidden, true) && bHidden) {
             return nullptr;
@@ -375,31 +363,34 @@ namespace DynPals {
         UObject* MeshComp = nullptr;
         Utils::CallFunction(PalActor, STR("GetMainMesh"), &MeshComp);
 
+        if (MeshComp && Utils::IsObjectValid(MeshComp)) {
+            FVector_UE5 CompLoc = {0.0, 0.0, 0.0};
+            struct { FVector_UE5 ReturnValue; } LocParams{CompLoc};
+            Utils::CallFunction(MeshComp, STR("K2_GetComponentLocation"), &LocParams, true);
+
+            if (std::abs(LocParams.ReturnValue.X) < 1.0 && std::abs(LocParams.ReturnValue.Y) < 1.0 && std::abs(LocParams.ReturnValue.Z) < 1.0) {
+                return nullptr;
+            }
+        }
 
         UObject* RootComp = nullptr;
         Utils::GetPropertyValue(PalActor, STR("RootComponent"), RootComp);
 
-        // Visual only attachments are now natively bound to MeshComp, but positionally resolved via Capsule! [1, 5]
         UObject* AttachTarget = MeshComp;
-        if (!AttachTarget) AttachTarget = RootComp;
-        if (!AttachTarget) {
-            DP_LOG(Warning, "[VFX] Failed to resolve an AttachTarget (MainMesh or RootComponent) for Pal '{}'. Aborting attachment.", PalActor->GetName());
+        if (!AttachTarget || !Utils::IsObjectValid(AttachTarget)) AttachTarget = RootComp;
+        if (!AttachTarget || !Utils::IsObjectValid(AttachTarget)) {
             return nullptr;
         }
 
         UObject* VFXAsset = Utils::LoadAssetSafely(VfxPath);
-        if (!VFXAsset) {
-            DP_LOG(Warning, "[VFX] Failed to load VFX Asset at path: '{}'. Check if files are missing.", VfxPath);
+        if (!VFXAsset || !Utils::IsObjectValid(VFXAsset)) {
             return nullptr;
         }
-        if (!VFXAsset) return nullptr;
 
-        // Fetch dynamic 3D bounds in world space
         struct { bool bOnlyCollidingComponents; uint8_t Pad[7]; FVector_UE5 Origin; FVector_UE5 BoxExtent; } BoundsParams{true, {0}, {0.0,0.0,0.0}, {0.0,0.0,0.0}};
         Utils::CallFunction(PalActor, STR("GetActorBounds"), &BoundsParams, true);
         
         if (BoundsParams.BoxExtent.Z < 10.0) BoundsParams.BoxExtent = {50.0, 50.0, 50.0}; 
-
 
         double BaselineHalfHeight = 50.0;
         double ScaleFactor = (BoundsParams.BoxExtent.Z / BaselineHalfHeight) * ScaleMult;
@@ -409,19 +400,16 @@ namespace DynPals {
         FVector_UE5 Scale = { ScaleFactor, ScaleFactor, ScaleFactor };
         FVector_UE5 SpawnLocation = { 0.0, 0.0, 0.0 };
 
-        uint8_t LocationType = 1; // Default to KeepWorldPosition (1) [5]
+        uint8_t LocationType = 1; 
 
         if (SocketName == L"None" || SocketName.empty()) {
             FVector_UE5 ActorLoc;
             Utils::CallFunction(PalActor, STR("K2_GetActorLocation"), &ActorLoc);
-            
             SpawnLocation.X = ActorLoc.X;
             SpawnLocation.Y = ActorLoc.Y;
-            // BoundsParams.Origin.Z is the exact visual center of the Pal.
-            // ZOffsetMult of 0.0 = visual center. 1.0 = top of head. -1.0 = feet.
             SpawnLocation.Z = BoundsParams.Origin.Z + (BoundsParams.BoxExtent.Z * ZOffsetMult);
         } else {
-            LocationType = 0; // Fallback to KeepRelativeOffset (0) for custom skeletal socket attachments [1]
+            LocationType = 0; 
         }
 
         bool bIsNiagara = (VfxPath.find(L"/NS_") != std::wstring::npos);
@@ -430,10 +418,10 @@ namespace DynPals {
         std::wstring TemplateName = bIsNiagara ? L"SystemTemplate" : L"EmitterTemplate";
 
         UObject* Lib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, LibraryPath.c_str());
-        if (!Lib) return nullptr;
+        if (!Lib || !Utils::IsObjectValid(Lib)) return nullptr;
 
         UFunction* SpawnFunc = Lib->GetFunctionByNameInChain(FuncName.c_str());
-        if (!SpawnFunc) return nullptr;
+        if (!SpawnFunc || !Utils::IsObjectValid(SpawnFunc)) return nullptr;
 
         alignas(8) uint8_t Params[256] = {0};
         
@@ -463,7 +451,7 @@ namespace DynPals {
             static_cast<FBoolProperty*>(AutoActProp)->SetPropertyValue(AutoActProp->ContainerPtrToValuePtr<void>(Params), true);
         }
 
-        Lib->ProcessEvent(SpawnFunc, Params);
+        Utils::SafeProcessEvent(Lib, SpawnFunc, Params);
         
         FProperty* RetProp = SpawnFunc->GetPropertyByNameInChain(STR("ReturnValue"));
         return RetProp ? *RetProp->ContainerPtrToValuePtr<UObject*>(Params) : nullptr;

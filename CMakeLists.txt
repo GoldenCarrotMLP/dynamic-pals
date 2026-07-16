@@ -4,6 +4,11 @@ project(DynamicPals)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Default to UE4SS's required custom config if none is specified
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE "Game__Shipping__Win64" CACHE STRING "Choose the type of build." FORCE)
+endif()
+
 add_subdirectory(RE-UE4SS)
 
 # Common files shared by both the online and offline builds
@@ -17,10 +22,10 @@ set(COMMON_SRC_FILES
     "src/AsyncHelper.cpp"
     "src/VFXManager.cpp"
     "src/FileWatcher.cpp"
-    "src/safetyhook.cpp" # Compiling your manually added safetyhook file!
+    "src/safetyhook.cpp" 
     
-    "src/UI/UIBase.cpp"       # New UI Framework
-    "src/UI/UIRegistry.cpp"   # New UI Framework
+    "src/UI/UIBase.cpp"       
+    "src/UI/UIRegistry.cpp"   
     "src/UI/views/TestUI.cpp"      
     "src/UI/views/UIManager.cpp"    
 )
@@ -35,10 +40,9 @@ target_include_directories(DynamicPals PRIVATE
     "RE-UE4SS/deps/first/Unreal/include"
     "RE-UE4SS/deps/first/DynamicOutput/include"
     "RE-UE4SS/deps/first/Function-Pointer-Wrapper/include"
-    "RE-UE4SS/deps/first/zydis/include" # Zydis headers required by safetyhook.cpp
-    "RE-UE4SS/deps/first/zydis/dependencies/zycore/include" # Zycore headers required by Zydis
+    "RE-UE4SS/deps/first/zydis/include" 
+    "RE-UE4SS/deps/first/zydis/dependencies/zycore/include" 
 )
-# Linking Zydis which is compiled as part of the RE-UE4SS subdirectory
 target_link_libraries(DynamicPals PUBLIC UE4SS Zydis wininet)
 
 # -------------------------------------------------------------------------
@@ -51,49 +55,45 @@ target_include_directories(DynamicPals_Offline PRIVATE
     "RE-UE4SS/deps/first/Unreal/include"
     "RE-UE4SS/deps/first/DynamicOutput/include"
     "RE-UE4SS/deps/first/Function-Pointer-Wrapper/include"
-    "RE-UE4SS/deps/first/zydis/include" # Zydis headers required by safetyhook.cpp
-    "RE-UE4SS/deps/first/zydis/dependencies/zycore/include" # Zycore headers required by Zydis
+    "RE-UE4SS/deps/first/zydis/include" 
+    "RE-UE4SS/deps/first/zydis/dependencies/zycore/include" 
 )
-# Linking Zydis which is compiled as part of the RE-UE4SS subdirectory
 target_link_libraries(DynamicPals_Offline PUBLIC UE4SS Zydis)
 
 # =========================================================================
 # BUILD ORDER DEPENDENCIES (Prevents Parallel Compilation Race Conditions)
 # =========================================================================
-# Force the Zydis target to finish compiling before either mod target tries to link
 add_dependencies(DynamicPals Zydis)
 add_dependencies(DynamicPals_Offline Zydis)
-
-# Force offline build to compile before the Standard target's automation script copies them
 add_dependencies(DynamicPals DynamicPals_Offline)
 
-# FORCE SYNCHRONOUS PDB WRITES (Fixes C1041 Compiler Locks during parallel builds)
+# =========================================================================
+# COMPILER FLAGS: Force PDB generation even in Shipping configurations
+# =========================================================================
 if(MSVC)
-    target_compile_options(DynamicPals PRIVATE /FS)
-    target_link_options(DynamicPals PRIVATE "/FORCE:MULTIPLE")
+    # /FS (Force Synchronous PDB Writes), /Zi (Generate Debug Information)
+    target_compile_options(DynamicPals PRIVATE /FS /Zi)
+    target_compile_options(DynamicPals_Offline PRIVATE /FS /Zi)
     
-    target_compile_options(DynamicPals_Offline PRIVATE /FS)
-    target_link_options(DynamicPals_Offline PRIVATE "/FORCE:MULTIPLE")
+    # /FORCE:MULTIPLE (Ignore multiple definition warnings), /DEBUG (Tell linker to emit PDB)
+    target_link_options(DynamicPals PRIVATE "/FORCE:MULTIPLE" "/DEBUG")
+    target_link_options(DynamicPals_Offline PRIVATE "/FORCE:MULTIPLE" "/DEBUG")
 endif()
 
 # =========================================================================
 # AUTOMATION: Executed on post-build to copy dll, run scripts, and zip releases
 # =========================================================================
 add_custom_command(TARGET DynamicPals POST_BUILD
-    # 1. Copy the standard DLL
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:DynamicPals>" "${CMAKE_CURRENT_SOURCE_DIR}/dlls/main.dll"
-    
-    # 2. Copy the offline-safe DLL
     COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:DynamicPals_Offline>" "${CMAKE_CURRENT_SOURCE_DIR}/dlls/main_offline.dll"
     
-    # 3. Run the PowerShell template parser (Generates V1 & V2 JSON Templates)
+    # Copy generated PDBs to the dll folder for the Visual Studio Debugger
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_PDB_FILE:DynamicPals>" "${CMAKE_CURRENT_SOURCE_DIR}/dlls/main.pdb"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_PDB_FILE:DynamicPals_Offline>" "${CMAKE_CURRENT_SOURCE_DIR}/dlls/main_offline.pdb"
+    
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/cmake_scripts/generate_templates.ps1" -SourceDir "${CMAKE_CURRENT_SOURCE_DIR}"
-    
-    # 4. Query Git and write/upsert the version.txt file
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/cmake_scripts/write_version.ps1" -SourceDir "${CMAKE_CURRENT_SOURCE_DIR}"
-    
-    # 5. Pack and stage everything into production-ready ZIP releases in the root directory
     COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File "${CMAKE_CURRENT_SOURCE_DIR}/cmake_scripts/package_release.ps1" -SourceDir "${CMAKE_CURRENT_SOURCE_DIR}"
     
-    COMMENT "Copying DLLs, generating V1 and V2 JSON templates, updating version.txt, and packaging ZIP releases."
+    COMMENT "Copying DLLs and PDBs, generating JSON templates, and packaging ZIP releases."
 )

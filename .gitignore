@@ -1,2 +1,4 @@
 build
 main.dll.old
+dlls/DynamicPals.pdb/
+.vs/

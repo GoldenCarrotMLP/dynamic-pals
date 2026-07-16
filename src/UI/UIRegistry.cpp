@@ -1,3 +1,5 @@
+#define NOMINMAX
+#include <Windows.h>
 #include <algorithm>
 
 #include "UI/UIBase.hpp"
@@ -67,8 +69,6 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
     Utils::SetPropertyValue<bool>(PlayerController,
                                   STR("bEnableMouseOverEvents"), true);
 
-    // Ignore camera movement
-
     struct {
       bool bNewLookInput;
     } LookParams{true};
@@ -76,16 +76,12 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
     Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"),
                         &LookParams);
 
-    // Ignore player/mount movement
-
     struct {
       bool bNewMoveInput;
     } MoveParams{true};
 
     Utils::CallFunction(PlayerController, STR("SetIgnoreMoveInput"),
                         &MoveParams);
-
-    // --- Shift Focus and Released Cursor Capture to UI instantly ---
 
     if (OpenUI && OpenUI->GetWidget()) {
       UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(
@@ -124,19 +120,16 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
   }
 
   else if (!bNeedsLock && bIsInputLocked) {
-            // Gently decrement the look/move ignore counters instead of wiping them globally
             struct { bool bNewLookInput; } LookParams{ false };
             Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"), &LookParams);
 
             struct { bool bNewMoveInput; } MoveParams{ false };
             Utils::CallFunction(PlayerController, STR("SetIgnoreMoveInput"), &MoveParams);
             
-            // Detect if the user closed our menu by pressing a key that natively triggers a game menu
             bool bIsOpeningOtherMenu = (GetAsyncKeyState(VK_ESCAPE) & 0x8000) || 
                                        (GetAsyncKeyState(VK_TAB) & 0x8000) || 
                                        (GetAsyncKeyState('B') & 0x8000);
             
-            // Only hide the mouse cursor and force GameOnly if no native menu is taking over
             if (!bIsOpeningOtherMenu) {
                 Utils::SetPropertyValue<bool>(PlayerController, STR("bShowMouseCursor"), false);
                 Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableClickEvents"), false);
@@ -154,7 +147,6 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
             }
 
             bIsInputLocked = false;
-
   }
 }
 

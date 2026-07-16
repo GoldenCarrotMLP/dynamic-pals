@@ -11,8 +11,6 @@
 #include <Unreal/FString.hpp>
 #include <Unreal/Core/Containers/Array.hpp>
 
-///New code. Improved getting correct actor blueprint resolution by just using DT_PalBPClass_Common 
-
 using namespace RC;
 using namespace RC::Unreal;
 
@@ -31,7 +29,6 @@ namespace DynPals {
         UFunction* GetFriendshipRankFunc = nullptr;
         UFunction* GetFriendshipPointFunc = nullptr;
 
-        // NEW: Fast Execution Cache
         UFunction* GetCharacterIDFromCharacterFunc = nullptr;
         UFunction* IsWildNPCFunc = nullptr;
         UFunction* IsRarePalFunc = nullptr;
@@ -49,25 +46,19 @@ namespace DynPals {
     
     static FPalPropertyCache GCachedProps;
 
-
-    
-
-    // Fetches Level, Rank, and Friendship/Trust from a Pal with sentinel verification and fallback checks
     PalRuntimeStats RetrievePalStats(UObject* IndivParam, const std::wstring& RawCharID, const std::wstring& InstanceID, bool bLogWarnings) {
         PalRuntimeStats stats;
         stats.Level = -1;
         stats.Rank = -1;
         stats.Friendship = -1;
-        if (!IndivParam) return stats;
+        if (!IndivParam || !Utils::IsObjectValid(IndivParam)) return stats;
 
-        // SAFE Lazy-init: Only lock the init flag if we ACTUALLY found the core function!
         if (!GCachedProps.bIsStatsInit) {
             GCachedProps.GetLevelFunc = IndivParam->GetFunctionByNameInChain(STR("GetLevel"));
             GCachedProps.GetRankFunc = IndivParam->GetFunctionByNameInChain(STR("GetRank"));
             GCachedProps.GetFriendshipRankFunc = IndivParam->GetFunctionByNameInChain(STR("GetFriendshipRank"));
             GCachedProps.GetFriendshipPointFunc = IndivParam->GetFunctionByNameInChain(STR("GetFriendshipPoint"));
             
-            // Only stop searching if we successfully resolved the pointers
             if (GCachedProps.GetLevelFunc) {
                 GCachedProps.bIsStatsInit = true;
             }
@@ -77,27 +68,26 @@ namespace DynPals {
 
         if (GCachedProps.GetLevelFunc) {
             IntParams.RetVal = -1;
-            IndivParam->ProcessEvent(GCachedProps.GetLevelFunc, &IntParams);
+            Utils::SafeProcessEvent(IndivParam, GCachedProps.GetLevelFunc, &IntParams);
             stats.Level = IntParams.RetVal;
         }
 
         if (GCachedProps.GetRankFunc) {
             IntParams.RetVal = -1;
-            IndivParam->ProcessEvent(GCachedProps.GetRankFunc, &IntParams);
+            Utils::SafeProcessEvent(IndivParam, GCachedProps.GetRankFunc, &IntParams);
             stats.Rank = IntParams.RetVal;
         }
 
         if (GCachedProps.GetFriendshipRankFunc) {
             IntParams.RetVal = -1;
-            IndivParam->ProcessEvent(GCachedProps.GetFriendshipRankFunc, &IntParams);
+            Utils::SafeProcessEvent(IndivParam, GCachedProps.GetFriendshipRankFunc, &IntParams);
             stats.Friendship = IntParams.RetVal;
         } else if (GCachedProps.GetFriendshipPointFunc) {
             IntParams.RetVal = -1;
-            IndivParam->ProcessEvent(GCachedProps.GetFriendshipPointFunc, &IntParams);
+            Utils::SafeProcessEvent(IndivParam, GCachedProps.GetFriendshipPointFunc, &IntParams);
             stats.Friendship = IntParams.RetVal;
         }
 
-        // Apply defaults silently to avoid massive file I/O bottlenecks in the console
         if (stats.Level == -1) stats.Level = 1;
         if (stats.Rank == -1) stats.Rank = 0;
         if (stats.Friendship == -1) stats.Friendship = 0;
@@ -121,49 +111,41 @@ namespace DynPals {
         }
         ActivePalsByInstanceID.erase(InstanceID);
         RuntimeStatsCache.erase(InstanceID);
-
     }
 
-    // Latch into Palworld's native database subsystem to resolve any CharacterID to its Blueprint Class path
-    // Safely queries the game's native DataTable DT_PalBPClass_Common using standard reflection
     static bool ResolvePalBlueprintPath(UObject* WorldContext, const std::wstring& CharID, std::wstring& OutPath) {
-        if (!WorldContext) return false;
+        if (!WorldContext || !Utils::IsObjectValid(WorldContext)) return false;
 
         UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
-        if (!PalUtil) return false;
+        if (!PalUtil || !Utils::IsObjectValid(PalUtil)) return false;
 
-        // 1. Fetch the active UPalDatabaseCharacterParameter subsystem instance
         struct { UObject* WorldCtx; UObject* DB; } GetDBParams{ WorldContext, nullptr };
         if (!GCachedProps.GetDatabaseCharacterParameterFunc) {
             GCachedProps.GetDatabaseCharacterParameterFunc = PalUtil->GetFunctionByNameInChain(STR("GetDatabaseCharacterParameter"));
         }
         if (!GCachedProps.GetDatabaseCharacterParameterFunc) return false;
         
-        PalUtil->ProcessEvent(GCachedProps.GetDatabaseCharacterParameterFunc, &GetDBParams);
+        Utils::SafeProcessEvent(PalUtil, GCachedProps.GetDatabaseCharacterParameterFunc, &GetDBParams);
         UObject* DB = GetDBParams.DB;
-        if (!DB) return false;
+        if (!DB || !Utils::IsObjectValid(DB)) return false;
 
-        // 2. Fetch the native GetBPClass function
         if (!GCachedProps.GetBPClassFunc) {
             GCachedProps.GetBPClassFunc = DB->GetFunctionByNameInChain(STR("GetBPClass"));
         }
         if (!GCachedProps.GetBPClassFunc) return false;
 
-        // 3. Package the parameter block (matches native UE5 alignment & size requirements)
         struct {
-            FName RowName;                  // 0x00 (8 bytes)
-            bool bShowError;                // 0x08 (1 byte)
-            uint8_t Pad[7];                 // 0x09 - 0x0F (Align AltrSoftObjectPtr to 8-byte boundary)
-            AltrSoftObjectPtr ReturnValue;  // 0x10 (48 bytes SoftClassPtr / SoftObjectPtr)
+            FName RowName;                  
+            bool bShowError;                
+            uint8_t Pad[7];                 
+            AltrSoftObjectPtr ReturnValue;  
         } Params;
 
         Params.RowName = FName(CharID.c_str(), FNAME_Add);
         Params.bShowError = false;
 
-        // 4. Fire the native function call! (Now 100% stack-safe)
-        DB->ProcessEvent(GCachedProps.GetBPClassFunc, &Params);
+        Utils::SafeProcessEvent(DB, GCachedProps.GetBPClassFunc, &Params);
 
-        // 5. Convert the returned SoftClassPtr (AltrSoftObjectPtr) to a std::wstring path
         std::wstring packageName = Params.ReturnValue.ObjectID.PackageName.ToString();
         std::wstring assetName = Params.ReturnValue.ObjectID.AssetName.ToString();
 
@@ -176,47 +158,24 @@ namespace DynPals {
     }
 
     static bool IsPalBlueprintValid(UObject* Pal, std::wstring& OutBlueprintName) {
-        if (!Utils::IsObjectValid(Pal)) {
-            DP_LOG(Default, "[Validation] IsObjectValid failed for Pal pointer.");
-            return false;
-        }
+        if (!Utils::IsObjectValid(Pal)) return false;
 
         UClass* PalClass = Pal->GetClassPrivate();
-        if (!Utils::IsObjectValid(PalClass)) {
-            DP_LOG(Default, "[Validation] IsObjectValid failed for PalClass pointer.");
-            return false;
-        }
+        if (!Utils::IsObjectValid(PalClass)) return false;
         
         OutBlueprintName = PalClass->GetName();
-        if (OutBlueprintName.empty()) {
-            DP_LOG(Default, "[Validation] PalClass has empty NamePrivate.");
-            return false;
-        }
-        if (OutBlueprintName.find(L"Default__") != std::wstring::npos) {
-            DP_LOG(Default, "[Validation] Ignoring CDO/Template: {}", OutBlueprintName);
-            return false;
-        }
+        if (OutBlueprintName.empty() || OutBlueprintName.find(L"Default__") != std::wstring::npos) return false;
 
         bool bBeingDestroyed = false;
-        if (Utils::GetPropertyValue<bool>(Pal, STR("bActorIsBeingDestroyed"), bBeingDestroyed, true) && bBeingDestroyed) {
-            DP_LOG(Default, "[Validation] Pal {} is flagged as bActorIsBeingDestroyed = True.", OutBlueprintName);
-            return false;
-        }
+        if (Utils::GetPropertyValue<bool>(Pal, STR("bActorIsBeingDestroyed"), bBeingDestroyed, true) && bBeingDestroyed) return false;
 
         bool bHidden = false;
         if (Utils::GetPropertyValue<bool>(Pal, STR("bHidden"), bHidden, true) && bHidden) {
-            DP_LOG(Default, "[Validation] Pal {} is flagged as bHidden = True.", OutBlueprintName);
-            if (OutBlueprintName.find(L"FunnelCharacter") != std::wstring::npos) {
-                DP_LOG(Default, "[Validation] Rejecting hidden necklace companion Funnel: {}", OutBlueprintName);
-                return false;
-            }
+            if (OutBlueprintName.find(L"FunnelCharacter") != std::wstring::npos) return false;
         }
 
         return true;
     }
-
-
-
 
     std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
         if (InputID.rfind(L"BOSS_", 0) == 0) return InputID.substr(5);
@@ -226,158 +185,20 @@ namespace DynPals {
         return InputID;
     }
 
-    // ==========================================
-    // ULTIMATE PERFORMANCE CACHE
-    // Caches Unreal's reflection pointers statically so we NEVER 
-    // do string comparisons inside the ticking loop!
-    // ==========================================
-    
-    
-    
     void PalProcessor::ScanActivePals() {
         return;
-        auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - LastScanTime).count() < 3000) return;
-        LastScanTime = now;
-
-        UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
-        if (!PalUtil) return;
-
-        UObject* WorldContext = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-        if (!WorldContext) return;
-
-        auto start = std::chrono::high_resolution_clock::now();
-
-        // SAFE Inline Lazy-Init: Only lock if resolved!
-        if (!GCachedProps.bIsGlobalsInit) {
-            GCachedProps.GetPalCharactersFunc = PalUtil->GetFunctionByNameInChain(STR("GetPalCharacters"));
-            GCachedProps.IsOtomoFunc = PalUtil->GetFunctionByNameInChain(STR("IsOtomo"));
-            GCachedProps.IsBaseCampPalFunc = PalUtil->GetFunctionByNameInChain(STR("IsBaseCampPal"));
-            
-            if (GCachedProps.GetPalCharactersFunc) GCachedProps.bIsGlobalsInit = true;
-        }
-
-        if (!GCachedProps.GetPalCharactersFunc || !GCachedProps.IsOtomoFunc || !GCachedProps.IsBaseCampPalFunc) return;
-
-        struct { UObject* WorldContextObject; TArray<UObject*> OutCharacters; } Params;
-        Params.WorldContextObject = WorldContext;
-
-        PalUtil->ProcessEvent(GCachedProps.GetPalCharactersFunc, &Params);
-
-        for (int32_t i = 0; i < Params.OutCharacters.Num(); ++i) {
-            UObject* Pal = Params.OutCharacters[i];
-            if (!Pal) continue;
-
-            bool bIsRelevant = false;
-            struct { UObject* Actor; bool RetVal; } BoolParams{Pal, false};
-            
-            PalUtil->ProcessEvent(GCachedProps.IsOtomoFunc, &BoolParams);
-            if (BoolParams.RetVal) {
-                bIsRelevant = true;
-            } else {
-                PalUtil->ProcessEvent(GCachedProps.IsBaseCampPalFunc, &BoolParams);
-                if (BoolParams.RetVal) bIsRelevant = true;
-            }
-
-            if (bIsRelevant) {
-                if (ProcessedPals.find(Pal) == ProcessedPals.end()) {
-                    ProcessedPals.insert(Pal);
-                    ProcessPal(Pal, false);
-                } else {
-                    // Inline Lazy-Init properties using the live Actor Class
-                    if (!GCachedProps.bIsPropsInit) {
-                        UClass* PalClass = Pal->GetClassPrivate();
-                        if (PalClass) GCachedProps.CharParamCompProp = PalClass->GetPropertyByNameInChain(STR("CharacterParameterComponent"));
-                    }
-
-                    UObject* ParamComp = nullptr;
-                    if (GCachedProps.CharParamCompProp) {
-                        void* ValuePtr = GCachedProps.CharParamCompProp->ContainerPtrToValuePtr<void>(Pal);
-                        if (ValuePtr) ParamComp = *reinterpret_cast<UObject**>(ValuePtr);
-                    } else {
-                        Utils::GetPropertyValue<UObject*>(Pal, STR("CharacterParameterComponent"), ParamComp);
-                    }
-
-                    if (ParamComp) {
-                        UObject* IndivParam = nullptr;
-                        
-                        if (!GCachedProps.bIsPropsInit) {
-                            UClass* ParamCompClass = ParamComp->GetClassPrivate();
-                            if (ParamCompClass) GCachedProps.IndivParamProp = ParamCompClass->GetPropertyByNameInChain(STR("IndividualParameter"));
-                        }
-
-                        if (GCachedProps.IndivParamProp) {
-                            void* ValuePtr = GCachedProps.IndivParamProp->ContainerPtrToValuePtr<void>(ParamComp);
-                            if (ValuePtr) IndivParam = *reinterpret_cast<UObject**>(ValuePtr);
-                        } else {
-                            Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
-                        }
-
-                        if (IndivParam) {
-                            FPalInstanceID IDStruct;
-                            bool bGotId = false;
-
-                            if (!GCachedProps.bIsPropsInit) {
-                                UClass* IndivClass = IndivParam->GetClassPrivate();
-                                if (IndivClass) GCachedProps.IndivIdProp = IndivClass->GetPropertyByNameInChain(STR("IndividualId"));
-                                
-                                // Lock the prop cache once we successfully find the final ID property
-                                if (GCachedProps.IndivIdProp) GCachedProps.bIsPropsInit = true; 
-                            }
-                            
-                            if (GCachedProps.IndivIdProp) {
-                                void* ValuePtr = GCachedProps.IndivIdProp->ContainerPtrToValuePtr<void>(IndivParam);
-                                if (ValuePtr) {
-                                    IDStruct = *reinterpret_cast<FPalInstanceID*>(ValuePtr);
-                                    bGotId = true;
-                                }
-                            } else {
-                                bGotId = Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), IDStruct);
-                            }
-
-                            if (bGotId && IDStruct.InstanceId.IsValid()) {
-                                std::wstring InstanceID = Utils::GuidToWString(IDStruct.InstanceId);
-                                auto it = RuntimeStatsCache.find(InstanceID);
-                                
-                                if (it != RuntimeStatsCache.end()) {
-                                    PalRuntimeStats stats = RetrievePalStats(IndivParam, L"", InstanceID, false); 
-
-                                    if (it->second.Level != stats.Level || 
-                                        it->second.Rank != stats.Rank || 
-                                        it->second.Friendship != stats.Friendship) 
-                                    {
-                                        ProcessPal(Pal, false);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        
-        RC::Output::send<RC::LogLevel::Default>(
-            STR("[DynPals] [Perf - Ultra Optimized] ScanActivePals evaluated {} characters in {} us ({:.3f} ms)\n"), 
-            Params.OutCharacters.Num(), duration, duration / 1000.0f
-        );
     }
 
-void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
-        if (!Character) return;
+    void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
+        if (!Character || !Utils::IsObjectValid(Character)) return;
         
-        // 1. Play the visual composition instantly and get the JSON-defined swap delay
         float DelaySeconds = VFXManager::Get().PlayComposition(Character, CompName);
-        
-        // 2. Schedule the physical swap for later
         int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
         ForceSwap(Character, SwapIndex, DelayMs);
     }
 
     void PalProcessor::DelayedReroll(UObject* Character, const std::wstring& CompName) {
-        if (!Character) return;
+        if (!Character || !Utils::IsObjectValid(Character)) return;
         
         float DelaySeconds = VFXManager::Get().PlayComposition(Character, CompName);
         int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
@@ -391,18 +212,16 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
         }).detach();
     }
 
-
-
     void PalProcessor::ForceSwap(UObject* Character, int SwapIndex, int DelayMs) {
         if (!Utils::IsObjectValid(Character) || SwapIndex < 0 || SwapIndex >= (int)ConfigManager::Get().GetConfigs().size()) return;
 
         UObject* ParamComp = nullptr;
         Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp);
-        if (!ParamComp) return;
+        if (!ParamComp || !Utils::IsObjectValid(ParamComp)) return;
 
         UObject* IndivParam = nullptr;
         Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam);
-        if (!IndivParam) return;
+        if (!IndivParam || !Utils::IsObjectValid(IndivParam)) return;
 
         FPalInstanceID InstanceIDStruct;
         if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct)) return;
@@ -443,16 +262,16 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                 PalProcessor::Get().ProcessPal(Character, false, SwapIndex);
             });
         }).detach();
-
-
     }
+
     int PalProcessor::EvaluateIdealSwapIndex(UObject* Character, std::wstring& OutInstanceID) {
         return -1; 
     }
 
     void PalProcessor::ProcessPal(UObject* Character, bool ForceReroll, int ExplicitSwapIndex, bool IsCompanionSync) {
+        if (!Character || !Utils::IsObjectValid(Character)) return;
+
         std::lock_guard<std::mutex> lock(QueueMutex);
-        // Avoid duplicate queuing; just upgrade the request if needed
         for (auto& q : SwapQueue) {
             if (q.Character == Character) {
                 if (ForceReroll) q.ForceReroll = true;
@@ -464,53 +283,39 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
         SwapQueue.push_back({Character, ForceReroll, ExplicitSwapIndex, IsCompanionSync});
     }
 
-
     void PalProcessor::CheckAndTriggerUpdate(UObject* Character) {
         ProcessPal(Character, false);
     }
 
     void PalProcessor::ProcessPlayerParty(UObject* WorldContext) {
-        DP_LOG(Default, "[Party Debug] Starting ProcessPlayerParty. WorldContext address: 0x{:X}", reinterpret_cast<uintptr_t>(WorldContext));
-        if (!WorldContext) return;
+        if (!WorldContext || !Utils::IsObjectValid(WorldContext)) return;
 
         UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
-        DP_LOG(Default, "[Party Debug] StaticFindObject Default__PalUtility: 0x{:X}", reinterpret_cast<uintptr_t>(PalUtil));
-        if (!PalUtil) return;
+        if (!PalUtil || !Utils::IsObjectValid(PalUtil)) return;
 
         struct { UObject* WorldContext; UObject* ReturnValue; } HolderParams{ WorldContext, nullptr };
-        Utils::CallFunction(PalUtil, STR("GetOtomoHolderComponent"), &HolderParams);
+        Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetOtomoHolderComponent")), &HolderParams);
         UObject* OtomoHolder = HolderParams.ReturnValue;
-        DP_LOG(Default, "[Party Debug] GetOtomoHolderComponent returned: 0x{:X}", reinterpret_cast<uintptr_t>(OtomoHolder));
-        if (!OtomoHolder) return;
+        if (!OtomoHolder || !Utils::IsObjectValid(OtomoHolder)) return;
 
         struct { UObject* WorldContext; UObject* ReturnValue; } FunnelMgrParams{ WorldContext, nullptr };
-        Utils::CallFunction(PalUtil, STR("GetFunnelCharacterManager"), &FunnelMgrParams);
+        Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetFunnelCharacterManager")), &FunnelMgrParams);
         UObject* FunnelManager = FunnelMgrParams.ReturnValue;
-        DP_LOG(Default, "[Party Debug] GetFunnelCharacterManager returned: 0x{:X}", reinterpret_cast<uintptr_t>(FunnelManager));
 
-        // Resolve and queue the 5 active/preloaded party representatives and their active companions
         for (int32_t i = 0; i < 5; ++i) {
             struct { int32_t SlotIndex; UObject* ReturnValue; } OtomoParams{ i, nullptr };
-            Utils::CallFunction(OtomoHolder, STR("TryGetOtomoActorBySlotIndex"), &OtomoParams);
+            Utils::SafeProcessEvent(OtomoHolder, OtomoHolder->GetFunctionByNameInChain(STR("TryGetOtomoActorBySlotIndex")), &OtomoParams);
             UObject* OtomoChar = OtomoParams.ReturnValue;
             
-            DP_LOG(Default, "[Party Debug] SlotIndex({}) returned Actor: 0x{:X}", i, reinterpret_cast<uintptr_t>(OtomoChar));
-
-            if (OtomoChar) {
-                std::wstring nameStr = OtomoChar->GetName();
-                DP_LOG(Default, "[Party Setup] Queueing Party Representative: {}", nameStr);
+            if (OtomoChar && Utils::IsObjectValid(OtomoChar)) {
                 ProcessPal(OtomoChar, false);
 
-                if (FunnelManager) {
+                if (FunnelManager && Utils::IsObjectValid(FunnelManager)) {
                     struct { UObject* Owner; UObject* ReturnValue; } FunnelParams{ OtomoChar, nullptr };
-                    Utils::CallFunction(FunnelManager, STR("GetFunnelCharacterByOwner"), &FunnelParams);
+                    Utils::SafeProcessEvent(FunnelManager, FunnelManager->GetFunctionByNameInChain(STR("GetFunnelCharacterByOwner")), &FunnelParams);
                     UObject* FunnelChar = FunnelParams.ReturnValue;
                     
-                    DP_LOG(Default, "  -> Funnel companion for {}: 0x{:X}", nameStr, reinterpret_cast<uintptr_t>(FunnelChar));
-                    
-                    if (FunnelChar) {
-                        std::wstring funnelName = FunnelChar->GetName();
-                        DP_LOG(Default, "[Party Setup] Queueing Necklace Companion: {}", funnelName);
+                    if (FunnelChar && Utils::IsObjectValid(FunnelChar)) {
                         ProcessPal(FunnelChar, false);
                     }
                 }
@@ -518,13 +323,8 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
         }
     }
 
-
-
-
-
-
     void PalProcessor::Tick() {
-        // Safe Gate: If the engine's libraries are not fully loaded in memory yet, keep everything in the queue and wait
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [Tick] Trace 1: Starting Tick\n"));
         UObject* KSL = Utils::GetKismetSystemLibrary();
         static UFunction* IsValidFunc = Utils::GetKismetFunction(STR("IsValid"));
         if (!KSL || !IsValidFunc) return;
@@ -538,32 +338,21 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             SwapQueue.pop_front();
         }
 
-        std::wstring charName = L"Unknown (Dangling)";
-        if (Utils::IsObjectValid(req.Character)) {
-            charName = req.Character->GetName();
-        }
-        DP_LOG(Default, "[Queue Pop] Popped {} from Queue (Reroll: {}, TargetIndex: {}, IsSync: {})", 
-               charName, req.ForceReroll ? L"YES" : L"NO", req.ExplicitSwapIndex, req.IsCompanionSync ? L"YES" : L"NO");
+        UObject* TargetChar = req.Character;
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [Tick] Trace 2: Popped queue\n"));
 
-        if (Utils::IsObjectValid(req.Character)) {
-            auto start = std::chrono::high_resolution_clock::now();
-            bool bApplied = ExecuteSwap(req.Character, req.ForceReroll, req.ExplicitSwapIndex, req.IsCompanionSync);
-            auto end = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-            
-            if (bApplied) {
-                DP_LOG(Default, "[Queue Exec] Swapped {} in {} us ({:.3f} ms)", charName, duration, duration / 1000.0f);
-            }
+        if (Utils::IsObjectTracked(TargetChar) && Utils::IsObjectValid(TargetChar)) {
+            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [Tick] Trace 3: Calling ExecuteSwap\n"));
+            ExecuteSwap(TargetChar, req.ForceReroll, req.ExplicitSwapIndex, req.IsCompanionSync);
+            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [Tick] Trace 4: Returned from ExecuteSwap\n"));
         } else {
-            DP_LOG(Default, "[Swap Aborted] Queued actor became invalid or was destroyed before execution.");
+            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [Tick] Trace 5: Character invalid, skipping swap\n"));
         }
 
-
-
-        // Memory leak prevention: Prune dead pointers from SwappedInstances & ActivePalsByInstanceID periodically
         static int pruneCounter = 0;
         pruneCounter++;
         if (pruneCounter > 500) {
+            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [Tick] Trace 6: Running Prune operation\n"));
             pruneCounter = 0;
             for (auto it = SwappedInstances.begin(); it != SwappedInstances.end(); ) {
                 if (!Utils::IsObjectValid(it->first)) {
@@ -585,50 +374,47 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                     it = ActivePalsByInstanceID.erase(it);
                 } else {
                     ++it;
-
                 }
             }
+            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [Tick] Trace 7: Prune operation finished\n"));
         }
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [Tick] Trace 8: Tick Finished\n"));
     }
-
-
-
-
 
     bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int ExplicitSwapIndex, bool IsCompanionSync) {
         if (!Character) return false;
-
-        auto LogAbort = [&](const wchar_t* Reason) {
-            std::wstring charName = Character->GetName();
-            DP_LOG(Default, "[Swap Aborted] {} - {}", charName, Reason);
-        };
         
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 0: Validating Character\n"));
+        if (!Utils::IsObjectValid(Character)) {
+            return false;
+        }
+        
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 1: Retrieving CharacterParameterComponent\n"));
         UObject* ParamComp = nullptr;
         Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp, true);
-        if (!ParamComp) {
-            LogAbort(L"Missing CharacterParameterComponent");
+        if (!ParamComp || !Utils::IsObjectValid(ParamComp)) {
             return false;
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 2: Retrieving IndividualParameter\n"));
         UObject* IndivParam = nullptr;
         Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam, true);
-        if (!IndivParam) {
-            LogAbort(L"Missing IndividualParameter");
+        if (!IndivParam || !Utils::IsObjectValid(IndivParam)) {
             return false;
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 3: Retrieving IndividualId\n"));
         FPalInstanceID InstanceIDStruct;
         if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct, true)) {
-            LogAbort(L"Missing IndividualId");
             return false;
         }
         if (!InstanceIDStruct.InstanceId.IsValid()) {
-            LogAbort(L"Invalid InstanceId GUID");
             return false;
         } 
 
         std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 4: Updating ActivePalsByInstanceID\n"));
         {
             auto& palSet = ActivePalsByInstanceID[InstanceID];
             for (auto it = palSet.begin(); it != palSet.end(); ) {
@@ -641,30 +427,34 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             palSet.insert(Character);
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 5: Validating Blueprint\n"));
         std::wstring BlueprintName = L"";
         if (!IsPalBlueprintValid(Character, BlueprintName)) {
-            LogAbort(L"Invalid Blueprint or Actor is dying/inactive");
             return false;
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 6: Validating Level/World\n"));
         UObject* Level = Character->GetOuterPrivate();
-        if (!Level) {
-            LogAbort(L"Actor is not in a valid Level");
+        if (!Level || !Utils::IsObjectValid(Level)) {
             return false;
         }
         UObject* World = Level->GetOuterPrivate();
-        if (!World || World->GetClassPrivate()->GetName() != L"World") {
-            LogAbort(L"Actor is not in a valid World");
+        if (!World || !Utils::IsObjectValid(World) || World->GetClassPrivate()->GetName() != L"World") {
             return false;
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 7: Retrieving PalUtility\n"));
         static UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
-        
-        if (PalUtil && !GCachedProps.bIsCoreGlobalsInit) {
+        if (!PalUtil || !Utils::IsObjectValid(PalUtil)) {
+            return false;
+        }
+
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 8: Initializing Global Native Functions\n"));
+        if (!GCachedProps.bIsCoreGlobalsInit) {
             GCachedProps.GetCharacterIDFromCharacterFunc = PalUtil->GetFunctionByNameInChain(STR("GetCharacterIDFromCharacter"));
             GCachedProps.IsWildNPCFunc = PalUtil->GetFunctionByNameInChain(STR("IsWildNPC"));
             
-            if (IndivParam) {
+            if (IndivParam && Utils::IsObjectValid(IndivParam)) {
                 GCachedProps.IsRarePalFunc = IndivParam->GetFunctionByNameInChain(STR("IsRarePal"));
                 GCachedProps.GetGenderTypeFunc = IndivParam->GetFunctionByNameInChain(STR("GetGenderType"));
                 GCachedProps.GetSkinNameFunc = IndivParam->GetFunctionByNameInChain(STR("GetSkinName"));
@@ -673,17 +463,18 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             GCachedProps.bIsCoreGlobalsInit = true;
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 9: Fetching CharacterID\n"));
         struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
-        if (PalUtil && GCachedProps.GetCharacterIDFromCharacterFunc) {
-            PalUtil->ProcessEvent(GCachedProps.GetCharacterIDFromCharacterFunc, &CharIDParams);
+        if (GCachedProps.GetCharacterIDFromCharacterFunc) {
+            Utils::SafeProcessEvent(PalUtil, GCachedProps.GetCharacterIDFromCharacterFunc, &CharIDParams);
         }
         std::wstring RawCharID = CharIDParams.RetVal.ToString();
 
         if (RawCharID.rfind(L"GYM_", 0) == 0 || RawCharID.find(L"_Gym_") != std::wstring::npos) {
-            LogAbort(L"Character is a Gym Boss (Unsupported)");
             return false;
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 10: Syncing Save Data\n"));
         static UObject* LastWorldLoaded = nullptr;
         if (World != LastWorldLoaded) {
             SaveManager::Get().LoadWorldData(World);
@@ -693,37 +484,41 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
 
         std::wstring CharID = StripCharacterPrefix(RawCharID);
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 11: Retrieving Pal Stats\n"));
         PalRuntimeStats stats = RetrievePalStats(IndivParam, RawCharID, InstanceID, true);
         int LevelNum = stats.Level;
         int RankNum = stats.Rank;
         int FriendshipNum = stats.Friendship;
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 12: Retrieving Wild/Rare/Gender\n"));
         struct { UObject* Actor; bool RetVal; } WildParams{Character, false};
-        if (PalUtil && GCachedProps.IsWildNPCFunc) PalUtil->ProcessEvent(GCachedProps.IsWildNPCFunc, &WildParams);
+        if (GCachedProps.IsWildNPCFunc) Utils::SafeProcessEvent(PalUtil, GCachedProps.IsWildNPCFunc, &WildParams);
         bool IsWild = WildParams.RetVal;
 
         struct { bool ReturnValue; } RareParams{false};
-        if (GCachedProps.IsRarePalFunc) IndivParam->ProcessEvent(GCachedProps.IsRarePalFunc, &RareParams);
+        if (GCachedProps.IsRarePalFunc) Utils::SafeProcessEvent(IndivParam, GCachedProps.IsRarePalFunc, &RareParams);
         bool IsRare = RareParams.ReturnValue;
 
         struct { uint8_t RetVal; } GenderParams{0};
-        if (GCachedProps.GetGenderTypeFunc) IndivParam->ProcessEvent(GCachedProps.GetGenderTypeFunc, &GenderParams);
+        if (GCachedProps.GetGenderTypeFunc) Utils::SafeProcessEvent(IndivParam, GCachedProps.GetGenderTypeFunc, &GenderParams);
         std::wstring GenderStr = (GenderParams.RetVal == 1) ? L"Male" : ((GenderParams.RetVal == 2) ? L"Female" : L"None");
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 13: Retrieving Skin and Traits\n"));
         struct { FName RetVal; } SkinParams{FName()};
-        if (GCachedProps.GetSkinNameFunc) IndivParam->ProcessEvent(GCachedProps.GetSkinNameFunc, &SkinParams);
+        if (GCachedProps.GetSkinNameFunc) Utils::SafeProcessEvent(IndivParam, GCachedProps.GetSkinNameFunc, &SkinParams);
         std::wstring SkinName = SkinParams.RetVal.ToString();
         if (SkinName == L"None") SkinName = L"";
 
         std::vector<std::wstring> Traits;
         struct { TArray<FName> RetVal; } TraitsParams;
         if (GCachedProps.GetPassiveSkillListFunc) {
-            IndivParam->ProcessEvent(GCachedProps.GetPassiveSkillListFunc, &TraitsParams);
+            Utils::SafeProcessEvent(IndivParam, GCachedProps.GetPassiveSkillListFunc, &TraitsParams);
             for (int32_t i = 0; i < TraitsParams.RetVal.Num(); ++i) {
                 Traits.push_back(TraitsParams.RetVal[i].ToString());
             }
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 14: Processing Swap Index\n"));
         PalRuntimeStats& CachedStats = RuntimeStatsCache[InstanceID];
 
         std::wstring CurrentSwapLabel = ExistingData ? ExistingData->SwapLabel : L"";
@@ -745,8 +540,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             finalSwap = ExplicitSwapIndex;
         } 
         else {
-            auto it = SwappedInstances.find(Character);
-
+            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 15: Evaluating Best Swap\n"));
             auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);
             int newBestSwap = ConfigManager::Get().PickBestSwap(evaluations);
 
@@ -774,7 +568,6 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                         }
 
                         if (!currentEval->IsValid || currentEval->Score > absoluteBestScore) {
-                            DP_LOG(Verbose, "Live Event: Better skin found or current became invalid. Upgrading skin.\n");
                             finalSwap = newBestSwap;
                         } else {
                             finalSwap = currentSwap;
@@ -790,6 +583,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             }
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 16: Processing finalSwap selection\n"));
         if (finalSwap != -1) {
             auto activeIt = SwappedInstances.find(Character);
             bool bIsNewActor = (activeIt == SwappedInstances.end());
@@ -797,10 +591,10 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             bool bNeedsApply = (ExplicitSwapIndex != -1) || ForceReroll || (finalSwap != currentSwap) || bIsNewActor;
             
             if (bNeedsApply) {
+                RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 17: Preparing config for ApplySwap\n"));
                 bool bIsLiveEvolution = bLiveEventTriggered && !bIsNewActor && (finalSwap != currentSwap) && (ExplicitSwapIndex == -1) && !ForceReroll;
 
                 if (bIsLiveEvolution) {
-                    DP_LOG(Default, "Live Evolution Triggered! Deferring physical swap for visual composition...");
                     DelayedSwap(Character, finalSwap, L"evolve_1");
                     return true; 
                 }
@@ -874,7 +668,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
 
                         if (!IsWild) {
                             UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-                            if (PlayerController) {
+                            if (PlayerController && Utils::IsObjectValid(PlayerController)) {
                                 UFunction* UpdateNameFunc = PlayerController->GetFunctionByNameInChain(STR("UpdateCharacterNickName_ToServer"));
                                 if (UpdateNameFunc) {
                                     struct { 
@@ -884,14 +678,16 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                                     Params.InstanceId = InstanceIDStruct;
                                     Params.NewNickName = FString(finalConfig.SetNickname.c_str());
                                     
-                                    PlayerController->ProcessEvent(UpdateNameFunc, &Params);
+                                    Utils::SafeProcessEvent(PlayerController, UpdateNameFunc, &Params);
                                 }
                             }
                         }
                     }
                 }
 
+                RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 19: Invoking ApplySwap\n"));
                 ApplySwap(Character, finalConfig, newData);
+                RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 20: ApplySwap completed successfully\n"));
 
                 bool bIsManualAction = (ExplicitSwapIndex != -1) || ForceReroll;
                 SaveManager::Get().SetPersistData(InstanceID, newData, bIsManualAction);
@@ -899,6 +695,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                 SwappedInstances[Character] = finalConfig.SwapLabel;
 
                 if (!IsCompanionSync) {
+                    RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 21: Queueing Companion Syncs\n"));
                     auto& palSet = ActivePalsByInstanceID[InstanceID];
                     for (UObject* Companion : palSet) {
                         if (Utils::IsObjectValid(Companion) && Companion != Character) {
@@ -907,29 +704,29 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                     }
                 }
 
-                if (bIsManualAction) {
-                    VFXManager::Get().PlaySwapEffect(Character, L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
-                }
+                RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 22: Execution Complete\n"));
                 return true; 
             } else {
-                LogAbort(L"Skin already matches target state (Ignored to prevent overlap)");
                 return false;
             }
         }
 
-        LogAbort(L"No valid matching skin configuration found");
         return false; 
     }
 
-    
     void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 1: Starting ApplySwap\n"));
         std::wstring BPName;
         if (!IsPalBlueprintValid(Character, BPName)) return;
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 2: Getting Main Mesh\n"));
         UObject* MeshComp = nullptr;
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-        if (!MeshComp) return;
+        if (!MeshComp || !Utils::IsObjectValid(MeshComp)) {
+            return;
+        }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 3: Pausing Anims\n"));
         Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), true, false);
 
         struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ true };
@@ -942,22 +739,22 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
         UObject* TargetSkeleton = nullptr;
         UObject* TargetStaticParam = nullptr;
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 4: Resolving Anim Path\n"));
         UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
         struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
-        if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
+        if (PalUtil && Utils::IsObjectValid(PalUtil)) Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetCharacterIDFromCharacter")), &CharIDParams);
         std::wstring CharID = StripCharacterPrefix(CharIDParams.RetVal.ToString());
 
         std::wstring AnimPath = swap.AnimTarget;
         
-        // Helper to perform case-insensitive comparisons
         auto ToLowerW = [](std::wstring str) {
             std::transform(str.begin(), str.end(), str.begin(), ::towlower);
             return str;
         };
 
-        // ONLY perform a heavy blocking disk-load if the user explicitly requested a DIFFERENT animation blueprint!
         bool bNeedsExternalAnimLoad = !AnimPath.empty() && ToLowerW(AnimPath) != ToLowerW(CharID);
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 5: Loading Targets\n"));
         if (bNeedsExternalAnimLoad) {
             UClass* TargetBPClass = nullptr;
             std::wstring TargetPackagePath = L"";
@@ -976,7 +773,6 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                     }
                 }
 
-                // Fallback: Guess paths if the ID isn't registered in the native Database
                 if (!TargetBPClass) {
                     std::wstring TryPath1 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimPath + L"/BP_" + AnimPath + L".BP_" + AnimPath + L"_C";
                     TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(TryPath1));
@@ -1008,19 +804,19 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
 
             if (!IsPalBlueprintValid(Character, BPName)) return;
             Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-            if (!MeshComp) return;
+            if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
 
             if (TargetBPClass && !TargetPackagePath.empty() && !TargetClassName.empty()) {
                 std::wstring CDOPath = TargetPackagePath + L".Default__" + TargetClassName;
                 UObject* TargetCDO = Utils::LoadAssetSafely(CDOPath);
                 
-                if (TargetCDO) {
+                if (TargetCDO && Utils::IsObjectValid(TargetCDO)) {
                     UObject* TargetMesh = nullptr;
                     Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
                     
-                    if (TargetMesh) {
+                    if (TargetMesh && Utils::IsObjectValid(TargetMesh)) {
                         Utils::GetPropertyValue<UClass*>(TargetMesh, STR("AnimClass"), TargetAnimClass);
-                        if (TargetAnimClass) {
+                        if (TargetAnimClass && Utils::IsObjectValid(TargetAnimClass)) {
                             Utils::GetPropertyValue<UObject*>(TargetAnimClass, STR("TargetSkeleton"), TargetSkeleton);
                         }
 
@@ -1029,7 +825,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                             Utils::GetPropertyValue<UObject*>(TargetMesh, STR("SkinnedAsset"), TargetSkelMesh);
                         }
 
-                        if (TargetSkelMesh && !TargetSkeleton) {
+                        if (TargetSkelMesh && Utils::IsObjectValid(TargetSkelMesh) && !TargetSkeleton) {
                             Utils::GetPropertyValue<UObject*>(TargetSkelMesh, STR("Skeleton"), TargetSkeleton);
                         }
                     }
@@ -1037,7 +833,6 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                 }
             }
         } else {
-            // --- FAST PATH: Extract directly from the live Actor in RAM (Zero-Disk Overhead) ---
             TargetAnimClass = CurrentAnimClass;
             Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), TargetStaticParam);
             
@@ -1045,61 +840,79 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             if (!Utils::GetPropertyValue<UObject*>(MeshComp, STR("SkeletalMesh"), CurrentSkelMesh)) {
                 Utils::GetPropertyValue<UObject*>(MeshComp, STR("SkinnedAsset"), CurrentSkelMesh);
             }
-            if (CurrentSkelMesh) {
+            if (CurrentSkelMesh && Utils::IsObjectValid(CurrentSkelMesh)) {
                 Utils::GetPropertyValue<UObject*>(CurrentSkelMesh, STR("Skeleton"), TargetSkeleton);
             }
         }
 
-        if (!TargetAnimClass) { TargetAnimClass = CurrentAnimClass; }
+        if (!TargetAnimClass || !Utils::IsObjectValid(TargetAnimClass)) { TargetAnimClass = CurrentAnimClass; }
 
         bool bNeedsAnimRebuild = (TargetAnimClass != CurrentAnimClass);
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 6: Setting AnimClass\n"));
         if (bNeedsAnimRebuild) {
             UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
             if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
 
             if (SetAnimFunc) {
                 struct { UClass* NewClass; } ClearParams{ nullptr };
-                MeshComp->ProcessEvent(SetAnimFunc, &ClearParams);
+                Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &ClearParams);
             }
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7: Loading New Mesh\n"));
         UObject* NewMesh = nullptr;
         if (!swap.SkelMeshPath.empty()) {
             NewMesh = Utils::LoadSkeletalMeshSafely(swap.SkelMeshPath);
             
+            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7.1: Validating BP before mesh apply\n"));
             if (!IsPalBlueprintValid(Character, BPName)) return;
             Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
-            if (!MeshComp) return;
+            if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
 
-            if (NewMesh) {
-                if (TargetSkeleton) {
-                    struct { UObject* NewSkeleton; } SkelParams{ TargetSkeleton };
-                    Utils::CallFunction(NewMesh, STR("SetSkeleton"), &SkelParams);
+            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7.2: Applying loaded mesh\n"));
+        if (NewMesh && Utils::IsObjectValid(NewMesh)) {
+            // 1. Safely extract and validate the Class pointer before using it
+            UClass* MeshClass = NewMesh->GetClassPrivate();
+            
+            if (MeshClass && Utils::IsObjectValid(MeshClass)) {
+                std::wstring meshClassName = MeshClass->GetName();
+                
+                if (meshClassName.find(L"SkeletalMesh") != std::wstring::npos || meshClassName.find(L"SkinnedAsset") != std::wstring::npos) {
+                    
+                    if (TargetSkeleton && Utils::IsObjectValid(TargetSkeleton)) {
+                        Utils::SetPropertyValue<UObject*>(NewMesh, STR("Skeleton"), TargetSkeleton);
+                    }
+
+                    struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
+                    RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7.3: Calling SetSkinnedAssetAndUpdate\n"));
+                    Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
+                    RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7.4: SetSkinnedAssetAndUpdate finished\n"));
+                } else {
+                    DP_LOG(Warning, "[ApplySwap] Aborted: Loaded asset is a '{}', not a SkeletalMesh.", meshClassName);
+
                 }
-
-                struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, false};
-                Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
             } else {
-                // UI WARNING: Fails to load custom skeletal mesh asset (e.g. wrong path or missing mod files)
-                DP_LOG(Warning, "Failed to load Skeletal Mesh for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, swap.SkelMeshPath);
+                DP_LOG(Warning, "[ApplySwap] Aborted: Loaded mesh asset has a corrupt or missing Class definition.");
             }
         }
+        }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 8: Syncing Static Params\n"));
         if (bNeedsAnimRebuild) {
             UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
             if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
 
-            if (TargetAnimClass && SetAnimFunc) {
+            if (TargetAnimClass && Utils::IsObjectValid(TargetAnimClass) && SetAnimFunc) {
                 struct { UClass* NewClass; } Params{ TargetAnimClass };
-                MeshComp->ProcessEvent(SetAnimFunc, &Params);
+                Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &Params);
             }
 
-            if (TargetStaticParam) {
+            if (TargetStaticParam && Utils::IsObjectValid(TargetStaticParam)) {
                 UObject* CurrentStaticParam = nullptr;
                 Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), CurrentStaticParam);
 
-                if (CurrentStaticParam) {
+                if (CurrentStaticParam && Utils::IsObjectValid(CurrentStaticParam)) {
                     auto CopyProp = [](UObject* Src, UObject* Dest, const wchar_t* PropName) {
                         FProperty* SrcProp = Utils::GetProperty(Src, PropName);
                         FProperty* DestProp = Utils::GetProperty(Dest, PropName);
@@ -1111,32 +924,23 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                             }
                         }
                     };
-                     // --- Animations & Movement ---
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
-                    
-                    // --- Fix: Player Petting Posture & Distances ---
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingSize"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingStartAddDistance"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingEndLeaveDistance"));
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingDistance"));
-                    
-                    // --- Fix: UI Positioning (HP Bar Height) ---
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("HPGaugeUIOffset"));
-                    
-                    // --- Fix: Bed Alignment & Sleeping Positions ---
                     CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideInfoMapForMapObject"));
-                    
-                    
                 }
             }
         }
 
-        // Cache deep reflection searches statically so they only search memory ONCE per game session
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 9: Applying Materials\n"));
         struct { int32_t RetVal; } NumMatParams{0};
         Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
         for (int32_t i = 0; i < NumMatParams.RetVal; ++i) {
@@ -1144,8 +948,6 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
         }
 
-
-        // --- MATERIAL APPLICATION LOOP ---
         for (auto& mat : swap.MatReplaceList) {
             std::wstring ChosenPath = mat.matPath;
             std::wstring WideIndex = Utils::StringToWString(mat.index);
@@ -1167,9 +969,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                         
                         ChosenPath = AvailableMats[dis(gen)];
                         persist.MatSet[mat.index] = ChosenPath;
-                        
                     } else {
-                        DP_LOG(Warning, "[Slot {}] Wildcard folder '{}' has ZERO matching material files! Skipping slot.", WideIndex, VirtualFolder);
                         continue;
                     }
                 }
@@ -1183,8 +983,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
             UObject* NewMat = nullptr;
             if (!ChosenPath.empty()) {
                 NewMat = Utils::LoadAssetSafely(ChosenPath);
-                if (!NewMat) {
-                    DP_LOG(Warning, "[Slot {}] LoadAssetSafely FAILED for path: '{}'", WideIndex, ChosenPath);
+                if (!NewMat || !Utils::IsObjectValid(NewMat)) {
                     continue;
                 }
             } else {
@@ -1192,21 +991,18 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                 Utils::CallFunction(MeshComp, STR("GetMaterial"), &GetMatParams);
                 NewMat = GetMatParams.ReturnValue;
                 
-                if (!NewMat) {
-                    DP_LOG(Warning, "[Slot {}] Failed to retrieve existing material for dynamic application.", WideIndex);
+                if (!NewMat || !Utils::IsObjectValid(NewMat)) {
                     continue;
                 }
             }
 
-            // --- DYNAMIC MATERIAL INSTANCE & HUE GENERATOR ---
             if (mat.bRandomHue) {
                 FLinearColor_UE5 appliedColor;
                 auto colorIt = persist.MatColorSet.find(mat.index);
                 
                 if (colorIt != persist.MatColorSet.end()) {
-                    appliedColor = colorIt->second; // Use persisted color
+                    appliedColor = colorIt->second; 
                 } else {
-                    // Generate vibrant random color using HSV to RGB
                     static std::random_device rdColor;
                     static std::mt19937 genColor(rdColor());
                     std::uniform_real_distribution<float> disHue(0.0f, 360.0f);
@@ -1230,12 +1026,9 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                     persist.MatColorSet[mat.index] = appliedColor;
                 }
 
-                // Create the Dynamic Material Instance
-                // Resolve the material library and the target function with zero path string duplication
                 UObject* KML = Utils::GetKML();
                 UFunction* CreateFunc = Utils::GetKMLFunction(STR("CreateDynamicMaterialInstance"));
 
-                // Explicit local caching for properties
                 static FProperty* WCProp = CreateFunc ? CreateFunc->GetPropertyByNameInChain(STR("WorldContextObject")) : nullptr;
                 static FProperty* ParentProp = CreateFunc ? CreateFunc->GetPropertyByNameInChain(STR("Parent")) : nullptr;
                 static FProperty* NameProp = CreateFunc ? CreateFunc->GetPropertyByNameInChain(STR("OptionalName")) : nullptr;
@@ -1243,19 +1036,19 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
 
                 UObject* MID = nullptr;
 
-                if (KML && CreateFunc) {
+                if (KML && Utils::IsObjectValid(KML) && CreateFunc) {
                     alignas(8) uint8_t MIDParams[128] = {0};
 
                     if (WCProp) *WCProp->ContainerPtrToValuePtr<UObject*>(MIDParams) = Character;
                     if (ParentProp) *ParentProp->ContainerPtrToValuePtr<UObject*>(MIDParams) = NewMat;
                     if (NameProp) *NameProp->ContainerPtrToValuePtr<FName>(MIDParams) = FName();
 
-                    KML->ProcessEvent(CreateFunc, MIDParams);
+                    Utils::SafeProcessEvent(KML, CreateFunc, MIDParams);
 
                     if (RetProp) MID = *RetProp->ContainerPtrToValuePtr<UObject*>(MIDParams);
                 }
 
-                if (MID) {
+                if (MID && Utils::IsObjectValid(MID)) {
                     static UFunction* SetVecFunc = MID->GetFunctionByNameInChain(STR("SetVectorParameterValue"));
                     static FProperty* NamePropVec = SetVecFunc ? SetVecFunc->GetPropertyByNameInChain(STR("ParameterName")) : nullptr;
                     static FProperty* ValPropVec = SetVecFunc ? SetVecFunc->GetPropertyByNameInChain(STR("Value")) : nullptr;
@@ -1265,7 +1058,7 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                         if (NamePropVec) *NamePropVec->ContainerPtrToValuePtr<FName>(VecParams) = FName(STR("Hue"), FNAME_Add);
                         if (ValPropVec) *ValPropVec->ContainerPtrToValuePtr<FLinearColor_UE5>(VecParams) = appliedColor;
                         
-                        MID->ProcessEvent(SetVecFunc, VecParams);
+                        Utils::SafeProcessEvent(MID, SetVecFunc, VecParams);
                     }
                     
                     struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, MID};
@@ -1274,13 +1067,11 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                 }
             }
 
-            // Standard fallback application
             struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
             Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
-
         }
 
-        // --- MORPH TARGET APPLICATION ---
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 10: Morph Targets\n"));
         if (!swap.MorphTargetList.empty()) {
             static std::random_device rd;
             static std::mt19937 gen(rd());
@@ -1325,15 +1116,14 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                     FName(morph.target.c_str(), FNAME_Add), (float)val, false
                 };
                 Utils::CallFunction(MeshComp, STR("SetMorphTarget"), &MorphParams);
-
             }
         }
 
-        // === COMPILER OPTIMIZATION: ONLY RE-LINK STANDARD LAYERS IF ANIMATION WAS REBUILT ===
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 11: LinkAnimClassLayers\n"));
         if (bNeedsAnimRebuild) {
             UObject* NewAnimInst = nullptr;
             Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
-            if (NewAnimInst) {
+            if (NewAnimInst && Utils::IsObjectValid(NewAnimInst)) {
                 UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
                 if (LinkFunc) {
                     std::vector<std::wstring> StandardLayers = {
@@ -1346,70 +1136,43 @@ void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wst
                     for (const auto& LayerPath : StandardLayers) {
                         UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
                         
-                        if (LayerClass) {
+                        if (LayerClass && Utils::IsObjectValid(LayerClass)) {
                             struct { UClass* InClass; } LinkParams{ LayerClass };
                             Utils::CallFunction(NewAnimInst, STR("LinkAnimClassLayers"), &LinkParams);
                         }
-
                     }
                 }
             }
         }
 
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 12: PalFacialComponent\n"));
         struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
         Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), false, false);
 
-        // -------------------------------------------------------------
-        // FIX: Re-initialize Facial UV Warping to prevent weird body stretching
-        // When materials or meshes change, the facial component needs to rescan 
-        // the material slots to find the new eye/mouth indices. If it doesn't, 
-        // it will warp the UVs of whatever new material happens to be at the old index!
-        // -------------------------------------------------------------
         UObject* FacialComp = nullptr;
         Utils::GetPropertyValue<UObject*>(Character, STR("PalFacial"), FacialComp);
         
-        // If the PalFacial property wasn't found directly, try finding the component by class
-        if (!FacialComp) {
+        if (!FacialComp || !Utils::IsObjectValid(FacialComp)) {
             UClass* FacialClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Pal.PalFacialComponent"));
-            if (FacialClass) {
+            if (FacialClass && Utils::IsObjectValid(FacialClass)) {
                 struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{FacialClass, nullptr};
                 Utils::CallFunction(Character, STR("GetComponentByClass"), &GetCompParams);
                 FacialComp = GetCompParams.ReturnValue;
             }
         }
 
-        // If we successfully found the Facial Component on this Pal, reset its tracking modules
-        if (FacialComp) {
+        if (FacialComp && Utils::IsObjectValid(FacialComp)) {
             UObject* MainModule = nullptr;
-            if (Utils::GetPropertyValue<UObject*>(FacialComp, STR("MainModule"), MainModule) && MainModule) {
+            if (Utils::GetPropertyValue<UObject*>(FacialComp, STR("MainModule"), MainModule) && MainModule && Utils::IsObjectValid(MainModule)) {
                 struct { UObject* SkeletalMeshComponent; } SetupParams{ MeshComp };
                 UFunction* SetupFunc = MainModule->GetFunctionByNameInChain(STR("Setup_FacialModule"));
                 if (SetupFunc) {
-                    MainModule->ProcessEvent(SetupFunc, &SetupParams);
-
-                    // --- VERIFICATION LOGS ---
-                    int32_t EyeIdx = -2;
-                    int32_t MouthIdx = -2;
-                    int32_t BrowIdx = -2;
-                    
-                    Utils::GetPropertyValue<int32_t>(MainModule, STR("EyeMaterialIndex"), EyeIdx);
-                    Utils::GetPropertyValue<int32_t>(MainModule, STR("MouthMaterialIndex"), MouthIdx);
-                    Utils::GetPropertyValue<int32_t>(MainModule, STR("BrowMaterialIndex"), BrowIdx);
-                } else {
-                    DP_LOG(Warning, "[Facial] MainModule on Pal '{}' is missing 'Setup_FacialModule' function. Face textures may stretch.", Character->GetName());
-                }
-            } else {
-                DP_LOG(Warning, "[Facial] Failed to retrieve 'MainModule' from FacialComponent on Pal '{}'.", Character->GetName());
+                    Utils::SafeProcessEvent(MainModule, SetupFunc, &SetupParams);
+                } 
             }
-        } else {
-            // Replaced with verbose log so it doesn't clutter normal play, but is searchable
-            DP_LOG(Verbose, "[Facial] FacialComponent not found on Pal '{}'.", Character->GetName());
         }
-
-
-        // NATIVE CONSOLE LOG (Kept as 'Normal' level so it stays out of the UI and doesn't clutter player gameplay screen)
-        //DP_LOG(Default, "Successfully applied swap '{}' from Pack '{}' to Pal '{}'!\n", swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID);
+        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 13: Done!\n"));
     }
 }
