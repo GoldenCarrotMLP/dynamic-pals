@@ -206,7 +206,7 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
   if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
       LastSwapTime = Now;
       VirtualFrameCount++;
-      if (VirtualFrameCount >= 60) { 
+      if (VirtualFrameCount >= 30) { 
           VirtualFrameCount = 0;
           PalProcessor::Get().Tick();
       }

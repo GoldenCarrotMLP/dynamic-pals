@@ -85,6 +85,7 @@ namespace DynPals {
 
         auto it = Compositions.find(CompName);
         if (it == Compositions.end()) {
+            DP_LOG(Warning, "VFXManager: Composition '{}' not found in JSON.", CompName);
             return 0.0f;
         }
 
@@ -152,6 +153,7 @@ namespace DynPals {
         std::wstring CompPath = ModsPath + L"vfx_composition.json";
         std::string fileContent = Utils::ReadFileToString(CompPath);
         if (fileContent.empty()) {
+            DP_LOG(Error, "Missing 'vfx_composition.json' please download the latest release from GitHub.");
             return;
         }
 
@@ -184,6 +186,7 @@ namespace DynPals {
                     Compositions[Utils::StringToWString(compName)] = comp;
                 }
             }
+            if (!bForceReload) DP_LOG(Default, "VFXManager: Loaded {} dynamic VFX compositions.", Compositions.size());
         } catch (...) {
             DP_LOG(Warning, "VFXManager: Failed to parse vfx_composition.json!");
         }
@@ -191,6 +194,7 @@ namespace DynPals {
 
     void VFXManager::PlaySwapEffect(UObject* PalActor, const std::wstring& VfxPath, float ZOffset) {
         if (!PalActor || !Utils::IsObjectValid(PalActor)) return;
+        DP_LOG(Default, "VFXManager: Playing manual swap effect on Pal '{}' using path: '{}' (ZOffset: {:.2f})", PalActor->GetName(), VfxPath, ZOffset);
         AttachVFXToPal(PalActor, VfxPath, L"None", 1.0f, ZOffset);
     }
 
@@ -209,7 +213,10 @@ namespace DynPals {
                 if (last != std::string::npos) line.erase(last + 1);
                 if (!line.empty()) VFXList.push_back(Utils::StringToWString(line));
             }
-        } 
+            DP_LOG(Default, "VFXManager initialized with {} effects from vfx_list.txt.", VFXList.size());
+        } else {
+            DP_LOG(Error, "Missing 'vfx_list.txt'! Please download the latest release from GitHub.");
+        }
     }
 
     void VFXManager::SpawnCurrentPreview() {
@@ -379,11 +386,13 @@ namespace DynPals {
         UObject* AttachTarget = MeshComp;
         if (!AttachTarget || !Utils::IsObjectValid(AttachTarget)) AttachTarget = RootComp;
         if (!AttachTarget || !Utils::IsObjectValid(AttachTarget)) {
+            DP_LOG(Warning, "[VFX] Failed to resolve an AttachTarget (MainMesh or RootComponent) for Pal '{}'. Aborting attachment.", PalActor->GetName());
             return nullptr;
         }
 
         UObject* VFXAsset = Utils::LoadAssetSafely(VfxPath);
         if (!VFXAsset || !Utils::IsObjectValid(VFXAsset)) {
+            DP_LOG(Warning, "[VFX] Failed to load VFX Asset at path: '{}'. Check if files are missing.", VfxPath);
             return nullptr;
         }
 

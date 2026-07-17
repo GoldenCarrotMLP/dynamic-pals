@@ -11,6 +11,7 @@
 #include "AsyncHelper.hpp"
 #include "VFXManager.hpp"
 #include "FileWatcher.hpp"
+#include "NativeAsyncLoader.hpp"
 
 #include "UI/Views/UIManager.hpp" 
 #include "UI/Views/TestUI.hpp"    
@@ -95,6 +96,7 @@ public:
             DynPals::ConfigManager::Get().Initialize(BasePath);
             DynPals::FileWatcher::Start(BasePath + L"Paks/~mods/");
             DynPals::VFXManager::Get().Initialize(); 
+            DynPals::NativeAsyncLoader::Initialize();
             DynPals::HooksManager::RegisterHooks();
 
             // Register singletons natively into UIRegistry immediately

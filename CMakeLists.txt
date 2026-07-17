@@ -27,7 +27,8 @@ set(COMMON_SRC_FILES
     "src/UI/UIBase.cpp"       
     "src/UI/UIRegistry.cpp"   
     "src/UI/views/TestUI.cpp"      
-    "src/UI/views/UIManager.cpp"    
+    "src/UI/views/UIManager.cpp"  
+    "src/NativeAsyncLoader.cpp"  
 )
 
 # -------------------------------------------------------------------------

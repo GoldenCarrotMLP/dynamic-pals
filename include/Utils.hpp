@@ -6,6 +6,8 @@
 #include <Unreal/Core/Containers/Array.hpp>
 #include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp> 
+#include <Unreal/FWeakObjectPtr.hpp>
+
 #include <Unreal/FString.hpp>
 #include <Unreal/FText.hpp> 
 #include <string>
@@ -115,6 +117,10 @@ namespace DynPals::Utils {
         }
         
         UObject* Lib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, LibraryPath);
+        if (!Lib) {
+            DP_LOG(Warning, "[Utils] GetLibrary FAILED: Could not find core library at path: '{}'", LibraryPath);
+        }
+
         std::unique_lock<std::shared_mutex> write_lock(Caches::LibraryMutex);
         Caches::LibraryCache[LibraryPath] = Lib;
         return Lib;
@@ -132,6 +138,10 @@ namespace DynPals::Utils {
         UObject* Lib = GetLibrary(LibraryPath);
         UFunction* Func = Lib ? Lib->GetFunctionByNameInChain(FunctionName) : nullptr;
         
+        if (!Func) {
+            DP_LOG(Warning, "[Utils] GetLibraryFunction FAILED: Could not find function '{}' in library '{}'", FunctionName, LibraryPath);
+        }
+
         std::unique_lock<std::shared_mutex> write_lock(Caches::LibFuncMutex);
         Caches::LibFuncCache[k] = Func;
         return Func;
@@ -145,6 +155,10 @@ namespace DynPals::Utils {
         }
 
         UClass* Cls = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, ClassPath);
+        if (!Cls) {
+            DP_LOG(Warning, "[Utils] GetClassCached FAILED: Could not find class at path: '{}'", ClassPath);
+        }
+
         std::unique_lock<std::shared_mutex> write_lock(Caches::ClassMutex);
         Caches::ClassCache[ClassPath] = Cls;
         return Cls;
@@ -168,6 +182,7 @@ namespace DynPals::Utils {
         Caches::KismetFuncCache[FunctionName] = Func;
         return Func;
     }
+
 // Lightweight memory page prober to verify a pointer is mapped and readable by the OS
 inline bool IsMemoryReadable(const void* ptr, size_t size) {
     if (!ptr) return false;
@@ -300,6 +315,10 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
 
         FProperty* Prop = Class->GetPropertyByNameInChain(PropertyName);
         
+        if (!Prop && !bSilenceLogs) {
+            DP_LOG(Verbose, "[Utils] GetProperty: Could not find property '{}' on object '{}'", PropertyName, Object->GetName());
+        }
+
         std::unique_lock<std::shared_mutex> write_lock(Caches::PropMutex);
         Caches::PropCache[key] = Prop;
         
@@ -384,6 +403,10 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
 
         Function = Object->GetFunctionByNameInChain(FunctionName);
         
+        if (!Function && !bSilenceLogs) {
+            DP_LOG(Verbose, "[Utils] CallFunction FAILED: Could not find function '{}' on object '{}'", FunctionName, Object->GetName());
+        }
+
         {
             std::unique_lock<std::shared_mutex> write_lock(Caches::FuncMutex);
             Caches::FuncCache[key] = Function;
@@ -541,12 +564,20 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
 
         std::vector<std::wstring> Results;
         UObject* ARH = GetLibrary(STR("/Script/AssetRegistry.Default__AssetRegistryHelpers"));
-        if (!ARH) return Results;
+        if (!ARH) {
+            DP_LOG(Error, "[Asset Scanner] Failed: AssetRegistryHelpers CDO not found.");
+            return Results;
+        }
 
         struct { UObject* ReturnValue; } GetARParams{nullptr};
         CallFunction(ARH, STR("GetAssetRegistry"), &GetARParams);
         UObject* AssetRegistry = GetARParams.ReturnValue;
-        if (!AssetRegistry) return Results;
+        if (!AssetRegistry) {
+            DP_LOG(Error, "[Asset Scanner] Failed: AssetRegistry instance not found.");
+            return Results;
+        }
+
+        DP_LOG(Default, "[Asset Scanner] Initializing search for folder: '{}'", FolderPath);
 
         UFunction* ScanFunc = AssetRegistry->GetFunctionByNameInChain(STR("ScanPathsSynchronous"));
         if (ScanFunc) {
@@ -564,11 +595,17 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
             FBoolProperty* ForceRescanProp = CastField<FBoolProperty>(ScanFunc->GetPropertyByNameInChain(STR("bForceRescan")));
             if (ForceRescanProp) ForceRescanProp->SetPropertyValue(ForceRescanProp->ContainerPtrToValuePtr<void>(ScanBuffer), true);
             
+            DP_LOG(Default, "[Asset Scanner] Forcing synchronous rescan of folder to register modded .pak assets...");
             SafeProcessEvent(AssetRegistry, ScanFunc, ScanBuffer);
+        } else {
+            DP_LOG(Warning, "[Asset Scanner] ScanPathsSynchronous function missing. Unregistered .pak assets may not be found.");
         }
 
         UFunction* GetAssetsFunc = AssetRegistry->GetFunctionByNameInChain(STR("GetAssetsByPath"));
-        if (!GetAssetsFunc) return Results;
+        if (!GetAssetsFunc) {
+            DP_LOG(Error, "[Asset Scanner] Failed: GetAssetsByPath function not found.");
+            return Results;
+        }
 
         alignas(8) uint8_t ParamsBuffer[512] = {0}; 
 
@@ -593,6 +630,8 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
 
             if (ScriptArray && InnerProp) {
                 int32_t NumAssets = ScriptArray->Num();
+                DP_LOG(Default, "[Asset Scanner] Search complete. Discovered {} total assets in folder.", NumAssets);
+
                 int32_t ElementSize = InnerProp->GetSize();
                 uint8_t* ArrayData = static_cast<uint8_t*>(ScriptArray->GetData());
 
@@ -622,6 +661,9 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
 
                                     if (ClassName.find(L"Material") != std::wstring::npos) {
                                         Results.push_back(Path);
+                                        DP_LOG(Default, "  -> [Accepted Material] Class: '{}', Path: '{}'", ClassName, Path);
+                                    } else {
+                                        DP_LOG(Default, "  -> [Rejected Asset] Class: '{}', Path: '{}'", ClassName, Path);
                                     }
                                 } else {
                                     Results.push_back(FullName);
@@ -630,6 +672,8 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
                         }
                     }
                 }
+            } else {
+                DP_LOG(Warning, "[Asset Scanner] Warning: Output array was structurally invalid.");
             }
         }
 
