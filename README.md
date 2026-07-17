@@ -120,6 +120,7 @@ This mod is possible and stable thanks to these amazing people:
 - Spam
 - Raeil
 - Jyanon 
+- Faust0151 
   
 ## License
 

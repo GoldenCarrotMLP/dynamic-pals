@@ -740,7 +740,7 @@ namespace DynPals {
         auto ProfileStep = [&](const std::wstring& stepName) {
             auto now = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - step_start).count();
-            DP_LOG(Default, "[Profile] [ApplySwap] {} took {:.3f} ms", stepName, duration / 1000.0f);
+            //DP_LOG(Default, "[Profile] [ApplySwap] {} took {:.3f} ms", stepName, duration / 1000.0f);
             step_start = now;
         };
 

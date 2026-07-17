@@ -469,7 +469,7 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
             bCompletedInitReady = true;
 
             std::wstring verStr = GetFormattedVersionString();
-            DP_LOG(Normal, "Welcome to dynamic pals {} and happy palworld 1.0 <3", verStr);
+            DP_LOG(Normal, "Welcome to dynamic pals {} - Experimental", verStr);
 
             NotificationManager::Get().SetReady(true);
             NotificationManager::Get().FlushQueuedToasts();
