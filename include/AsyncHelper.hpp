@@ -1,6 +1,8 @@
+// --- START OF FILE include/AsyncHelper.hpp ---
 #pragma once
 #include <Unreal/Core/Templates/Function.hpp>
 #include <string>
+#include <vector>
 
 namespace DynPals {
     enum class ENamedThreads : int64_t {
@@ -16,10 +18,14 @@ namespace DynPals {
         // Queues a lambda to run securely on the designated thread
         static void AsyncTask(ENamedThreads Thread, const RC::Unreal::TUniqueFunction<void()>& Function);
         
-        // Expose FindPattern publicly
+        // Expose FindPattern publicly (Returns first match)
         static void* FindPattern(const std::string& patternStr);
+
+        // Expose FindMultiplePatterns publicly (Returns all matches)
+        static std::vector<void*> FindMultiplePatterns(const std::string& patternStr);
         
     private:
         static inline void* AsyncTaskPtr = nullptr;
     };
 }
+// --- END OF FILE include/AsyncHelper.hpp ---

@@ -1,3 +1,4 @@
+// --- START OF FILE src/AsyncHelper.cpp ---
 #include "AsyncHelper.hpp"
 #include "DataTypes.hpp"
 #include <DynamicOutput/DynamicOutput.hpp>
@@ -11,15 +12,16 @@ using namespace RC::Unreal;
 namespace DynPals {
 
     // Standalone, ultra-safe pattern scanner. Bypasses UE4SS locks completely!
-    void* AsyncHelper::FindPattern(const std::string& patternStr) {
+    std::vector<void*> AsyncHelper::FindMultiplePatterns(const std::string& patternStr) {
+        std::vector<void*> results;
         uint8_t* base = reinterpret_cast<uint8_t*>(GetModuleHandleA(NULL));
-        if (!base) return nullptr;
+        if (!base) return results;
 
         PIMAGE_DOS_HEADER dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(base);
-        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) return nullptr;
+        if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) return results;
 
         PIMAGE_NT_HEADERS ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(base + dosHeader->e_lfanew);
-        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) return nullptr;
+        if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) return results;
 
         size_t size = ntHeaders->OptionalHeader.SizeOfImage;
 
@@ -40,7 +42,7 @@ namespace DynPals {
         size_t patternSize = pattern.size();
         auto data = pattern.data();
 
-        // Scan the executable memory
+        // Scan the entire executable memory range
         for (size_t i = 0; i < size - patternSize; i++) {
             bool found = true;
             for (size_t j = 0; j < patternSize; j++) {
@@ -49,9 +51,32 @@ namespace DynPals {
                     break;
                 }
             }
-            if (found) return base + i; // Match found!
+            if (found) {
+                results.push_back(base + i);
+            }
         }
-        return nullptr;
+
+        return results;
+    }
+
+    void* AsyncHelper::FindPattern(const std::string& patternStr) {
+        std::vector<void*> results = FindMultiplePatterns(patternStr);
+
+        // Case 1: No match found
+        if (results.empty()) {
+            return nullptr;
+        }
+
+        // Case 2: Multiple matches found (Ambiguous pattern) - Log & Auto-Recover
+        if (results.size() > 1) {
+            DP_LOG(Warning, "[FindPattern] Warning: Multiple matches found for pattern scan! Auto-recovering using first match.");
+            for (void* addr : results) {
+                DP_LOG(Warning, "  -> Ambiguous match found at address: '{}'", addr);
+            }
+        }
+
+        // Case 3: Exactly one unique match found (Success)
+        return results[0];
     }
 
     void AsyncHelper::Initialize() {
@@ -72,3 +97,4 @@ namespace DynPals {
         reinterpret_cast<AsyncTaskSig>(AsyncTaskPtr)(Thread, Function);
     }
 }
+// --- END OF FILE src/AsyncHelper.cpp ---

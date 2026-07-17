@@ -715,18 +715,26 @@ namespace DynPals {
     }
 
     void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 1: Starting ApplySwap\n"));
+        auto total_start = std::chrono::high_resolution_clock::now();
+        auto step_start = total_start;
+        auto ProfileStep = [&](const std::wstring& stepName) {
+            auto now = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - step_start).count();
+            DP_LOG(Default, "[Profile] [ApplySwap] {} took {:.3f} ms", stepName, duration / 1000.0f);
+            step_start = now;
+        };
+
         std::wstring BPName;
         if (!IsPalBlueprintValid(Character, BPName)) return;
+        ProfileStep(L"Trace 1: Initial BP Validation");
 
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 2: Getting Main Mesh\n"));
         UObject* MeshComp = nullptr;
         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
         if (!MeshComp || !Utils::IsObjectValid(MeshComp)) {
             return;
         }
+        ProfileStep(L"Trace 2: GetMainMesh");
 
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 3: Pausing Anims\n"));
         Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), true, false);
 
         struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ true };
@@ -738,8 +746,8 @@ namespace DynPals {
         UClass* TargetAnimClass = nullptr;
         UObject* TargetSkeleton = nullptr;
         UObject* TargetStaticParam = nullptr;
+        ProfileStep(L"Trace 3: Pausing Anims & Fetching CurrentAnimClass");
 
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 4: Resolving Anim Path\n"));
         UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
         struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
         if (PalUtil && Utils::IsObjectValid(PalUtil)) Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetCharacterIDFromCharacter")), &CharIDParams);
@@ -753,8 +761,8 @@ namespace DynPals {
         };
 
         bool bNeedsExternalAnimLoad = !AnimPath.empty() && ToLowerW(AnimPath) != ToLowerW(CharID);
+        ProfileStep(L"Trace 4: Resolving Anim Path (CharID & Utils)");
 
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 5: Loading Targets\n"));
         if (bNeedsExternalAnimLoad) {
             UClass* TargetBPClass = nullptr;
             std::wstring TargetPackagePath = L"";
@@ -848,8 +856,8 @@ namespace DynPals {
         if (!TargetAnimClass || !Utils::IsObjectValid(TargetAnimClass)) { TargetAnimClass = CurrentAnimClass; }
 
         bool bNeedsAnimRebuild = (TargetAnimClass != CurrentAnimClass);
+        ProfileStep(L"Trace 5: Loading Targets & External BP classes");
 
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 6: Setting AnimClass\n"));
         if (bNeedsAnimRebuild) {
             UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
             if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
@@ -859,88 +867,69 @@ namespace DynPals {
                 Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &ClearParams);
             }
         }
+        ProfileStep(L"Trace 6: Clear Current AnimClass");
 
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7: Loading New Mesh\n"));
         UObject* NewMesh = nullptr;
         if (!swap.SkelMeshPath.empty()) {
             NewMesh = Utils::LoadSkeletalMeshSafely(swap.SkelMeshPath);
+            ProfileStep(L"Trace 7.1: Loading New SkelMesh Asset");
             
-            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7.1: Validating BP before mesh apply\n"));
             if (!IsPalBlueprintValid(Character, BPName)) return;
             Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
             if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
+            ProfileStep(L"Trace 7.2: Re-validating BP after load");
 
-            RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7.2: Applying loaded mesh\n"));
-        if (NewMesh && Utils::IsObjectValid(NewMesh)) {
-            // 1. Safely extract and validate the Class pointer before using it
-            UClass* MeshClass = NewMesh->GetClassPrivate();
-            
-            if (MeshClass && Utils::IsObjectValid(MeshClass)) {
-                std::wstring meshClassName = MeshClass->GetName();
+            if (NewMesh && Utils::IsObjectValid(NewMesh)) {
+                UClass* MeshClass = NewMesh->GetClassPrivate();
                 
-                if (meshClassName.find(L"SkeletalMesh") != std::wstring::npos || meshClassName.find(L"SkinnedAsset") != std::wstring::npos) {
+                if (MeshClass && Utils::IsObjectValid(MeshClass)) {
+                    std::wstring meshClassName = MeshClass->GetName();
                     
-                    if (TargetSkeleton && Utils::IsObjectValid(TargetSkeleton)) {
-                        Utils::SetPropertyValue<UObject*>(NewMesh, STR("Skeleton"), TargetSkeleton);
-                    }
-
-                    struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
-                    RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7.3: Calling SetSkinnedAssetAndUpdate\n"));
-                    Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
-                    RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 7.4: SetSkinnedAssetAndUpdate finished\n"));
-                } else {
-                    DP_LOG(Warning, "[ApplySwap] Aborted: Loaded asset is a '{}', not a SkeletalMesh.", meshClassName);
-
-                }
-            } else {
-                DP_LOG(Warning, "[ApplySwap] Aborted: Loaded mesh asset has a corrupt or missing Class definition.");
-            }
-        }
-        }
-
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 8: Syncing Static Params\n"));
-        if (bNeedsAnimRebuild) {
-            UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
-            if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
-
-            if (TargetAnimClass && Utils::IsObjectValid(TargetAnimClass) && SetAnimFunc) {
-                struct { UClass* NewClass; } Params{ TargetAnimClass };
-                Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &Params);
-            }
-
-            if (TargetStaticParam && Utils::IsObjectValid(TargetStaticParam)) {
-                UObject* CurrentStaticParam = nullptr;
-                Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), CurrentStaticParam);
-
-                if (CurrentStaticParam && Utils::IsObjectValid(CurrentStaticParam)) {
-                    auto CopyProp = [](UObject* Src, UObject* Dest, const wchar_t* PropName) {
-                        FProperty* SrcProp = Utils::GetProperty(Src, PropName);
-                        FProperty* DestProp = Utils::GetProperty(Dest, PropName);
-                        if (SrcProp && DestProp) {
-                            void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(Src);
-                            void* DestPtr = DestProp->ContainerPtrToValuePtr<void>(Dest);
-                            if (SrcPtr && DestPtr) {
-                                DestProp->CopyCompleteValue(DestPtr, SrcPtr);
-                            }
+                    if (meshClassName.find(L"SkeletalMesh") != std::wstring::npos || meshClassName.find(L"SkinnedAsset") != std::wstring::npos) {
+                        
+                        if (TargetSkeleton && Utils::IsObjectValid(TargetSkeleton)) {
+                            Utils::SetPropertyValue<UObject*>(NewMesh, STR("Skeleton"), TargetSkeleton);
                         }
-                    };
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingSize"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingStartAddDistance"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingEndLeaveDistance"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("PettingDistance"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("HPGaugeUIOffset"));
-                    CopyProp(TargetStaticParam, CurrentStaticParam, STR("SleepOnSideInfoMapForMapObject"));
+
+                        struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
+                        Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
+                        ProfileStep(L"Trace 7.3: SetSkinnedAssetAndUpdate Native Call");
+                    } else {
+                        DP_LOG(Warning, "[ApplySwap] Aborted: Loaded asset is a '{}', not a SkeletalMesh.", meshClassName);
+                    }
+                } else {
+                    DP_LOG(Warning, "[ApplySwap] Aborted: Loaded mesh asset has a corrupt or missing Class definition.");
                 }
             }
         }
+        ProfileStep(L"Trace 7: Complete Loading New Mesh Flow");
 
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 9: Applying Materials\n"));
+        if (bNeedsAnimRebuild) {
+            UObject* NewAnimInst = nullptr;
+            Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
+            if (NewAnimInst && Utils::IsObjectValid(NewAnimInst)) {
+                UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
+                if (LinkFunc) {
+                    std::vector<std::wstring> StandardLayers = {
+                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterPhysics.ABP_MonsterPhysics_C",
+                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterUpper.ABP_MonsterUpper_C",
+                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLookAt.ABP_MonsterLookAt_C",
+                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLeaning.ABP_MonsterLeaning_C"
+                    };
+
+                    for (const auto& LayerPath : StandardLayers) {
+                        UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
+                        
+                        if (LayerClass && Utils::IsObjectValid(LayerClass)) {
+                            struct { UClass* InClass; } LinkParams{ LayerClass };
+                            Utils::CallFunction(NewAnimInst, STR("LinkAnimClassLayers"), &LinkParams);
+                        }
+                    }
+                }
+            }
+        }
+        ProfileStep(L"Trace 8: Syncing Static Params");
+
         struct { int32_t RetVal; } NumMatParams{0};
         Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
         for (int32_t i = 0; i < NumMatParams.RetVal; ++i) {
@@ -1070,8 +1059,8 @@ namespace DynPals {
             struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
             Utils::CallFunction(MeshComp, STR("SetMaterial"), &MatParams);
         }
+        ProfileStep(L"Trace 9: Applying Materials");
 
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 10: Morph Targets\n"));
         if (!swap.MorphTargetList.empty()) {
             static std::random_device rd;
             static std::mt19937 gen(rd());
@@ -1118,34 +1107,8 @@ namespace DynPals {
                 Utils::CallFunction(MeshComp, STR("SetMorphTarget"), &MorphParams);
             }
         }
+        ProfileStep(L"Trace 10: Applying Morph Targets");
 
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 11: LinkAnimClassLayers\n"));
-        if (bNeedsAnimRebuild) {
-            UObject* NewAnimInst = nullptr;
-            Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
-            if (NewAnimInst && Utils::IsObjectValid(NewAnimInst)) {
-                UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
-                if (LinkFunc) {
-                    std::vector<std::wstring> StandardLayers = {
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterPhysics.ABP_MonsterPhysics_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterUpper.ABP_MonsterUpper_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLookAt.ABP_MonsterLookAt_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLeaning.ABP_MonsterLeaning_C"
-                    };
-
-                    for (const auto& LayerPath : StandardLayers) {
-                        UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
-                        
-                        if (LayerClass && Utils::IsObjectValid(LayerClass)) {
-                            struct { UClass* InClass; } LinkParams{ LayerClass };
-                            Utils::CallFunction(NewAnimInst, STR("LinkAnimClassLayers"), &LinkParams);
-                        }
-                    }
-                }
-            }
-        }
-
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 12: PalFacialComponent\n"));
         struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
@@ -1173,6 +1136,10 @@ namespace DynPals {
                 } 
             }
         }
-        RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ApplySwap] Trace 13: Done!\n"));
+        ProfileStep(L"Trace 11: PalFacialComponent Setup");
+
+        auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - total_start).count();
+        DP_LOG(Default, "[Profile] [ApplySwap] Trace 12: Done! Total ApplySwap execution took {:.3f} ms", total_duration / 1000.0f);
     }
+
 }

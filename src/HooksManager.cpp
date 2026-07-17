@@ -206,7 +206,7 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
   if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
       LastSwapTime = Now;
       VirtualFrameCount++;
-      if (VirtualFrameCount >= 10) { 
+      if (VirtualFrameCount >= 60) { 
           VirtualFrameCount = 0;
           PalProcessor::Get().Tick();
       }
@@ -381,7 +381,7 @@ void HooksManager::OnPalSpawnedReady(
 
   auto start = std::chrono::high_resolution_clock::now();
 
-  DP_LOG(Default, "[Hook Monitor] OnPalSpawnedReady fired for {}", palName);
+  //DP_LOG(Default, "[Hook Monitor] OnPalSpawnedReady fired for {}", palName);
 
   if (!bCompletedInitReady) {
     DP_LOG(Default, "  -> Aborted: Mod is still in startup standby.");
@@ -449,7 +449,7 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
             Utils::Caches::ClearAll(); 
 
             DP_LOG(Default,
-                   "New Session Detected (Map: '{}'). AAAAAAAAAAAAAAAAAAAAAAAAAA Standby active. Waiting 8 seconds for level load...\n",
+                   "New Session Detected (Map: '{}'). Standby active. Waiting 8 seconds for level load...\n",
                    MapName);
 
 

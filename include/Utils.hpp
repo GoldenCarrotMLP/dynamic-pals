@@ -63,10 +63,8 @@ namespace DynPals::Utils {
         inline std::map<CacheKey, UFunction*> FuncCache;
         inline std::shared_mutex FuncMutex;
 
-        inline std::map<std::wstring, UObject*> AssetCache;
-        inline std::shared_mutex AssetMutex;
-
         inline std::map<std::wstring, UObject*> LibraryCache;
+
         inline std::shared_mutex LibraryMutex;
 
         inline std::map<Key, UFunction*> LibFuncCache;
@@ -87,7 +85,6 @@ namespace DynPals::Utils {
         inline void ClearAll() {
             std::unique_lock<std::shared_mutex> lock1(PropMutex);
             std::unique_lock<std::shared_mutex> lock2(FuncMutex);
-            std::unique_lock<std::shared_mutex> lock3(AssetMutex);
             std::unique_lock<std::shared_mutex> lock4(LibraryMutex);
             std::unique_lock<std::shared_mutex> lock5(LibFuncMutex);
             std::unique_lock<std::shared_mutex> lock6(ClassMutex);
@@ -96,7 +93,6 @@ namespace DynPals::Utils {
 
             PropCache.clear();
             FuncCache.clear();
-            AssetCache.clear();
             LibraryCache.clear();
             LibFuncCache.clear();
             ClassCache.clear();
@@ -104,6 +100,7 @@ namespace DynPals::Utils {
             FolderCache.clear();
 
             CachedKSL = nullptr;
+
             CachedIsValidFunc = nullptr;
 
             DP_LOG(Default, "[Cache] Cleared all global reflection, class, and asset caches successfully.");
@@ -443,29 +440,15 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
     inline UObject* LoadAssetInternal(const std::wstring& AssetPath) {
         std::wstring formatted = FormatAssetPath(AssetPath); 
         
-        {
-            std::shared_lock<std::shared_mutex> read_lock(Caches::AssetMutex);
-            auto cacheIt = Caches::AssetCache.find(formatted);
-            if (cacheIt != Caches::AssetCache.end()) {
-                if (IsObjectValid(cacheIt->second)) {
-                    return cacheIt->second;
-                }
-            }
-        }
-
         UObject* ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, formatted.c_str());
         if (ExistingObj && IsObjectValid(ExistingObj)) {
             std::wstring ClassName = ExistingObj->GetClassPrivate()->GetName();
             if (ClassName == L"ObjectRedirector") {
                 UObject* Destination = nullptr;
                 if (GetPropertyValue<UObject*>(ExistingObj, STR("DestinationObject"), Destination)) {
-                    std::unique_lock<std::shared_mutex> write_lock(Caches::AssetMutex);
-                    Caches::AssetCache[formatted] = Destination;
                     return Destination;
                 }
             }
-            std::unique_lock<std::shared_mutex> write_lock(Caches::AssetMutex);
-            Caches::AssetCache[formatted] = ExistingObj;
             return ExistingObj; 
         }
 
@@ -475,8 +458,6 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
             package = formatted.substr(0, dot);
             asset = formatted.substr(dot + 1);
         } else {
-            std::unique_lock<std::shared_mutex> write_lock(Caches::AssetMutex);
-            Caches::AssetCache[formatted] = nullptr;
             return nullptr;
         }
 
@@ -512,18 +493,13 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
             if (ClassName == L"ObjectRedirector") {
                 UObject* Destination = nullptr;
                 if (GetPropertyValue<UObject*>(LoadedObj, STR("DestinationObject"), Destination)) {
-                    std::unique_lock<std::shared_mutex> write_lock(Caches::AssetMutex);
-                    Caches::AssetCache[formatted] = Destination;
                     return Destination;
                 }
             }
         }
         
-        std::unique_lock<std::shared_mutex> write_lock(Caches::AssetMutex);
-        Caches::AssetCache[formatted] = LoadedObj;
         return LoadedObj;
     }
-    
 
     inline UObject* LoadAssetSafely(const std::wstring& AssetPath) {
         return LoadAssetInternal(AssetPath);
