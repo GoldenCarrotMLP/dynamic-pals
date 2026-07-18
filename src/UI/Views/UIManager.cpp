@@ -581,6 +581,8 @@ namespace DynPals {
         Utils::CallFunction(DynamicMorphBox, STR("ClearChildren"));
         Utils::CallFunction(DynamicLogBox, STR("ClearChildren"));
 
+        // Fetch persist data early so we can check if it's locked for the header
+        PalPersistData* currentPersist = SaveManager::Get().GetPersistData(TargetInstanceID);
 
         // 1. Dynamic Header Text Update
         if (HeaderTextObj) {
@@ -588,10 +590,17 @@ namespace DynPals {
             RC::Unreal::UFunction* ConvFunc = DynPals::Utils::GetKTLFunction(STR("Conv_StringToText"));
             if (KTL && ConvFunc) {
                 std::wstring headerStr = L"DYN PALS: " + TargetCharID;
+                
+                // Add the locked indicator to the UI string
+                if (currentPersist && currentPersist->bIsManuallyLocked) {
+                    headerStr += L" [LOCKED]";
+                }
+
                 struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(headerStr.c_str()), RC::Unreal::FText() };
                 KTL->ProcessEvent(ConvFunc, &P1);
                 struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
                 Utils::CallFunction(HeaderTextObj, STR("SetText"), &P2, true);
+
             }
         }
 
@@ -652,7 +661,7 @@ namespace DynPals {
             IsWild = WildParams.RetVal;
         }
 
-        PalPersistData* currentPersist = SaveManager::Get().GetPersistData(TargetInstanceID);
+        //PalPersistData* currentPersist = SaveManager::Get().GetPersistData(TargetInstanceID);
         std::wstring CurrentSwapLabel = currentPersist ? currentPersist->SwapLabel : L"";
         
         auto evaluations = ConfigManager::Get().EvaluateAllSwaps(TargetCharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);

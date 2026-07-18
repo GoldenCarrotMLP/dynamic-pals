@@ -540,54 +540,84 @@ namespace DynPals {
             currentSwap = ConfigManager::Get().FindConfigIndex(ExistingData->PackName, ExistingData->SkinName, ExistingData->SwapLabel, ExistingData->SkelMeshPath, CharID);
         }
 
+        // --- NEW LOGIC BEGINS HERE ---
+        auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);
+        int newBestSwap = ConfigManager::Get().PickBestSwap(evaluations);
+
+        bool bManualLockState = ExistingData ? ExistingData->bIsManuallyLocked : false;
         int finalSwap = -1;
 
         if (ExplicitSwapIndex != -1) {
             finalSwap = ExplicitSwapIndex;
+            
+            // Check if the explicitly selected skin is actually valid for this Pal
+            bool bIsSelectedSwapValid = false;
+            for (const auto& ev : evaluations) {
+                if (ev.ConfigIndex == finalSwap) {
+                    bIsSelectedSwapValid = ev.IsValid;
+                    break;
+                }
+            }
+            
+            // Lock the pal if they intentionally chose an invalid skin
+            bManualLockState = !bIsSelectedSwapValid;
+            if (bManualLockState) {
+                DP_LOG(Default, "Explicit swap is invalid for this Pal. Engaging Manual Lock.");
+            } else {
+                DP_LOG(Default, "Explicit swap is valid. Manual Lock disengaged.");
+            }
         } 
+        else if (ForceReroll) {
+            // Rerolling actively finds the best valid skin, breaking any locks
+            finalSwap = newBestSwap;
+            bManualLockState = false; 
+            DP_LOG(Default, "Pal rerolled. Manual Lock disengaged.");
+        }
         else {
-            //RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 15: Evaluating Best Swap\n"));
-            auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);
-            int newBestSwap = ConfigManager::Get().PickBestSwap(evaluations);
-
             finalSwap = currentSwap;
-
-            if (ForceReroll) {
-                finalSwap = newBestSwap;
-            } else if (currentSwap != -1) {
-                if (bLiveEventTriggered) {
-                    const SwapEvaluation* currentEval = nullptr;
-                    for (const auto& ev : evaluations) {
-                        if (ev.ConfigIndex == currentSwap) {
-                            currentEval = &ev;
-                            break;
-                        }
-                    }
-
-                    if (currentEval) {
-                        int absoluteBestScore = 999999;
+            
+            // Only apply auto-upgrades/evolutions if the Pal isn't manually locked
+            if (!bManualLockState) {
+                if (currentSwap != -1) {
+                    if (bLiveEventTriggered) {
+                        const SwapEvaluation* currentEval = nullptr;
                         for (const auto& ev : evaluations) {
-                            if (ev.IsValid && ev.Score < absoluteBestScore) {
-                                absoluteBestScore = ev.Score;
+                            if (ev.ConfigIndex == currentSwap) {
+                                currentEval = &ev;
+                                break;
                             }
                         }
 
-                        if (!currentEval->IsValid || currentEval->Score > absoluteBestScore) {
-                            DP_LOG(Normal, "Live Event: Better skin found or current became invalid. Upgrading skin.\n");
-                            finalSwap = newBestSwap;
+                        if (currentEval) {
+                            int absoluteBestScore = 999999;
+                            for (const auto& ev : evaluations) {
+                                if (ev.IsValid && ev.Score < absoluteBestScore) {
+                                    absoluteBestScore = ev.Score;
+                                }
+                            }
+
+                            if (!currentEval->IsValid || currentEval->Score > absoluteBestScore) {
+                                DP_LOG(Normal, "Live Event: Better skin found or current became invalid. Upgrading skin.\n");
+                                finalSwap = newBestSwap;
+                            } else {
+                                finalSwap = currentSwap;
+                            }
                         } else {
-                            finalSwap = currentSwap;
+                            finalSwap = newBestSwap;
                         }
                     } else {
-                        finalSwap = newBestSwap;
+                        finalSwap = currentSwap;
                     }
                 } else {
-                    finalSwap = currentSwap;
+                    finalSwap = newBestSwap;
                 }
             } else {
-                finalSwap = newBestSwap;
+                if (bLiveEventTriggered) {
+                    DP_LOG(Verbose, "Live Event ignored: Pal is Manually Locked to its current skin.");
+                }
             }
         }
+        // --- NEW LOGIC ENDS HERE ---
 
         //RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] [ExecSwap] Trace 16: Processing finalSwap selection\n"));
         if (finalSwap != -1) {
@@ -614,7 +644,8 @@ namespace DynPals {
                 }
 
                 PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ InstanceID, L"", L"", L"", {} };
-                
+                newData.bIsManuallyLocked = bManualLockState; 
+
                 auto& finalConfig = ConfigManager::Get().GetConfigs()[finalSwap];
                 newData.PackName = finalConfig.PackName;
                 newData.SkinName = finalConfig.SkinName;
@@ -697,7 +728,7 @@ namespace DynPals {
                             }
                         }
 
-                        DP_LOG(Normal, "[Nickname] Applied name update for '{}' -> '{}' (Wild: {})", InstanceID, finalConfig.SetNickname, IsWild ? L"True" : L"False");
+                        DP_LOG(Default, "[Nickname] Applied name update for '{}' -> '{}' (Wild: {})", InstanceID, finalConfig.SetNickname, IsWild ? L"True" : L"False");
                     }
                 }
 
@@ -869,16 +900,56 @@ namespace DynPals {
                 }
             }
         } else {
-            TargetAnimClass = CurrentAnimClass;
-            Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), TargetStaticParam);
-            
-            UObject* CurrentSkelMesh = nullptr;
-            if (!Utils::GetPropertyValue<UObject*>(MeshComp, STR("SkeletalMesh"), CurrentSkelMesh)) {
-                Utils::GetPropertyValue<UObject*>(MeshComp, STR("SkinnedAsset"), CurrentSkelMesh);
+            // --- UPDATED VANILLA REVERT LOGIC ---
+            // Reverting to Vanilla Anim: We must fetch the vanilla AnimClass & Skeleton from the Character's CDO 
+            // instead of using the current MeshComp, because the current mesh might be tainted by a previous swap!
+            UClass* CharClass = Character->GetClassPrivate();
+            UObject* VanillaCDO = nullptr;
+
+            if (CharClass && Utils::IsObjectValid(CharClass)) {
+                UObject* Pkg = CharClass->GetOuterPrivate();
+                if (Pkg && Utils::IsObjectValid(Pkg)) {
+                    std::wstring PackageName = Pkg->GetName();
+                    std::wstring ClassName = CharClass->GetName();
+                    std::wstring CDOPath = PackageName + L".Default__" + ClassName;
+                    
+                    VanillaCDO = Utils::LoadAssetSafely(CDOPath);
+                }
             }
-            if (CurrentSkelMesh && Utils::IsObjectValid(CurrentSkelMesh)) {
-                Utils::GetPropertyValue<UObject*>(CurrentSkelMesh, STR("Skeleton"), TargetSkeleton);
+
+            if (VanillaCDO && Utils::IsObjectValid(VanillaCDO)) {
+                UObject* VanillaMesh = nullptr;
+                Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("Mesh"), VanillaMesh);
+                
+                if (VanillaMesh && Utils::IsObjectValid(VanillaMesh)) {
+                    Utils::GetPropertyValue<UClass*>(VanillaMesh, STR("AnimClass"), TargetAnimClass);
+                    if (TargetAnimClass && Utils::IsObjectValid(TargetAnimClass)) {
+                        Utils::GetPropertyValue<UObject*>(TargetAnimClass, STR("TargetSkeleton"), TargetSkeleton);
+                    }
+                    
+                    UObject* VanillaSkelMesh = nullptr;
+                    if (!Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkeletalMesh"), VanillaSkelMesh)) {
+                        Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkinnedAsset"), VanillaSkelMesh);
+                    }
+                    if (VanillaSkelMesh && Utils::IsObjectValid(VanillaSkelMesh) && !TargetSkeleton) {
+                        Utils::GetPropertyValue<UObject*>(VanillaSkelMesh, STR("Skeleton"), TargetSkeleton);
+                    }
+                }
+                Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+            } else {
+                // Failsafe if CDO pathing fails
+                TargetAnimClass = CurrentAnimClass;
+                Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), TargetStaticParam);
+                
+                UObject* CurrentSkelMesh = nullptr;
+                if (!Utils::GetPropertyValue<UObject*>(MeshComp, STR("SkeletalMesh"), CurrentSkelMesh)) {
+                    Utils::GetPropertyValue<UObject*>(MeshComp, STR("SkinnedAsset"), CurrentSkelMesh);
+                }
+                if (CurrentSkelMesh && Utils::IsObjectValid(CurrentSkelMesh)) {
+                    Utils::GetPropertyValue<UObject*>(CurrentSkelMesh, STR("Skeleton"), TargetSkeleton);
+                }
             }
+            // --- END OF VANILLA REVERT LOGIC ---
         }
 
         if (!TargetAnimClass || !Utils::IsObjectValid(TargetAnimClass)) { TargetAnimClass = CurrentAnimClass; }
@@ -919,7 +990,7 @@ namespace DynPals {
                             Utils::SetPropertyValue<UObject*>(NewMesh, STR("Skeleton"), TargetSkeleton);
                         }
 
-                        struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, false};
+                        struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
                         Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
                         ProfileStep(L"Trace 7.3: SetSkinnedAssetAndUpdate Native Call");
                     } else {
