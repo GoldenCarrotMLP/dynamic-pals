@@ -202,7 +202,7 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
     if (!Obj) return false;
     
     uintptr_t addr = reinterpret_cast<uintptr_t>(Obj);
-    if (addr < 0x100000000ULL || (addr % 8) != 0) return false;
+    if (addr == 0 || (addr % 8) != 0) return false;
 
     // 1. Probe the object's header memory (offset 0 to 0x18) to verify it is mapped and readable
     if (!IsMemoryReadable(Obj, 0x18)) return false;
@@ -228,8 +228,8 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
         if (!TargetObj) return false;
 
         uintptr_t addr = reinterpret_cast<uintptr_t>(TargetObj);
-        if (addr < 0x100000000ULL || (addr % 8) != 0) return false;
-
+        if (addr == 0 || (addr % 8) != 0) return false;
+        
         bool bFound = false;
         UObjectGlobals::ForEachUObject([&](UObject* Obj, int32_t Index, int32_t SerialNumber) -> RC::LoopAction {
             if (Obj == TargetObj) {
@@ -583,13 +583,16 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
         if (ScanFunc) {
             alignas(8) uint8_t ScanBuffer[512] = {0}; 
             
+            // Construct the TArray safely in C++ space to avoid uninitialized memory corruption crashes
+            FString Src(FolderPath.c_str()); 
+            TArray<FString> LocalPaths;
+            LocalPaths.Add(Src); 
+            
             FArrayProperty* InPathsProp = CastField<FArrayProperty>(ScanFunc->GetPropertyByNameInChain(STR("InPaths")));
             if (InPathsProp) {
-                TArray<FString>* Arr = static_cast<TArray<FString>*>(InPathsProp->ContainerPtrToValuePtr<void>(ScanBuffer));
-                if (Arr) {
-                    FString Src(FolderPath.c_str());
-                    Arr->Add(Src);
-                }
+                void* Dest = InPathsProp->ContainerPtrToValuePtr<void>(ScanBuffer);
+                // Safely transplant the perfectly constructed C++ TArray layout into the UE engine buffer
+                if (Dest) memcpy(Dest, &LocalPaths, sizeof(TArray<FString>));
             }
             
             FBoolProperty* ForceRescanProp = CastField<FBoolProperty>(ScanFunc->GetPropertyByNameInChain(STR("bForceRescan")));
@@ -597,6 +600,8 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
             
             DP_LOG(Default, "[Asset Scanner] Forcing synchronous rescan of folder to register modded .pak assets...");
             SafeProcessEvent(AssetRegistry, ScanFunc, ScanBuffer);
+            
+            // Note: LocalPaths destructor will automatically clean up the array memory safely!
         } else {
             DP_LOG(Warning, "[Asset Scanner] ScanPathsSynchronous function missing. Unregistered .pak assets may not be found.");
         }
