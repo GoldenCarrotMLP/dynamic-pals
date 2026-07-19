@@ -1,6 +1,7 @@
 // --- START OF FILE include/NativeAsyncLoader.hpp ---
 #pragma once
 #include <string>
+#include <vector>
 #include <Unreal/UObjectGlobals.hpp>
 
 namespace DynPals {
@@ -8,8 +9,14 @@ namespace DynPals {
     public:
         static void Initialize();
         static void Tick(); 
+        
+        // Single Request Fallback
         static bool RequestAsyncLoad(const std::wstring& AssetPath, RC::Unreal::UObject* Requester);
         
+        // Parallel Batch Loader
+        static bool RequestBatchAsyncLoad(const std::vector<std::wstring>& AssetPaths, RC::Unreal::UObject* Requester);
+        
+        // Callback routed from HooksManager's SetOwner hook
         static void OnAsyncLoadComplete(RC::Unreal::UObject* ModActor, RC::Unreal::UObject* Requester);
         
         // State Machine Queries

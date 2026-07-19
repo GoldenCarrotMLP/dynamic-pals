@@ -13,22 +13,34 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
+    struct FBatchRequest {
+        std::vector<std::wstring> AssetPaths;
+        UObject* Requester;
+    };
+
     static UClass* LoaderClass = nullptr;
     static UObject* GAssetLoaderActor = nullptr;
     
-    static std::deque<std::wstring> GLoadQueue;
     static std::set<std::wstring> GPendingAssets;
     static std::set<std::wstring> GFailedAssets;
-    static std::map<std::wstring, std::set<UObject*>> GAssetWaiters;
     static std::map<UObject*, int> GPendingCount;
+    
+    // --- THE FIX: C++ FIFO BATCH QUEUE ---
+    static std::deque<FBatchRequest> GBatchQueue;
+    static FBatchRequest GCurrentBatch;
 
     static bool bIsExecutingBP = false;
-    static std::wstring GCurrentExecutingAsset = L"";
     static std::chrono::steady_clock::time_point GCurrentRequestStartTime;
 
     void NativeAsyncLoader::ClearCache() {
-        GLoadQueue.clear(); GPendingAssets.clear(); GFailedAssets.clear(); GAssetWaiters.clear(); GPendingCount.clear();
-        bIsExecutingBP = false; GCurrentExecutingAsset = L"";
+        GPendingAssets.clear();
+        GFailedAssets.clear();
+        GPendingCount.clear();
+        GBatchQueue.clear();
+        GCurrentBatch = {};
+        bIsExecutingBP = false;
+        
+        GAssetLoaderActor = nullptr; 
     }
 
     bool NativeAsyncLoader::IsPending(const std::wstring& AssetPath) { return GPendingAssets.find(AssetPath) != GPendingAssets.end(); }
@@ -39,122 +51,157 @@ namespace DynPals {
     void NativeAsyncLoader::RegisterPendingRequests(UObject* Requester, int Count) { GPendingCount[Requester] += Count; }
     void NativeAsyncLoader::DecrementPendingCount(UObject* Requester) { if (GPendingCount[Requester] > 0) GPendingCount[Requester]--; }
 
-    static void ProcessNextRequest() {
-        if (bIsExecutingBP || GLoadQueue.empty()) return;
+    static void ProcessNextBatch() {
+        // Strict lock to ensure Blueprint variables never overwrite each other
+        if (bIsExecutingBP || GBatchQueue.empty()) return;
 
         bIsExecutingBP = true;
-        GCurrentExecutingAsset = GLoadQueue.front();
-        GLoadQueue.pop_front();
+        GCurrentBatch = GBatchQueue.front();
+        GBatchQueue.pop_front();
         GCurrentRequestStartTime = std::chrono::steady_clock::now();
 
-        DP_LOG(Default, "[Diagnostic] [AsyncLoader] Dispatching BP request: '{}'", GCurrentExecutingAsset);
-
-        if (!GAssetLoaderActor || !Utils::IsObjectValid(GAssetLoaderActor)) GAssetLoaderActor = UObjectGlobals::FindFirstOf(STR("ModActor_C"));
+        if (!GAssetLoaderActor || !Utils::IsObjectValid(GAssetLoaderActor)) {
+            GAssetLoaderActor = UObjectGlobals::FindFirstOf(STR("ModActor_C"));
+        }
 
         if (GAssetLoaderActor && Utils::IsObjectValid(GAssetLoaderActor)) {
-            UFunction* Func = GAssetLoaderActor->GetFunctionByNameInChain(STR("RequestAsyncLoad"));
+            UFunction* Func = GAssetLoaderActor->GetFunctionByNameInChain(STR("RequestBatchAsyncLoad"));
             if (Func) {
-                std::wstring formattedPath = Utils::FormatAssetPath(GCurrentExecutingAsset);
-                if (formattedPath.length() > 2 && formattedPath.substr(formattedPath.length() - 2) == L"_C") {
-                    formattedPath = formattedPath.substr(0, formattedPath.length() - 2);
-                }
-
                 alignas(8) uint8_t BPParams[256] = {0};
-                FString* AssetPathPtr = nullptr;
-                FProperty* AssetPathProp = Func->GetPropertyByNameInChain(STR("AssetPath"));
-                if (AssetPathProp) {
-                    AssetPathPtr = AssetPathProp->ContainerPtrToValuePtr<FString>(BPParams);
-                    if (AssetPathPtr) new (AssetPathPtr) FString(formattedPath.c_str()); 
+                TArray<FString>* AssetPathsPtr = nullptr;
+                
+                FProperty* AssetPathsProp = Func->GetPropertyByNameInChain(STR("AssetPaths"));
+                if (AssetPathsProp) {
+                    AssetPathsPtr = AssetPathsProp->ContainerPtrToValuePtr<TArray<FString>>(BPParams);
+                    if (AssetPathsPtr) {
+                        new (AssetPathsPtr) TArray<FString>();
+                        for (const auto& path : GCurrentBatch.AssetPaths) {
+                            std::wstring formatted = Utils::FormatAssetPath(path);
+                            if (formatted.length() > 2 && formatted.substr(formatted.length() - 2) == L"_C") {
+                                formatted = formatted.substr(0, formatted.length() - 2);
+                            }
+                            AssetPathsPtr->Add(FString(formatted.c_str()));
+                        }
+                    }
                 }
 
                 FProperty* RequesterProp = Func->GetPropertyByNameInChain(STR("Requester"));
                 if (RequesterProp) {
-                    UObject* FirstValidWaiter = nullptr;
-                    for (UObject* W : GAssetWaiters[GCurrentExecutingAsset]) { if (Utils::IsObjectValid(W)) { FirstValidWaiter = W; break; } }
                     UObject** Ptr = RequesterProp->ContainerPtrToValuePtr<UObject*>(BPParams);
-                    if (Ptr) *Ptr = FirstValidWaiter;
+                    if (Ptr) *Ptr = GCurrentBatch.Requester;
                 }
 
+                DP_LOG(Default, "[NativeAsync] Dispatching batch of {} assets to BP for Pal: {}", GCurrentBatch.AssetPaths.size(), (void*)GCurrentBatch.Requester);
                 Utils::SafeProcessEvent(GAssetLoaderActor, Func, BPParams);
-                if (AssetPathPtr) AssetPathPtr->~FString();
+
+                if (AssetPathsPtr) {
+                    AssetPathsPtr->~TArray<FString>();
+                }
                 return;
             }
         }
         
-        DP_LOG(Warning, "[Diagnostic] [AsyncLoader] Failed to route BP request. Marking as failed.");
-        GPendingAssets.erase(GCurrentExecutingAsset);
-        GFailedAssets.insert(GCurrentExecutingAsset);
+        // Failsafe: Abandon batch if BP is missing
         bIsExecutingBP = false;
-        ProcessNextRequest();
+        for (const auto& path : GCurrentBatch.AssetPaths) {
+            GPendingAssets.erase(path);
+            GFailedAssets.insert(path);
+        }
+        GPendingCount[GCurrentBatch.Requester] = 0;
+        PalProcessor::Get().ProcessPal(GCurrentBatch.Requester, false, -1);
+        ProcessNextBatch();
     }
 
     void NativeAsyncLoader::OnAsyncLoadComplete(UObject* ModActor, UObject* Requester) {
-        if (!ModActor) return;
-        std::wstring FinishedAsset = GCurrentExecutingAsset;
-        DP_LOG(Default, "[Diagnostic] [AsyncLoader] SetOwner hook fired! Completing: '{}'", FinishedAsset);
+        if (!ModActor || !Requester) return;
 
-        bIsExecutingBP = false;
-        GCurrentExecutingAsset = L"";
-
-        if (!FinishedAsset.empty()) {
-            GPendingAssets.erase(FinishedAsset);
-            auto Waiters = GAssetWaiters[FinishedAsset];
-            GAssetWaiters.erase(FinishedAsset);
+        DP_LOG(Default, "[NativeAsync] Parallel batch completion received for Pal: {}", (void*)Requester);
+        
+        // Validate that this completion matches the batch we are actively tracking
+        if (GCurrentBatch.Requester == Requester) {
             
-            ProcessNextRequest();
-
-            for (UObject* Waiter : Waiters) {
-                if (Utils::IsObjectValid(Waiter)) {
-                    DecrementPendingCount(Waiter);
-                    DP_LOG(Default, "[Diagnostic] [AsyncLoader] Decremented wait count for Actor. Remaining: {}", GetPendingCount(Waiter));
-                    if (GetPendingCount(Waiter) == 0) {
-                        PalProcessor::Get().ProcessPal(Waiter, false, -1);
-                    }
+            for (const auto& path : GCurrentBatch.AssetPaths) {
+                GPendingAssets.erase(path);
+                if (!Utils::IsAssetLoaded(path)) {
+                    DP_LOG(Warning, "[NativeAsync] Batch load completed but asset failed RAM verification: '{}'", path);
+                    GFailedAssets.insert(path);
                 }
             }
+
+            bIsExecutingBP = false;
+            GPendingCount[Requester] = 0;
+            
+            // Advance the C++ queue to the next Pal BEFORE processing to keep the pipeline hot
+            ProcessNextBatch();
+            
+            PalProcessor::Get().ProcessPal(Requester, false, -1);
+
         } else {
-            ProcessNextRequest();
+            DP_LOG(Warning, "[NativeAsync] Received orphaned/invalid batch completion for Pal: {}", (void*)Requester);
         }
     }
 
     void NativeAsyncLoader::Tick() {
         if (!bIsExecutingBP) return;
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - GCurrentRequestStartTime).count() > 2000) {
-            DP_LOG(Error, "[Diagnostic] [AsyncLoader] TIMEOUT! Hung for >2s: '{}'", GCurrentExecutingAsset);
-            std::wstring FailedAsset = GCurrentExecutingAsset;
-            bIsExecutingBP = false;
-            GCurrentExecutingAsset = L"";
-            GPendingAssets.erase(FailedAsset);
-            GFailedAssets.insert(FailedAsset);
+
+        // 5 second timeout for massive texture paks
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - GCurrentRequestStartTime).count() > 5000) { 
+            DP_LOG(Error, "[NativeAsync] TIMEOUT! Background batch load hung for >5s for Pal: {}", (void*)GCurrentBatch.Requester);
             
-            auto Waiters = GAssetWaiters[FailedAsset];
-            GAssetWaiters.erase(FailedAsset);
-            ProcessNextRequest();
-            for (UObject* Waiter : Waiters) {
-                if (Utils::IsObjectValid(Waiter)) {
-                    DecrementPendingCount(Waiter);
-                    if (GetPendingCount(Waiter) == 0) PalProcessor::Get().ProcessPal(Waiter, false, -1);
-                }
+            for (const auto& path : GCurrentBatch.AssetPaths) {
+                GPendingAssets.erase(path);
+                GFailedAssets.insert(path);
+            }
+            
+            UObject* stalledRequester = GCurrentBatch.Requester;
+            bIsExecutingBP = false;
+            
+            // Unclog the pipeline
+            ProcessNextBatch();
+
+            // Resume processing the timed-out Pal
+            if (Utils::IsObjectValid(stalledRequester)) {
+                GPendingCount[stalledRequester] = 0;
+                PalProcessor::Get().ProcessPal(stalledRequester, false, -1);
             }
         }
     }
 
     void NativeAsyncLoader::Initialize() {
-        if (LoaderClass && Utils::IsObjectValid(LoaderClass)) return;
         LoaderClass = static_cast<UClass*>(Utils::LoadAssetSafely(STR("/Game/Mods/DynamicPals/ModActor.ModActor_C")));
+        GAssetLoaderActor = nullptr; 
     }
 
-    bool NativeAsyncLoader::RequestAsyncLoad(const std::wstring& AssetPath, UObject* Requester) {
-        if (!GAssetLoaderActor || !Utils::IsObjectValid(GAssetLoaderActor)) GAssetLoaderActor = UObjectGlobals::FindFirstOf(STR("ModActor_C"));
+    bool NativeAsyncLoader::RequestBatchAsyncLoad(const std::vector<std::wstring>& AssetPaths, UObject* Requester) {
+        if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) {
+            LoaderClass = Utils::GetClassCached(STR("/Game/Mods/DynamicPals/ModActor.ModActor_C"), true);
+            if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) return false;
+        }
+
+        if (!GAssetLoaderActor || !Utils::IsObjectValid(GAssetLoaderActor)) {
+            GAssetLoaderActor = UObjectGlobals::FindFirstOf(STR("ModActor_C"));
+        }
+
         if (GAssetLoaderActor && Utils::IsObjectValid(GAssetLoaderActor)) {
-            GAssetWaiters[AssetPath].insert(Requester);
-            if (GPendingAssets.find(AssetPath) == GPendingAssets.end() && GFailedAssets.find(AssetPath) == GFailedAssets.end()) {
-                GPendingAssets.insert(AssetPath);
-                GLoadQueue.push_back(AssetPath);
-                DP_LOG(Default, "[Diagnostic] [AsyncLoader] Queued: '{}'", AssetPath);
-                ProcessNextRequest();
+            
+            // Mark all paths as pending so they don't get requested again
+            for (const auto& path : AssetPaths) {
+                GPendingAssets.insert(path);
             }
+
+            FBatchRequest req;
+            req.AssetPaths = AssetPaths;
+            req.Requester = Requester;
+            
+            GBatchQueue.push_back(req);
+            DP_LOG(Default, "[NativeAsync] Queued batch of {} assets. Queue depth: {}", AssetPaths.size(), GBatchQueue.size());
+            
+            // Automatically process if the queue is idle
+            if (!bIsExecutingBP) {
+                ProcessNextBatch();
+            }
+            
             return true;
         }
         return false;

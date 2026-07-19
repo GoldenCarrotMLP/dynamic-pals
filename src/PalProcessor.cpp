@@ -718,17 +718,16 @@ namespace DynPals {
                     SaveManager::Get().SetPersistData(InstanceID, newData, false);
                     NativeAsyncLoader::RegisterPendingRequests(Character, static_cast<int>(assetsToLoad.size()));
                     
-                    bool bRequested = false;
-                    for (const auto& path : assetsToLoad) {
-                        if (NativeAsyncLoader::RequestAsyncLoad(path, Character)) {
-                            bRequested = true;
-                        } else {
-                            NativeAsyncLoader::DecrementPendingCount(Character); 
+                    // Call the new C++ Batch Loader in a single, un-throttled, stutter-free call!
+                    if (NativeAsyncLoader::RequestBatchAsyncLoad(assetsToLoad, Character)) {
+                        return true; // Halt swap. Wait for the single completed batch callback
+                    } else {
+                        // Fallback
+                        static bool bWarned = false;
+                        if (!bWarned) {
+                            DP_LOG(Warning, "ModActor .pak not found! Falling back to blocking load.");
+                            bWarned = true;
                         }
-                    }
-
-                    if (bRequested) {
-                        return true; 
                     }
                 } else if (NativeAsyncLoader::GetPendingCount(Character) > 0) {
                     return true;
