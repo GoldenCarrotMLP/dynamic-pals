@@ -7,10 +7,25 @@ namespace DynPals {
     class NativeAsyncLoader {
     public:
         static void Initialize();
+        static void Tick(); 
         static bool RequestAsyncLoad(const std::wstring& AssetPath, RC::Unreal::UObject* Requester);
         
-        // Anti-Infinite-Loop trackers
-        static bool HasBeenRequested(const std::wstring& AssetPath);
+        static RC::Unreal::UObject* GetLoadedPointer(const std::wstring& Path);
+        
+        // Callback routed from HooksManager's SetOwner hook
+        static void OnAsyncLoadComplete(RC::Unreal::UObject* ModActor, RC::Unreal::UObject* Requester);
+        
+        // State Machine Queries
+        static bool IsPending(const std::wstring& AssetPath);
+        static bool IsFailed(const std::wstring& AssetPath);
+        static void MarkAsLoaded(const std::wstring& AssetPath);
+        static void MarkAsFailed(const std::wstring& AssetPath);
+        
+        // Parallel Tracker Methods
+        static int GetPendingCount(RC::Unreal::UObject* Requester);
+        static void RegisterPendingRequests(RC::Unreal::UObject* Requester, int Count);
+        static void DecrementPendingCount(RC::Unreal::UObject* Requester);
+        
         static void ClearCache();
     };
 }

@@ -1,3 +1,4 @@
+// --- START OF FILE src/HooksManager.cpp ---
 #define NOMINMAX
 #include <Windows.h>
 
@@ -20,7 +21,7 @@
 #include "Updater.hpp"
 #include "Utils.hpp"
 #include "VFXManager.hpp"
-#include "NativeAsyncLoader.hpp"
+#include "../include/NativeAsyncLoader.hpp" 
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -201,16 +202,14 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
 
   VFXManager::Get().Tick();
 
+  NativeAsyncLoader::Tick(); // Triggers Watchdog
+
+  // Polling rate increased!
   static auto LastSwapTime = std::chrono::steady_clock::now();
-  static int VirtualFrameCount = 0;
   auto Now = std::chrono::steady_clock::now();
   if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
       LastSwapTime = Now;
-      VirtualFrameCount++;
-      if (VirtualFrameCount >= 16) { 
-          VirtualFrameCount = 0;
-          PalProcessor::Get().Tick();
-      }
+      PalProcessor::Get().Tick();
   }
 
   if (!UIRegistry::Get().RequiresTick()) {
@@ -588,8 +587,6 @@ void HooksManager::RegisterHooks() {
             UFunction* Func = Context.TheStack.Node();
             if (!Func) return;
 
-            DP_LOG(Default, "[NativeAsync] OnAssetLoadedDispatcher callback received!");
-
             UObject* Requester = nullptr;
             FProperty* OwnerProp = Func->GetPropertyByNameInChain(STR("NewOwner"));
             if (OwnerProp) {
@@ -598,8 +595,8 @@ void HooksManager::RegisterHooks() {
             }
 
             if (Requester && Utils::IsObjectValid(Requester)) {
-                // Resume the swap process cleanly on the GameThread
-                PalProcessor::Get().ProcessPal(Requester, false, -1);
+                // Route the completed callback into our state machine!
+                NativeAsyncLoader::OnAsyncLoadComplete(Context.Context, Requester);
             }
         }
     }, nullptr);
@@ -608,3 +605,4 @@ void HooksManager::RegisterHooks() {
 }
 
 }  // namespace DynPals
+// --- END OF FILE src/HooksManager.cpp ---

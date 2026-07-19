@@ -5,7 +5,7 @@
 #include "Utils.hpp"
 #include "AsyncHelper.hpp"
 #include "VFXManager.hpp"
-#include "NativeAsyncLoader.hpp"
+#include "../include/NativeAsyncLoader.hpp"
 #include <random>
 #include <thread>
 #include <algorithm>
@@ -652,49 +652,50 @@ namespace DynPals {
 
                 // --- ASYNC MULTI-ASSET PRE-CACHING INTERCEPT ---
                 std::vector<std::wstring> assetsToLoad;
+                bool bWaitOnAsync = false;
+
+                // Helper lambda to check and transition dependencies
+                auto CheckDependency = [&](const std::wstring& Path) {
+                    if (Path.empty()) return;
+                    
+                    bool bIsMeshLoaded = (Path == finalConfig.SkelMeshPath) ? Utils::IsSkeletalMeshLoaded(Path) : Utils::IsAssetLoaded(Path);
+                    if (bIsMeshLoaded) {
+                        DP_LOG(Verbose, "[PalProcessor] Dependency already loaded in RAM: '{}'", Path);
+                        return; 
+                    }
+                    
+                    if (NativeAsyncLoader::IsFailed(Path)) {
+                        DP_LOG(Verbose, "[PalProcessor] Dependency previously failed, skipping: '{}'", Path);
+                        return; 
+                    }
+
+                    // Asset is missing. Needs loading.
+                    DP_LOG(Default, "[PalProcessor] Dependency MISSING, queueing: '{}'", Path);
+                    assetsToLoad.push_back(Path);
+                    bWaitOnAsync = true;
+                };
 
                 // 1. Check Skeletal Mesh
-                if (!finalConfig.SkelMeshPath.empty() && !Utils::IsSkeletalMeshLoaded(finalConfig.SkelMeshPath)) {
-                    if (NativeAsyncLoader::HasBeenRequested(finalConfig.SkelMeshPath)) {
-                        DP_LOG(Warning, "[AssetLoader] Failed to load SkeletalMesh: '{}'. Skipping dependency.", finalConfig.SkelMeshPath);
-                    } else {
-                        assetsToLoad.push_back(finalConfig.SkelMeshPath);
-                    }
-                }
+                CheckDependency(finalConfig.SkelMeshPath);
 
                 // 2. Check Animation Blueprint
                 std::wstring ResolvedAnimPath = ResolveAnimPath(Character, finalConfig.AnimTarget, CharID);
                 if (!ResolvedAnimPath.empty()) {
-                    if (!Utils::IsAssetLoaded(ResolvedAnimPath)) {
-                        if (NativeAsyncLoader::HasBeenRequested(ResolvedAnimPath)) {
-                            DP_LOG(Warning, "[AssetLoader] Failed to load AnimBlueprint: '{}'. Skipping dependency.", ResolvedAnimPath);
-                        } else {
-                            assetsToLoad.push_back(ResolvedAnimPath);
-                        }
-                    }
+                    CheckDependency(ResolvedAnimPath);
                     
+                    // ---> EXPLICIT FIX: Only Base and Physics exist as classes on disk/RAM in Palworld
                     std::vector<std::wstring> StandardLayers = {
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterPhysics.ABP_MonsterPhysics_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterUpper.ABP_MonsterUpper_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLookAt.ABP_MonsterLookAt_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLeaning.ABP_MonsterLeaning_C"
+                        L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C",
+                        L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C"
                     };
                     for (const auto& layer : StandardLayers) {
-                        if (!Utils::IsAssetLoaded(layer)) {
-                            if (!NativeAsyncLoader::HasBeenRequested(layer)) {
-                                assetsToLoad.push_back(layer);
-                            }
-                        }
+                        CheckDependency(layer);
                     }
                 } else {
                     if (currentSwap != -1) {
                         std::wstring VanillaClassPath;
                         if (ResolvePalBlueprintPath(Character, CharID, VanillaClassPath)) {
-                            if (!VanillaClassPath.empty() && !Utils::IsAssetLoaded(VanillaClassPath)) {
-                                if (!NativeAsyncLoader::HasBeenRequested(VanillaClassPath)) {
-                                    assetsToLoad.push_back(VanillaClassPath);
-                                }
-                            }
+                            CheckDependency(VanillaClassPath);
                         }
                     }
                 }
@@ -704,13 +705,10 @@ namespace DynPals {
                     std::wstring chosenPath = mat.matPath;
                     if (mat.matPath.length() >= 2 && mat.matPath.substr(mat.matPath.length() - 2) == L"/*") {
                         std::wstring VirtualFolder = mat.matPath.substr(0, mat.matPath.length() - 2);
-                        
                         std::wstring savedPath = L"";
                         if (ExistingData) {
                             auto savedMatIt = ExistingData->MatSet.find(mat.index);
-                            if (savedMatIt != ExistingData->MatSet.end()) {
-                                savedPath = savedMatIt->second;
-                            }
+                            if (savedMatIt != ExistingData->MatSet.end()) savedPath = savedMatIt->second;
                         }
 
                         if (!savedPath.empty()) {
@@ -718,36 +716,26 @@ namespace DynPals {
                         } else {
                             std::vector<std::wstring> AvailableMats = Utils::GetAssetsInVirtualFolder(VirtualFolder);
                             if (!AvailableMats.empty()) {
-                                for (const auto& path : AvailableMats) {
-                                    if (!Utils::IsAssetLoaded(path)) {
-                                        if (!NativeAsyncLoader::HasBeenRequested(path)) {
-                                            assetsToLoad.push_back(path);
-                                        }
-                                    }
-                                }
+                                for (const auto& path : AvailableMats) CheckDependency(path);
                                 chosenPath = L""; 
                             }
                         }
                     }
-
-                    if (!chosenPath.empty() && !Utils::IsAssetLoaded(chosenPath)) {
-                        if (NativeAsyncLoader::HasBeenRequested(chosenPath)) {
-                            DP_LOG(Warning, "[AssetLoader] Failed to load Material: '{}'. Skipping dependency.", chosenPath);
-                        } else {
-                            assetsToLoad.push_back(chosenPath);
-                        }
-                    }
+                    CheckDependency(chosenPath);
                 }
 
                 // Trigger Parallel Async Load for all missing assets
                 if (!assetsToLoad.empty()) {
+                    DP_LOG(Default, "[PalProcessor] Halting ExecuteSwap. Handing off {} dependencies to NativeAsyncLoader...", assetsToLoad.size());
                     SaveManager::Get().SetPersistData(InstanceID, newData, false);
+                    NativeAsyncLoader::RegisterPendingRequests(Character, static_cast<int>(assetsToLoad.size()));
                     
                     bool bRequested = false;
                     for (const auto& path : assetsToLoad) {
                         if (NativeAsyncLoader::RequestAsyncLoad(path, Character)) {
-                            DP_LOG(Default, "Async loading dependency '{}' for Pal '{}'...", path, RawCharID);
                             bRequested = true;
+                        } else {
+                            NativeAsyncLoader::DecrementPendingCount(Character); 
                         }
                     }
 
@@ -756,11 +744,13 @@ namespace DynPals {
                     } else {
                         static bool bWarned = false;
                         if (!bWarned) {
-                            DP_LOG(Warning, "ModActor .pak not found! Please download the latest .pak from GitHub. Falling back to blocking load.");
+                            DP_LOG(Warning, "ModActor .pak not found! Falling back to blocking load.");
                             bWarned = true;
-
                         }
                     }
+                } else if (NativeAsyncLoader::GetPendingCount(Character) > 0) {
+                    DP_LOG(Verbose, "[PalProcessor] Waiting for background queue to finish for this Pal...");
+                    return true;
                 }
 
                 if (!finalConfig.SetNickname.empty()) {
@@ -917,7 +907,6 @@ namespace DynPals {
             if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
 
             if (TargetBPClass && Utils::IsObjectValid(TargetBPClass)) {
-                // Instantly extract the Class Default Object from RAM directly
                 UObject* TargetCDO = TargetBPClass->GetClassDefaultObject();
                 
                 if (TargetCDO && Utils::IsObjectValid(TargetCDO)) {
@@ -946,7 +935,6 @@ namespace DynPals {
             UClass* CharClass = Character->GetClassPrivate();
 
             if (CharClass && Utils::IsObjectValid(CharClass)) {
-                // Extract the Vanilla CDO instantly from RAM directly
                 UObject* VanillaCDO = CharClass->GetClassDefaultObject();
                 
                 if (VanillaCDO && Utils::IsObjectValid(VanillaCDO)) {
@@ -1083,15 +1071,15 @@ namespace DynPals {
             if (NewAnimInst && Utils::IsObjectValid(NewAnimInst)) {
                 UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
                 if (LinkFunc) {
+                    // ---> EXPLICIT FIX: Only Base and Physics exist as classes on disk/RAM in Palworld
                     std::vector<std::wstring> StandardLayers = {
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterPhysics.ABP_MonsterPhysics_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterUpper.ABP_MonsterUpper_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLookAt.ABP_MonsterLookAt_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ABP_MonsterLeaning.ABP_MonsterLeaning_C"
+                        L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C",
+                        L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C"
                     };
 
                     for (const auto& LayerPath : StandardLayers) {
-                        UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetSafely(LayerPath));
+                        // Use non-blocking mode (false) to prevent the 70ms disk search penalty
+                        UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetInternal(LayerPath, false));
                         
                         if (!IsPalBlueprintValid(Character, BPName)) return;
                         Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
@@ -1104,8 +1092,8 @@ namespace DynPals {
                     }
                 }
             }
+            ProfileStep(L"Trace 8: Syncing Static Params");
         }
-        ProfileStep(L"Trace 8: Syncing Static Params");
 
         struct { int32_t RetVal; } NumMatParams{0};
         Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
