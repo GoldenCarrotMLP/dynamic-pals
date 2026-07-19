@@ -96,7 +96,7 @@ public:
             DynPals::ConfigManager::Get().Initialize(BasePath);
             DynPals::FileWatcher::Start(BasePath + L"Paks/~mods/");
             DynPals::VFXManager::Get().Initialize(); 
-            DynPals::NativeAsyncLoader::Initialize();
+            //DynPals::NativeAsyncLoader::Initialize();
             DynPals::HooksManager::RegisterHooks();
 
             // Register singletons natively into UIRegistry immediately

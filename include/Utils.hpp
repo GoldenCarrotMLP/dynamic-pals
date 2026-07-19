@@ -23,23 +23,15 @@ namespace DynPals::Utils {
     inline UObject* GetKismetSystemLibrary();
     inline UFunction* GetKismetFunction(const wchar_t* FunctionName);
 
-    // ==========================================
-    // STANDALONE SEH SAFETY WRAPPER
-    // ==========================================
-    // Absorbs frame-perfect garbage collection crashes during fast travel
     inline void SafeProcessEvent(RC::Unreal::UObject* Obj, RC::Unreal::UFunction* Func, void* Params) {
         if (!Obj || !Func) return;
         __try {
             Obj->ProcessEvent(Func, Params);
         }
         __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
-            // Silently drop the execution if the object became invalid mid-frame
         }
     }
 
-    // ==========================================
-    // SEAMLESS GLOBAL REFLECTION CACHE ENGINE
-    // ==========================================
     namespace Caches {
         struct CacheKey {
             UClass* Cls;
@@ -66,7 +58,6 @@ namespace DynPals::Utils {
         inline std::shared_mutex FuncMutex;
 
         inline std::map<std::wstring, UObject*> LibraryCache;
-
         inline std::shared_mutex LibraryMutex;
 
         inline std::map<Key, UFunction*> LibFuncCache;
@@ -102,7 +93,6 @@ namespace DynPals::Utils {
             FolderCache.clear();
 
             CachedKSL = nullptr;
-
             CachedIsValidFunc = nullptr;
 
             DP_LOG(Default, "[Cache] Cleared all global reflection, class, and asset caches successfully.");
@@ -138,16 +128,12 @@ namespace DynPals::Utils {
         UObject* Lib = GetLibrary(LibraryPath);
         UFunction* Func = Lib ? Lib->GetFunctionByNameInChain(FunctionName) : nullptr;
         
-        if (!Func) {
-            DP_LOG(Warning, "[Utils] GetLibraryFunction FAILED: Could not find function '{}' in library '{}'", FunctionName, LibraryPath);
-        }
-
         std::unique_lock<std::shared_mutex> write_lock(Caches::LibFuncMutex);
         Caches::LibFuncCache[k] = Func;
         return Func;
     }
 
-    inline UClass* GetClassCached(const wchar_t* ClassPath) {
+    inline UClass* GetClassCached(const wchar_t* ClassPath, bool bSilenceLogs = false) {
         {
             std::shared_lock<std::shared_mutex> read_lock(Caches::ClassMutex);
             auto it = Caches::ClassCache.find(ClassPath);
@@ -155,7 +141,7 @@ namespace DynPals::Utils {
         }
 
         UClass* Cls = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, ClassPath);
-        if (!Cls) {
+        if (!Cls && !bSilenceLogs) {
             DP_LOG(Warning, "[Utils] GetClassCached FAILED: Could not find class at path: '{}'", ClassPath);
         }
 
@@ -183,53 +169,49 @@ namespace DynPals::Utils {
         return Func;
     }
 
-// Lightweight memory page prober to verify a pointer is mapped and readable by the OS
-inline bool IsMemoryReadable(const void* ptr, size_t size) {
-    if (!ptr) return false;
-    __try {
-        volatile const char* p = reinterpret_cast<volatile const char*>(ptr);
-        // Probe the first and last byte of the requested range
-        char dummy1 = p[0];
-        char dummy2 = p[size - 1];
-        (void)dummy1; (void)dummy2; // Prevent compiler optimization
-        return true;
+    inline bool IsMemoryReadable(const void* ptr, size_t size) {
+        if (!ptr) return false;
+        __try {
+            volatile const char* p = reinterpret_cast<volatile const char*>(ptr);
+            char dummy1 = p[0];
+            char dummy2 = p[size - 1];
+            (void)dummy1; (void)dummy2; 
+            return true;
+        }
+        __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
+            return false;
+        }
     }
-    __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
-        return false;
-    }
-}
+
     inline bool IsObjectValid(UObject* Obj) {
-    if (!Obj) return false;
-    
-    uintptr_t addr = reinterpret_cast<uintptr_t>(Obj);
-    if (addr == 0 || (addr % 8) != 0) return false;
+        if (!Obj) return false;
+        
+        uintptr_t addr = reinterpret_cast<uintptr_t>(Obj);
+        if (addr < 0x10000ULL || (addr % 8) != 0) return false;
 
-    // 1. Probe the object's header memory (offset 0 to 0x18) to verify it is mapped and readable
-    if (!IsMemoryReadable(Obj, 0x18)) return false;
+        if (!IsMemoryReadable(Obj, 0x18)) return false;
 
-    // 2. Probe its virtual table pointer to ensure it isn't pointing to poisoned/dead memory
-    void* vtable = *reinterpret_cast<void**>(Obj);
-    if (!IsMemoryReadable(vtable, 8)) return false;
+        void* vtable = *reinterpret_cast<void**>(Obj);
+        if (!IsMemoryReadable(vtable, 8)) return false;
 
-    // 3. Resolve native library functions
-    if (!Caches::CachedKSL || !Caches::CachedIsValidFunc) {
-        Caches::CachedKSL = GetKismetSystemLibrary();
-        Caches::CachedIsValidFunc = GetKismetFunction(STR("IsValid"));
+        if (!Caches::CachedKSL || !Caches::CachedIsValidFunc) {
+            Caches::CachedKSL = GetKismetSystemLibrary();
+            Caches::CachedIsValidFunc = GetKismetFunction(STR("IsValid"));
+        }
+
+        if (!Caches::CachedKSL || !Caches::CachedIsValidFunc) return false; 
+
+        struct { UObject* Object; bool ReturnValue; } Params{ Obj, false };
+        SafeProcessEvent(Caches::CachedKSL, Caches::CachedIsValidFunc, &Params);
+        return Params.ReturnValue;
     }
 
-    if (!Caches::CachedKSL || !Caches::CachedIsValidFunc) return false; 
-
-    // 4. Safe invocation of the engine's internal IsValid check
-    struct { UObject* Object; bool ReturnValue; } Params{ Obj, false };
-    SafeProcessEvent(Caches::CachedKSL, Caches::CachedIsValidFunc, &Params);
-    return Params.ReturnValue;
-}
     inline bool IsObjectTracked(UObject* TargetObj) {
         if (!TargetObj) return false;
 
         uintptr_t addr = reinterpret_cast<uintptr_t>(TargetObj);
-        if (addr == 0 || (addr % 8) != 0) return false;
-        
+        if (addr < 0x100000000ULL || (addr % 8) != 0) return false;
+
         bool bFound = false;
         UObjectGlobals::ForEachUObject([&](UObject* Obj, int32_t Index, int32_t SerialNumber) -> RC::LoopAction {
             if (Obj == TargetObj) {
@@ -315,10 +297,6 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
 
         FProperty* Prop = Class->GetPropertyByNameInChain(PropertyName);
         
-        if (!Prop && !bSilenceLogs) {
-            DP_LOG(Verbose, "[Utils] GetProperty: Could not find property '{}' on object '{}'", PropertyName, Object->GetName());
-        }
-
         std::unique_lock<std::shared_mutex> write_lock(Caches::PropMutex);
         Caches::PropCache[key] = Prop;
         
@@ -402,10 +380,6 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
         }
 
         Function = Object->GetFunctionByNameInChain(FunctionName);
-        
-        if (!Function && !bSilenceLogs) {
-            DP_LOG(Verbose, "[Utils] CallFunction FAILED: Could not find function '{}' on object '{}'", FunctionName, Object->GetName());
-        }
 
         {
             std::unique_lock<std::shared_mutex> write_lock(Caches::FuncMutex);
@@ -432,38 +406,53 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
         return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
 
-    inline UClass* GetUserWidgetClass() {
-        return GetClassCached(STR("/Script/UMG.UserWidget"));
+    inline UClass* GetUserWidgetClass() { return GetClassCached(STR("/Script/UMG.UserWidget")); }
+    inline UObject* GetWBL() { return GetLibrary(STR("/Script/UMG.Default__WidgetBlueprintLibrary")); }
+    inline UFunction* GetWBLFunction(const wchar_t* FunctionName) { return GetLibraryFunction(STR("/Script/UMG.Default__WidgetBlueprintLibrary"), FunctionName); }
+    inline UObject* GetKTL() { return GetLibrary(STR("/Script/Engine.Default__KismetTextLibrary")); }
+    inline UFunction* GetKTLFunction(const wchar_t* FunctionName) { return GetLibraryFunction(STR("/Script/Engine.Default__KismetTextLibrary"), FunctionName); }
+    inline UObject* GetKML() { return GetLibrary(STR("/Script/Engine.Default__KismetMaterialLibrary")); }
+    inline UFunction* GetKMLFunction(const wchar_t* FunctionName) { return GetLibraryFunction(STR("/Script/Engine.Default__KismetMaterialLibrary"), FunctionName); }
+    inline UObject* GetKSL() { return GetLibrary(STR("/Script/Engine.Default__KismetSystemLibrary")); }
+    inline UFunction* GetKSLFunction(const wchar_t* FunctionName) { return GetLibraryFunction(STR("/Script/Engine.Default__KismetSystemLibrary"), FunctionName); }
+
+    // ==========================================
+    // ZERO-STUTTER ASSET MEMORY CHECKS
+    // ==========================================
+    inline bool IsAssetLoaded(const std::wstring& AssetPath) {
+        if (AssetPath.empty()) return true;
+        std::wstring formatted = FormatAssetPath(AssetPath);
+        
+        // CRITICAL FIX: Pass ANY_PACKAGE (-1) to search the entirety of RAM!
+        UObject* ANY_PACKAGE = reinterpret_cast<UObject*>(-1);
+        UObject* ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, ANY_PACKAGE, formatted.c_str());
+        return (ExistingObj && IsObjectValid(ExistingObj));
     }
-    inline UObject* GetWBL() {
-        return GetLibrary(STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
-    }
-    inline UFunction* GetWBLFunction(const wchar_t* FunctionName) {
-        return GetLibraryFunction(STR("/Script/UMG.Default__WidgetBlueprintLibrary"), FunctionName);
-    }
-    inline UObject* GetKTL() {
-        return GetLibrary(STR("/Script/Engine.Default__KismetTextLibrary"));
-    }
-    inline UFunction* GetKTLFunction(const wchar_t* FunctionName) {
-        return GetLibraryFunction(STR("/Script/Engine.Default__KismetTextLibrary"), FunctionName);
-    }
-    inline UObject* GetKML() {
-        return GetLibrary(STR("/Script/Engine.Default__KismetMaterialLibrary"));
-    }
-    inline UFunction* GetKMLFunction(const wchar_t* FunctionName) {
-        return GetLibraryFunction(STR("/Script/Engine.Default__KismetMaterialLibrary"), FunctionName);
-    }
-    inline UObject* GetKSL() {
-        return GetLibrary(STR("/Script/Engine.Default__KismetSystemLibrary"));
-    }
-    inline UFunction* GetKSLFunction(const wchar_t* FunctionName) {
-        return GetLibraryFunction(STR("/Script/Engine.Default__KismetSystemLibrary"), FunctionName);
+
+    inline bool IsSkeletalMeshLoaded(const std::wstring& AssetPath) {
+        if (IsAssetLoaded(AssetPath)) return true;
+
+        if (AssetPath.find(L"/Mods/") != std::wstring::npos) {
+            size_t lastSlash = AssetPath.find_last_of(L'/');
+            if (lastSlash != std::wstring::npos) {
+                std::wstring directory = AssetPath.substr(0, lastSlash + 1);
+                std::wstring filename = AssetPath.substr(lastSlash + 1);
+
+                if (filename.rfind(L"SK_", 0) != 0 && filename.rfind(L"sk_", 0) != 0) {
+                    if (IsAssetLoaded(directory + L"SK_" + filename)) return true;
+                    if (IsAssetLoaded(directory + L"sk_" + filename)) return true;
+                }
+            }
+        }
+        return false;
     }
 
     inline UObject* LoadAssetInternal(const std::wstring& AssetPath) {
         std::wstring formatted = FormatAssetPath(AssetPath); 
         
-        UObject* ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, formatted.c_str());
+        // CRITICAL FIX: Pass ANY_PACKAGE (-1) to locate the asset cached by the Blueprint loader!
+        UObject* ANY_PACKAGE = reinterpret_cast<UObject*>(-1);
+        UObject* ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, ANY_PACKAGE, formatted.c_str());
         if (ExistingObj && IsObjectValid(ExistingObj)) {
             std::wstring ClassName = ExistingObj->GetClassPrivate()->GetName();
             if (ClassName == L"ObjectRedirector") {
@@ -475,6 +464,7 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
             return ExistingObj; 
         }
 
+        // If it truly isn't in memory, fall back to the blocking load
         std::wstring package, asset;
         size_t dot = formatted.find(L'.');
         if (dot != std::wstring::npos) {
@@ -485,6 +475,10 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
         }
 
         AltrSoftObjectPtr SoftPtr;
+        SoftPtr.WeakPtr.ObjectIndex = 0;
+        SoftPtr.WeakPtr.ObjectSerialNumber = 0;
+        SoftPtr.TagAtLastTest = 0;
+        SoftPtr.Padding = 0;
         SoftPtr.ObjectID.PackageName = FName(package.c_str(), FNAME_Add);
         SoftPtr.ObjectID.AssetName = FName(asset.c_str(), FNAME_Add);
         SoftPtr.ObjectID.SubPathString = FString(STR(""));
@@ -495,10 +489,7 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
         UFunction* LoadFunc = KismetLib->GetFunctionByNameInChain(STR("LoadAsset_Blocking"));
         if (!LoadFunc) return nullptr;
 
-        // CRITICAL FIX: Use zeroed buffer and reflection to prevent Stack Misalignment garbage pointers
         alignas(8) uint8_t LoadParams[256] = {0};
-        
-        // The first parameter is the Asset (SoftObjectPtr). We copy our struct into the start of the buffer.
         memcpy(LoadParams, &SoftPtr, sizeof(AltrSoftObjectPtr));
 
         SafeProcessEvent(KismetLib, LoadFunc, LoadParams);
@@ -506,7 +497,6 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
         UObject* LoadedObj = nullptr;
         FProperty* RetProp = LoadFunc->GetPropertyByNameInChain(STR("ReturnValue"));
         if (RetProp) {
-            // Let Unreal Engine's reflection system locate the exact memory offset for the ReturnValue
             UObject** RetPtr = RetProp->ContainerPtrToValuePtr<UObject*>(LoadParams);
             if (RetPtr) LoadedObj = *RetPtr;
         }
@@ -583,7 +573,6 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
         if (ScanFunc) {
             alignas(8) uint8_t ScanBuffer[512] = {0}; 
             
-            // Construct the TArray safely in C++ space to avoid uninitialized memory corruption crashes
             FString Src(FolderPath.c_str()); 
             TArray<FString> LocalPaths;
             LocalPaths.Add(Src); 
@@ -591,7 +580,6 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
             FArrayProperty* InPathsProp = CastField<FArrayProperty>(ScanFunc->GetPropertyByNameInChain(STR("InPaths")));
             if (InPathsProp) {
                 void* Dest = InPathsProp->ContainerPtrToValuePtr<void>(ScanBuffer);
-                // Safely transplant the perfectly constructed C++ TArray layout into the UE engine buffer
                 if (Dest) memcpy(Dest, &LocalPaths, sizeof(TArray<FString>));
             }
             
@@ -600,8 +588,6 @@ inline bool IsMemoryReadable(const void* ptr, size_t size) {
             
             DP_LOG(Default, "[Asset Scanner] Forcing synchronous rescan of folder to register modded .pak assets...");
             SafeProcessEvent(AssetRegistry, ScanFunc, ScanBuffer);
-            
-            // Note: LocalPaths destructor will automatically clean up the array memory safely!
         } else {
             DP_LOG(Warning, "[Asset Scanner] ScanPathsSynchronous function missing. Unregistered .pak assets may not be found.");
         }

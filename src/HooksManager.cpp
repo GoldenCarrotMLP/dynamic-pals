@@ -20,6 +20,7 @@
 #include "Updater.hpp"
 #include "Utils.hpp"
 #include "VFXManager.hpp"
+#include "NativeAsyncLoader.hpp"
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -206,7 +207,7 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
   if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
       LastSwapTime = Now;
       VirtualFrameCount++;
-      if (VirtualFrameCount >= 30) { 
+      if (VirtualFrameCount >= 16) { 
           VirtualFrameCount = 0;
           PalProcessor::Get().Tick();
       }
@@ -300,6 +301,8 @@ static void OnWidgetAddedToViewport(
   }
 }
 
+
+
 static void OnOpenLevel(UnrealScriptFunctionCallableContext& Context, void*) {
   bIsAtMenu = false;
   bCompletedInitReady = false;
@@ -307,6 +310,7 @@ static void OnOpenLevel(UnrealScriptFunctionCallableContext& Context, void*) {
   NotificationManager::Get().SetReady(false);
   UIRegistry::Get().InvalidateAllUIs();
   Utils::Caches::ClearAll(); 
+  NativeAsyncLoader::ClearCache(); 
 }
 
 
@@ -437,6 +441,7 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
             SaveManager::Get().Reset();
             PalProcessor::Get().ClearAllSwappedStatus();
             Utils::Caches::ClearAll(); 
+            NativeAsyncLoader::ClearCache();
 
           } else {
             bIsAtMenu = false;
@@ -447,6 +452,7 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
             SaveManager::Get().Reset();
             PalProcessor::Get().ClearAllSwappedStatus();
             Utils::Caches::ClearAll(); 
+            NativeAsyncLoader::ClearCache();
 
             DP_LOG(Default,
                    "New Session Detected (Map: '{}'). Standby active. Waiting 8 seconds for level load...\n",
@@ -458,6 +464,9 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
 
           AsyncHelper::AsyncTask(ENamedThreads::GameThread, []() {
             DP_LOG(Default, "Settle period complete. Safely resolving player active party...\n");
+
+            // --- INITIALIZE THE ASYNC LOADER SAFELY NOW ---
+            NativeAsyncLoader::Initialize();
 
             UObject* PlayerControllerObj = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
             if (PlayerControllerObj) {
@@ -567,6 +576,34 @@ void HooksManager::RegisterHooks() {
 
   if (OpenLevelFunc) {
     OpenLevelFunc->RegisterPreHook(OnOpenLevel, nullptr);
+  }
+
+  // --- NATIVE BLUEPRINT CALLBACK HOOK (Actor:SetOwner) ---
+  UFunction* SetOwnerFunc = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr, STR("/Script/Engine.Actor:SetOwner"));
+
+  if (SetOwnerFunc) {
+    SetOwnerFunc->RegisterPreHook([](UnrealScriptFunctionCallableContext& Context, void*) {
+        if (Context.Context && Context.Context->GetClassPrivate()->GetName() == L"ModActor_C") {
+            UFunction* Func = Context.TheStack.Node();
+            if (!Func) return;
+
+            DP_LOG(Default, "[NativeAsync] OnAssetLoadedDispatcher callback received!");
+
+            UObject* Requester = nullptr;
+            FProperty* OwnerProp = Func->GetPropertyByNameInChain(STR("NewOwner"));
+            if (OwnerProp) {
+                UObject** Ptr = OwnerProp->ContainerPtrToValuePtr<UObject*>(Context.TheStack.Locals());
+                if (Ptr) Requester = *Ptr;
+            }
+
+            if (Requester && Utils::IsObjectValid(Requester)) {
+                // Resume the swap process cleanly on the GameThread
+                PalProcessor::Get().ProcessPal(Requester, false, -1);
+            }
+        }
+    }, nullptr);
+    DP_LOG(Default, "Successfully registered native callback hook on Actor:SetOwner.");
   }
 }
 

@@ -1,109 +1,117 @@
 // --- START OF FILE src/NativeAsyncLoader.cpp ---
 #include "NativeAsyncLoader.hpp"
-#include "AsyncHelper.hpp"
 #include "Utils.hpp"
-#include <vector>
+#include "DataTypes.hpp"
+#include "PalProcessor.hpp"
+#include <new> 
+#include <set>
 
 using namespace RC::Unreal;
 
 namespace DynPals {
 
-    // Struct matching Unreal's FOnAssetLoaded dynamic delegate
-    struct FOnAssetLoaded {
-        UObject* Object = nullptr;
-        FName FunctionName;
-    };
+    static UClass* LoaderClass = nullptr;
+    static UObject* GAssetLoaderActor = nullptr;
+    static std::set<std::wstring> GRequestedAssets;
 
-    // Struct matching Unreal's FLatentActionInfo
-    struct FLatentActionInfo {
-        int32_t LinkID = -1;
-        int32_t UUID = -1;
-        FName ExecutionFunction;
-        UObject* CallbackTarget = nullptr;
-    };
-
-    void NativeAsyncLoader::Initialize() {
-        DP_LOG(Default, "[NativeAsync] Initializing Reflected Latent Async Loader...");
-        
-        UObject* KSL = Utils::GetKSL();
-        if (KSL) {
-            UFunction* LoadAssetFunc = KSL->GetFunctionByNameInChain(STR("LoadAsset"));
-            if (LoadAssetFunc) {
-                DP_LOG(Default, "[NativeAsync] Successfully resolved UKismetSystemLibrary::LoadAsset reflection pipeline. Stutter-free loading is active!");
-                return;
-            }
-        }
-        DP_LOG(Error, "[NativeAsync] CRITICAL: Failed to resolve UKismetSystemLibrary::LoadAsset function!");
+    void NativeAsyncLoader::ClearCache() {
+        GRequestedAssets.clear();
     }
 
-    void NativeAsyncLoader::RequestAsyncLoad(const std::wstring& AssetPath, UObject* WorldContext) {
-        UObject* KSL = Utils::GetKSL();
-        if (!KSL || !Utils::IsObjectValid(KSL) || !WorldContext) {
-            // Failsafe: Standard blocking load
-            Utils::LoadAssetSafely(AssetPath);
-            return;
-        }
+    bool NativeAsyncLoader::HasBeenRequested(const std::wstring& AssetPath) {
+        return GRequestedAssets.find(AssetPath) != GRequestedAssets.end();
+    }
 
-        UFunction* LoadAssetFunc = KSL->GetFunctionByNameInChain(STR("LoadAsset"));
-        if (!LoadAssetFunc) {
-            Utils::LoadAssetSafely(AssetPath);
-            return;
-        }
+    void NativeAsyncLoader::Initialize() {
+        if (LoaderClass && Utils::IsObjectValid(LoaderClass)) return;
 
-        std::wstring formatted = Utils::FormatAssetPath(AssetPath);
-        std::wstring package, asset;
-        size_t dot = formatted.find(L'.');
-        if (dot != std::wstring::npos) {
-            package = formatted.substr(0, dot);
-            asset = formatted.substr(dot + 1);
-        } else {
-            return;
-        }
+        DP_LOG(Default, "[NativeAsync] Initializing Reflected Latent Async Loader...");
 
-        // In Unreal's reflection system, TSoftObjectPtr parameters inside UFunctions
-        // are stored as AltrSoftObjectPtr (48 bytes), which wraps FSoftObjectPath.
-        AltrSoftObjectPtr TargetPtr;
-        TargetPtr.WeakPtr.ObjectIndex = 0;
-        TargetPtr.WeakPtr.ObjectSerialNumber = 0;
-        TargetPtr.TagAtLastTest = 0;
-        TargetPtr.Padding = 0;
-        TargetPtr.ObjectID.PackageName = FName(package.c_str(), FNAME_Add);
-        TargetPtr.ObjectID.AssetName = FName(asset.c_str(), FNAME_Add);
-        TargetPtr.ObjectID.SubPathString = FString(STR(""));
-
-        // Generate a unique UUID for this latent action so the LatentActionManager tracks it uniquely
-        static int32_t GAsyncLoadUUID = 10000;
-        int32_t CurrentUUID = GAsyncLoadUUID++;
-
-        // Locate the active player controller to act as our ticking driver.
-        // Standard NPCs (like PalCharacter) do not natively tick latent actions in C++,
-        // but playable PlayerControllers are guaranteed to process them every frame.
-        UObject* TickingTarget = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-        if (!TickingTarget) {
-            TickingTarget = WorldContext; // Fallback to character if PC is not yet loaded
-        }
-
-        // Setup the parameters matching: 
-        // static void LoadAsset(const UObject* WorldContextObject, TSoftObjectPtr<UObject> Asset, FOnAssetLoaded OnLoaded, FLatentActionInfo LatentInfo);
-        struct {
-            UObject* WorldContextObject;
-            AltrSoftObjectPtr Asset; // 48 bytes (Perfectly aligned!)
-            FOnAssetLoaded OnLoaded;  // 16 bytes
-            FLatentActionInfo LatentInfo; // 24 bytes
-        } Params;
-        Params.WorldContextObject = TickingTarget;
-        Params.Asset = TargetPtr;
+        LoaderClass = static_cast<UClass*>(Utils::LoadAssetSafely(STR("/Game/Mods/DynamicPals/ModActor.ModActor_C")));
         
-        // Setup LatentInfo with a valid, ticking CallbackTarget and unique UUID
-        Params.LatentInfo.LinkID = 0;
-        Params.LatentInfo.UUID = CurrentUUID;
-        Params.LatentInfo.ExecutionFunction = FName(); // NAME_None
-        Params.LatentInfo.CallbackTarget = TickingTarget; // PlayerController drives the latent execution
+        if (LoaderClass && Utils::IsObjectValid(LoaderClass)) {
+            DP_LOG(Default, "[NativeAsync] ModActor class successfully resolved.");
+        } else {
+            static bool bWarned = false;
+            if (!bWarned) {
+                DP_LOG(Warning, "ModActor.pak not found. Async loading disabled; using synchronous fallback.");
+                bWarned = true;
+            }
+        }
+    }
 
-        DP_LOG(Default, "[NativeAsync] Requesting async load for: '{}' (UUID: {})", AssetPath, CurrentUUID);
+    bool NativeAsyncLoader::RequestAsyncLoad(const std::wstring& AssetPath, UObject* Requester) {
+        if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) {
+            LoaderClass = Utils::GetClassCached(STR("/Game/Mods/DynamicPals/ModActor.ModActor_C"), true);
+            if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) return false;
+        }
 
-        // Process the latent async load event safely
-        KSL->ProcessEvent(LoadAssetFunc, &Params);
+        if (!GAssetLoaderActor || !Utils::IsObjectValid(GAssetLoaderActor)) {
+            GAssetLoaderActor = UObjectGlobals::FindFirstOf(STR("ModActor_C"));
+        }
+
+        if (GAssetLoaderActor && Utils::IsObjectValid(GAssetLoaderActor)) {
+            static bool bHooked = false;
+            if (!bHooked) {
+                UFunction* OnLoadedCallback = GAssetLoaderActor->GetFunctionByNameInChain(STR("OnAssetLoadedDispatcher__DelegateSignature"));
+                if (OnLoadedCallback) {
+                    OnLoadedCallback->RegisterPreHook([](UnrealScriptFunctionCallableContext& Context, void*) {
+                        UFunction* Func = Context.TheStack.Node();
+                        if (!Func) return;
+
+                        UObject* RequesterObj = nullptr;
+                        FProperty* RequesterProp = Func->GetPropertyByNameInChain(STR("Requester"));
+                        
+                        if (RequesterProp) {
+                            UObject** Ptr = RequesterProp->ContainerPtrToValuePtr<UObject*>(Context.TheStack.Locals());
+                            if (Ptr) RequesterObj = *Ptr;
+                        }
+
+                        if (RequesterObj && Utils::IsObjectValid(RequesterObj)) {
+                            PalProcessor::Get().ProcessPal(RequesterObj, false, -1);
+                        }
+                    }, nullptr);
+                    bHooked = true;
+                    DP_LOG(Default, "[NativeAsync] Successfully registered dynamic pre-hook on OnAssetLoadedDispatcher!");
+                }
+            }
+
+            UFunction* Func = GAssetLoaderActor->GetFunctionByNameInChain(STR("RequestAsyncLoad"));
+            if (Func) {
+                GRequestedAssets.insert(AssetPath);
+                std::wstring formattedPath = Utils::FormatAssetPath(AssetPath);
+
+                if (formattedPath.length() > 2 && formattedPath.substr(formattedPath.length() - 2) == L"_C") {
+                    formattedPath = formattedPath.substr(0, formattedPath.length() - 2);
+                }
+
+                alignas(8) uint8_t BPParams[256] = {0};
+                FString* AssetPathPtr = nullptr;
+
+                FProperty* AssetPathProp = Func->GetPropertyByNameInChain(STR("AssetPath"));
+                if (AssetPathProp) {
+                    AssetPathPtr = AssetPathProp->ContainerPtrToValuePtr<FString>(BPParams);
+                    if (AssetPathPtr) {
+                        new (AssetPathPtr) FString(formattedPath.c_str()); 
+                    }
+                }
+
+                FProperty* RequesterProp = Func->GetPropertyByNameInChain(STR("Requester"));
+                if (RequesterProp) {
+                    UObject** Ptr = RequesterProp->ContainerPtrToValuePtr<UObject*>(BPParams);
+                    if (Ptr) *Ptr = Requester;
+                }
+
+                Utils::SafeProcessEvent(GAssetLoaderActor, Func, BPParams);
+
+                if (AssetPathPtr) {
+                    AssetPathPtr->~FString();
+                }
+                
+                return true;
+            }
+        }
+        return false;
     }
 }
 // --- END OF FILE src/NativeAsyncLoader.cpp ---
