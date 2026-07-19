@@ -307,65 +307,37 @@ namespace DynPals::Utils {
     inline UObject* GetKSL() { return GetLibrary(STR("/Script/Engine.Default__KismetSystemLibrary")); }
     inline UFunction* GetKSLFunction(const wchar_t* FunctionName) { return GetLibraryFunction(STR("/Script/Engine.Default__KismetSystemLibrary"), FunctionName); }
 
-    // ==========================================
-    // ZERO-STUTTER ASSET MEMORY CHECKS
-    // ==========================================
-
+    // Core O(1) Fetch Function - Bypasses slow disk queries and string evaluations
     inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBlocking = true) {
-        auto start = std::chrono::high_resolution_clock::now();
-        
-        // 1. Check Direct C++ Pointer Cache (0.0ms)
-        UObject* DirectPtr = NativeAsyncLoader::GetLoadedPointer(AssetPath);
-        if (DirectPtr) {
-            return DirectPtr;
-        }
-
+        if (AssetPath.empty()) return nullptr;
         std::wstring formatted = FormatAssetPath(AssetPath); 
-        UObject* ExistingObj = nullptr;
         
-        // 2. RAM Scan
+        // 1. --- FASTEST PATH: Exact Path RAM Search (0.001 ms) ---
+        // Dynamically choose nullptr outer for full paths to hit standard direct O(1) hash tables
+        UObject* ExistingObj = nullptr;
         if (formatted.rfind(L"/", 0) == 0) {
             ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, formatted.c_str());
         } else {
             UObject* ANY_PACKAGE = reinterpret_cast<UObject*>(-1);
             ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, ANY_PACKAGE, formatted.c_str());
         }
-        
-        auto findTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - start).count();
 
         if (ExistingObj && IsObjectValid(ExistingObj)) {
             std::wstring ClassName = ExistingObj->GetClassPrivate()->GetName();
             
-            // --- THE CRITICAL FIX: REJECT UNLOADED PACKAGES ---
-            if (ClassName == L"Package") {
-                DP_LOG(Verbose, "[Utils] Found '{}' but it is only a Package placeholder. Real asset is NOT loaded.", AssetPath);
-                ExistingObj = nullptr;
-            } else if (ClassName == L"ObjectRedirector") {
-                UObject* Destination = nullptr;
-                if (GetPropertyValue<UObject*>(ExistingObj, STR("DestinationObject"), Destination)) return Destination;
-            } else {
-                DP_LOG(Verbose, "[Utils] Found '{}' in RAM in {:.3f} ms", AssetPath, findTime / 1000.0f);
+            // Reject unloaded Engine 'Package' placeholders
+            if (ClassName != L"Package") {
+                if (ClassName == L"ObjectRedirector") {
+                    UObject* Dest = nullptr;
+                    if (GetPropertyValue<UObject*>(ExistingObj, STR("DestinationObject"), Dest)) return Dest;
+                }
                 return ExistingObj;
             }
         }
 
-        // 3. Short-Name RAM Fallback (for runtime classes like ALI_MonsterPhysics_C)
-        size_t lastDot = AssetPath.find_last_of(L'.');
-        if (lastDot != std::wstring::npos) {
-            std::wstring shortName = AssetPath.substr(lastDot + 1);
-            UObject* ANY_PACKAGE = reinterpret_cast<UObject*>(-1);
-            ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, ANY_PACKAGE, shortName.c_str());
-            if (ExistingObj && IsObjectValid(ExistingObj)) {
-                DP_LOG(Verbose, "[Utils] Found Short-Name '{}' in RAM.", shortName);
-                return ExistingObj;
-            }
-        }
-
-        // 4. Blocking Disk Load
+        // 2. --- SLOW PATH: Blocking Disk Load ---
+        // (Only executes if the file legitimately hasn't been loaded via Async yet)
         if (!bAllowBlocking) return nullptr;
-
-        DP_LOG(Warning, "[Utils] Executing SLOW BLOCKING LOAD for '{}' (This causes a game hitch!)", AssetPath);
-        auto blockStart = std::chrono::high_resolution_clock::now();
 
         std::wstring package, asset;
         size_t dot = formatted.find(L'.');
@@ -384,6 +356,7 @@ namespace DynPals::Utils {
 
         alignas(8) uint8_t LoadParams[256] = {0};
         memcpy(LoadParams, &SoftPtr, sizeof(AltrSoftObjectPtr));
+
         SafeProcessEvent(KismetLib, LoadFunc, LoadParams);
         
         UObject* LoadedObj = nullptr;
@@ -393,23 +366,16 @@ namespace DynPals::Utils {
             if (RetPtr) LoadedObj = *RetPtr;
         }
 
-        auto blockTime = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - blockStart).count();
-
         if (LoadedObj && IsObjectValid(LoadedObj)) {
             std::wstring ClassName = LoadedObj->GetClassPrivate()->GetName();
             if (ClassName == L"ObjectRedirector") {
-                UObject* Destination = nullptr;
-                if (GetPropertyValue<UObject*>(LoadedObj, STR("DestinationObject"), Destination)) {
-                    DP_LOG(Default, "[Utils] Blocking load succeeded in {:.3f} ms", blockTime / 1000.0f);
-                    return Destination;
-                }
+                UObject* Dest = nullptr;
+                if (GetPropertyValue<UObject*>(LoadedObj, STR("DestinationObject"), Dest)) return Dest;
             }
-            DP_LOG(Default, "[Utils] Blocking load succeeded in {:.3f} ms", blockTime / 1000.0f);
-        } else {
-            DP_LOG(Error, "[Utils] Blocking load FAILED after {:.3f} ms for '{}'", blockTime / 1000.0f, AssetPath);
+            return LoadedObj;
         }
         
-        return LoadedObj;
+        return nullptr;
     }
 
     inline bool IsAssetLoaded(const std::wstring& AssetPath) {
@@ -439,13 +405,16 @@ namespace DynPals::Utils {
         return LoadAssetInternal(AssetPath, true);
     }
 
+    // Handles fallback logic strictly without hitting disk checks first
     inline UObject* LoadSkeletalMeshSafely(const std::wstring& AssetPath) {
+        // Fast path: Check exact path in memory (0.001 ms)
         UObject* Loaded = LoadAssetInternal(AssetPath, false);
         if (Loaded) return Loaded;
 
         std::wstring fallbackSK;
         std::wstring fallbacksk;
 
+        // Fast path: Check fallback paths in memory
         if (AssetPath.find(L"/Mods/") != std::wstring::npos) {
             size_t lastSlash = AssetPath.find_last_of(L'/');
             if (lastSlash != std::wstring::npos) {
@@ -464,9 +433,11 @@ namespace DynPals::Utils {
             }
         }
 
+        // Slow path: Blocking load on exact path
         Loaded = LoadAssetInternal(AssetPath, true);
         if (Loaded) return Loaded;
 
+        // Slow path: Blocking load on fallbacks
         if (!fallbackSK.empty()) {
             Loaded = LoadAssetInternal(fallbackSK, true);
             if (Loaded) return Loaded;
@@ -481,21 +452,30 @@ namespace DynPals::Utils {
     inline std::vector<std::wstring> GetAssetsInVirtualFolder(const std::wstring& FolderPath) {
         {
             std::shared_lock<std::shared_mutex> read_lock(Caches::FolderMutex);
-            if (Caches::FolderCache.count(FolderPath)) return Caches::FolderCache[FolderPath];
+            if (Caches::FolderCache.find(FolderPath) != Caches::FolderCache.end()) return Caches::FolderCache[FolderPath];
         }
 
         std::vector<std::wstring> Results;
         UObject* ARH = GetLibrary(STR("/Script/AssetRegistry.Default__AssetRegistryHelpers"));
-        if (!ARH) return Results;
+        if (!ARH) {
+            DP_LOG(Error, "[Asset Scanner] Failed: AssetRegistryHelpers CDO not found.");
+            return Results;
+        }
 
         struct { UObject* ReturnValue; } GetARParams{nullptr};
         CallFunction(ARH, STR("GetAssetRegistry"), &GetARParams);
         UObject* AssetRegistry = GetARParams.ReturnValue;
-        if (!AssetRegistry) return Results;
+        if (!AssetRegistry) {
+            DP_LOG(Error, "[Asset Scanner] Failed: AssetRegistry instance not found.");
+            return Results;
+        }
+
+        DP_LOG(Default, "[Asset Scanner] Initializing search for folder: '{}'", FolderPath);
 
         UFunction* ScanFunc = AssetRegistry->GetFunctionByNameInChain(STR("ScanPathsSynchronous"));
         if (ScanFunc) {
             alignas(8) uint8_t ScanBuffer[512] = {0}; 
+            
             FString Src(FolderPath.c_str()); 
             TArray<FString> LocalPaths;
             LocalPaths.Add(Src); 
@@ -508,13 +488,21 @@ namespace DynPals::Utils {
             
             FBoolProperty* ForceRescanProp = CastField<FBoolProperty>(ScanFunc->GetPropertyByNameInChain(STR("bForceRescan")));
             if (ForceRescanProp) ForceRescanProp->SetPropertyValue(ForceRescanProp->ContainerPtrToValuePtr<void>(ScanBuffer), true);
+            
+            DP_LOG(Default, "[Asset Scanner] Forcing synchronous rescan of folder to register modded .pak assets...");
             SafeProcessEvent(AssetRegistry, ScanFunc, ScanBuffer);
+        } else {
+            DP_LOG(Warning, "[Asset Scanner] ScanPathsSynchronous function missing. Unregistered .pak assets may not be found.");
         }
 
         UFunction* GetAssetsFunc = AssetRegistry->GetFunctionByNameInChain(STR("GetAssetsByPath"));
-        if (!GetAssetsFunc) return Results;
+        if (!GetAssetsFunc) {
+            DP_LOG(Error, "[Asset Scanner] Failed: GetAssetsByPath function not found.");
+            return Results;
+        }
 
         alignas(8) uint8_t ParamsBuffer[512] = {0}; 
+
         FProperty* PackagePathProp = GetAssetsFunc->GetPropertyByNameInChain(STR("PackagePath"));
         if (PackagePathProp) {
             FName* Dest = static_cast<FName*>(PackagePathProp->ContainerPtrToValuePtr<void>(ParamsBuffer));
@@ -536,6 +524,8 @@ namespace DynPals::Utils {
 
             if (ScriptArray && InnerProp) {
                 int32_t NumAssets = ScriptArray->Num();
+                DP_LOG(Default, "[Asset Scanner] Search complete. Discovered {} total assets in folder.", NumAssets);
+
                 int32_t ElementSize = InnerProp->GetSize();
                 uint8_t* ArrayData = static_cast<uint8_t*>(ScriptArray->GetData());
 
@@ -562,8 +552,12 @@ namespace DynPals::Utils {
                                 if (SpacePos != std::wstring::npos) {
                                     std::wstring ClassName = FullName.substr(0, SpacePos);
                                     std::wstring Path = FullName.substr(SpacePos + 1);
+
                                     if (ClassName.find(L"Material") != std::wstring::npos) {
                                         Results.push_back(Path);
+                                        DP_LOG(Default, "  -> [Accepted Material] Class: '{}', Path: '{}'", ClassName, Path);
+                                    } else {
+                                        DP_LOG(Default, "  -> [Rejected Asset] Class: '{}', Path: '{}'", ClassName, Path);
                                     }
                                 } else {
                                     Results.push_back(FullName);
@@ -572,10 +566,15 @@ namespace DynPals::Utils {
                         }
                     }
                 }
+            } else {
+                DP_LOG(Warning, "[Asset Scanner] Warning: Output array was structurally invalid.");
             }
         }
+
         std::unique_lock<std::shared_mutex> write_lock(Caches::FolderMutex);
-        return Caches::FolderCache[FolderPath] = Results;
+        Caches::FolderCache[FolderPath] = Results;
+        return Results;
     }
+
 }
 // --- END OF FILE include/Utils.hpp ---

@@ -577,7 +577,7 @@ void HooksManager::RegisterHooks() {
     OpenLevelFunc->RegisterPreHook(OnOpenLevel, nullptr);
   }
 
-  // --- NATIVE BLUEPRINT CALLBACK HOOK (Actor:SetOwner) ---
+  // --- DIAGNOSTIC SET-OWNER HOOK ---
   UFunction* SetOwnerFunc = UObjectGlobals::StaticFindObject<UFunction*>(
       nullptr, nullptr, STR("/Script/Engine.Actor:SetOwner"));
 
@@ -594,14 +594,13 @@ void HooksManager::RegisterHooks() {
                 if (Ptr) Requester = *Ptr;
             }
 
-            if (Requester && Utils::IsObjectValid(Requester)) {
-                // Route the completed callback into our state machine!
-                NativeAsyncLoader::OnAsyncLoadComplete(Context.Context, Requester);
-            }
+            DP_LOG(Default, "[Diagnostic] SetOwner Hook Triggered! ModActor: {}, Requester: {}", (void*)Context.Context, (void*)Requester);
+            NativeAsyncLoader::OnAsyncLoadComplete(Context.Context, Requester);
         }
     }, nullptr);
-    DP_LOG(Default, "Successfully registered native callback hook on Actor:SetOwner.");
+    DP_LOG(Default, "Successfully registered diagnostic native callback hook on Actor:SetOwner.");
   }
+
 }
 
 }  // namespace DynPals

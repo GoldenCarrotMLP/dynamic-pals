@@ -112,7 +112,15 @@ namespace DynPals {
         RuntimeStatsCache.erase(InstanceID);
     }
 
+    static std::map<std::wstring, std::wstring> GBPClassCache;
+
     static bool ResolvePalBlueprintPath(UObject* WorldContext, const std::wstring& CharID, std::wstring& OutPath) {
+        // --- 0.0ms Database Cache ---
+        if (GBPClassCache.count(CharID)) {
+            OutPath = GBPClassCache[CharID];
+            return !OutPath.empty();
+        }
+
         if (!WorldContext || !Utils::IsObjectValid(WorldContext)) return false;
 
         UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
@@ -133,13 +141,7 @@ namespace DynPals {
         }
         if (!GCachedProps.GetBPClassFunc) return false;
 
-        struct {
-            FName RowName;                  
-            bool bShowError;                
-            uint8_t Pad[7];                 
-            AltrSoftObjectPtr ReturnValue;  
-        } Params;
-
+        struct { FName RowName; bool bShowError; uint8_t Pad[7]; AltrSoftObjectPtr ReturnValue; } Params;
         Params.RowName = FName(CharID.c_str(), FNAME_Add);
         Params.bShowError = false;
 
@@ -150,9 +152,10 @@ namespace DynPals {
 
         if (!packageName.empty() && !assetName.empty()) {
             OutPath = packageName + L"." + assetName;
+            GBPClassCache[CharID] = OutPath;
             return true;
         }
-
+        GBPClassCache[CharID] = L"";
         return false;
     }
 
@@ -652,27 +655,19 @@ namespace DynPals {
 
                 // --- ASYNC MULTI-ASSET PRE-CACHING INTERCEPT ---
                 std::vector<std::wstring> assetsToLoad;
-                bool bWaitOnAsync = false;
 
-                // Helper lambda to check and transition dependencies
                 auto CheckDependency = [&](const std::wstring& Path) {
                     if (Path.empty()) return;
                     
                     bool bIsMeshLoaded = (Path == finalConfig.SkelMeshPath) ? Utils::IsSkeletalMeshLoaded(Path) : Utils::IsAssetLoaded(Path);
                     if (bIsMeshLoaded) {
-                        DP_LOG(Verbose, "[PalProcessor] Dependency already loaded in RAM: '{}'", Path);
+                        if (NativeAsyncLoader::IsPending(Path)) NativeAsyncLoader::MarkAsLoaded(Path);
                         return; 
                     }
                     
-                    if (NativeAsyncLoader::IsFailed(Path)) {
-                        DP_LOG(Verbose, "[PalProcessor] Dependency previously failed, skipping: '{}'", Path);
-                        return; 
-                    }
+                    if (NativeAsyncLoader::IsFailed(Path)) return; 
 
-                    // Asset is missing. Needs loading.
-                    DP_LOG(Default, "[PalProcessor] Dependency MISSING, queueing: '{}'", Path);
                     assetsToLoad.push_back(Path);
-                    bWaitOnAsync = true;
                 };
 
                 // 1. Check Skeletal Mesh
@@ -683,7 +678,6 @@ namespace DynPals {
                 if (!ResolvedAnimPath.empty()) {
                     CheckDependency(ResolvedAnimPath);
                     
-                    // ---> EXPLICIT FIX: Only Base and Physics exist as classes on disk/RAM in Palworld
                     std::vector<std::wstring> StandardLayers = {
                         L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C",
                         L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C"
@@ -691,14 +685,9 @@ namespace DynPals {
                     for (const auto& layer : StandardLayers) {
                         CheckDependency(layer);
                     }
-                } else {
-                    if (currentSwap != -1) {
-                        std::wstring VanillaClassPath;
-                        if (ResolvePalBlueprintPath(Character, CharID, VanillaClassPath)) {
-                            CheckDependency(VanillaClassPath);
-                        }
-                    }
-                }
+                } 
+                // We REMOVED the VanillaClassPath check entirely. The spawned Actor IS the valid BP.
+                // This natively handles BOSS_, RAID_, and GYM_ BP overrides without string guessing!
 
                 // 3. Check Material Replacements
                 for (const auto& mat : finalConfig.MatReplaceList) {
@@ -726,7 +715,6 @@ namespace DynPals {
 
                 // Trigger Parallel Async Load for all missing assets
                 if (!assetsToLoad.empty()) {
-                    DP_LOG(Default, "[PalProcessor] Halting ExecuteSwap. Handing off {} dependencies to NativeAsyncLoader...", assetsToLoad.size());
                     SaveManager::Get().SetPersistData(InstanceID, newData, false);
                     NativeAsyncLoader::RegisterPendingRequests(Character, static_cast<int>(assetsToLoad.size()));
                     
@@ -741,15 +729,8 @@ namespace DynPals {
 
                     if (bRequested) {
                         return true; 
-                    } else {
-                        static bool bWarned = false;
-                        if (!bWarned) {
-                            DP_LOG(Warning, "ModActor .pak not found! Falling back to blocking load.");
-                            bWarned = true;
-                        }
                     }
                 } else if (NativeAsyncLoader::GetPendingCount(Character) > 0) {
-                    DP_LOG(Verbose, "[PalProcessor] Waiting for background queue to finish for this Pal...");
                     return true;
                 }
 

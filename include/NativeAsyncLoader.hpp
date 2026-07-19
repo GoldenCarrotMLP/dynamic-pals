@@ -10,9 +10,6 @@ namespace DynPals {
         static void Tick(); 
         static bool RequestAsyncLoad(const std::wstring& AssetPath, RC::Unreal::UObject* Requester);
         
-        static RC::Unreal::UObject* GetLoadedPointer(const std::wstring& Path);
-        
-        // Callback routed from HooksManager's SetOwner hook
         static void OnAsyncLoadComplete(RC::Unreal::UObject* ModActor, RC::Unreal::UObject* Requester);
         
         // State Machine Queries
