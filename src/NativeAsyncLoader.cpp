@@ -1,4 +1,3 @@
-// --- START OF FILE src/NativeAsyncLoader.cpp ---
 #include "../include/NativeAsyncLoader.hpp"
 #include "Utils.hpp"
 #include "DataTypes.hpp"
@@ -17,6 +16,10 @@ namespace DynPals {
     struct FBatchRequest {
         std::vector<std::wstring> AssetPaths;
         UObject* Requester;
+        int ExplicitSwapIndex;
+        bool ForceReroll;
+        bool IsCompanionSync;
+        bool IsEvolutionEnd;
     };
 
     static UClass* LoaderClass = nullptr;
@@ -29,7 +32,6 @@ namespace DynPals {
     
     static std::map<std::wstring, std::wstring> GCorrectCasingCache;
 
-    // --- THE FIX: CONTEXT-SEGREGATED POINTER CACHE ---
     static std::map<UObject*, std::map<std::wstring, UObject*>> GResolvedPointers;
     static UObject* GActiveRequester = nullptr;
 
@@ -86,7 +88,7 @@ namespace DynPals {
 
     void NativeAsyncLoader::ClearTemporaryPointers(UObject* Requester) {
         if (Requester) {
-            GResolvedPointers.erase(Requester); // Erase only this specific Pal's cache
+            GResolvedPointers.erase(Requester); 
         }
     }
 
@@ -145,7 +147,7 @@ namespace DynPals {
             GFailedAssets.insert(path);
         }
         GPendingCount[GCurrentBatch.Requester] = 0;
-        PalProcessor::Get().ProcessPal(GCurrentBatch.Requester, false, -1);
+        PalProcessor::Get().ProcessPal(GCurrentBatch.Requester, GCurrentBatch.ForceReroll, GCurrentBatch.ExplicitSwapIndex, GCurrentBatch.IsCompanionSync, GCurrentBatch.IsEvolutionEnd);
         ProcessNextBatch();
     }
 
@@ -156,7 +158,6 @@ namespace DynPals {
         
         if (GCurrentBatch.Requester == Requester) {
 
-            // --- THE DIRECT POINTER EXTRACTOR ---
             TArray<UObject*> LoadedAssets;
             bool bReadSuccess = Utils::GetPropertyValue<TArray<UObject*>>(ModActor, STR("LoadedAssetsTemp"), LoadedAssets);
             
@@ -179,14 +180,13 @@ namespace DynPals {
                             correctPath = Utils::FStringToWString(Params.RetVal);
                         }
 
-                        // Map the raw pointer back to its requested C++ path string
                         for (const auto& reqPath : GCurrentBatch.AssetPaths) {
                             std::wstring formattedReq = Utils::FormatAssetPath(reqPath);
                             std::wstring lowerReq = formattedReq;
                             std::transform(lowerReq.begin(), lowerReq.end(), lowerReq.begin(), ::towlower);
 
                             if (lowerReq.find(lowerLeafName) != std::wstring::npos) {
-                                GResolvedPointers[Requester][reqPath] = Asset; // Store under this specific Pal
+                                GResolvedPointers[Requester][reqPath] = Asset; 
                                 if (!correctPath.empty()) {
                                     GCorrectCasingCache[reqPath] = correctPath;
                                 }
@@ -200,12 +200,10 @@ namespace DynPals {
                 DP_LOG(Error, "[NativeAsync] CRITICAL: Failed to read 'LoadedAssetsTemp' from ModActor_C! Please ensure it is a Class Variable.");
             }
 
-            // Cleanup any assets that genuinely failed to load (e.g. invalid file paths)
             for (const auto& path : GCurrentBatch.AssetPaths) {
                 if (GPendingAssets.count(path)) {
                     GPendingAssets.erase(path);
                     GFailedAssets.insert(path);
-                    DP_LOG(Warning, "[NativeAsync] Batch load completed but asset failed RAM verification: '{}'", path);
                 }
             }
 
@@ -214,7 +212,7 @@ namespace DynPals {
             
             ProcessNextBatch();
             
-            PalProcessor::Get().ProcessPal(Requester, false, -1);
+            PalProcessor::Get().ProcessPal(Requester, GCurrentBatch.ForceReroll, GCurrentBatch.ExplicitSwapIndex, GCurrentBatch.IsCompanionSync, GCurrentBatch.IsEvolutionEnd);
         } else {
             DP_LOG(Warning, "[NativeAsync] Received orphaned/invalid batch completion for Pal: {}", (void*)Requester);
         }
@@ -233,13 +231,17 @@ namespace DynPals {
             }
             
             UObject* stalledRequester = GCurrentBatch.Requester;
+            bool force = GCurrentBatch.ForceReroll;
+            int expl = GCurrentBatch.ExplicitSwapIndex;
+            bool comp = GCurrentBatch.IsCompanionSync;
+            bool evo = GCurrentBatch.IsEvolutionEnd;
             bIsExecutingBP = false;
             
             ProcessNextBatch(); 
 
             if (Utils::IsObjectValid(stalledRequester)) {
                 GPendingCount[stalledRequester] = 0;
-                PalProcessor::Get().ProcessPal(stalledRequester, false, -1);
+                PalProcessor::Get().ProcessPal(stalledRequester, force, expl, comp, evo);
             }
         }
     }
@@ -249,7 +251,7 @@ namespace DynPals {
         GAssetLoaderActor = nullptr; 
     }
 
-    bool NativeAsyncLoader::RequestBatchAsyncLoad(const std::vector<std::wstring>& AssetPaths, UObject* Requester) {
+    bool NativeAsyncLoader::RequestBatchAsyncLoad(const std::vector<std::wstring>& AssetPaths, UObject* Requester, int ExplicitSwapIndex, bool ForceReroll, bool IsCompanionSync, bool IsEvolutionEnd) {
         if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) {
             LoaderClass = Utils::GetClassCached(STR("/Game/Mods/DynamicPals/ModActor.ModActor_C"), true);
             if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) return false;
@@ -268,6 +270,10 @@ namespace DynPals {
             FBatchRequest req;
             req.AssetPaths = AssetPaths;
             req.Requester = Requester;
+            req.ExplicitSwapIndex = ExplicitSwapIndex;
+            req.ForceReroll = ForceReroll;
+            req.IsCompanionSync = IsCompanionSync;
+            req.IsEvolutionEnd = IsEvolutionEnd;
             
             GBatchQueue.push_back(req);
             DP_LOG(Default, "[NativeAsync] Queued batch of {} assets. Queue depth: {}", AssetPaths.size(), GBatchQueue.size());

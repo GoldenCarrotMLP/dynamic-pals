@@ -1,4 +1,3 @@
-// --- START OF FILE include/PalProcessor.hpp ---
 #pragma once
 #include <string>
 #include <vector>
@@ -17,6 +16,7 @@ namespace DynPals {
         bool ForceReroll;
         int ExplicitSwapIndex;
         bool IsCompanionSync;
+        bool IsEvolutionEnd;
     };
 
     struct QueuedPal {
@@ -40,7 +40,7 @@ namespace DynPals {
         }
 
         std::wstring StripCharacterPrefix(const std::wstring& InputID);
-        void ProcessPal(RC::Unreal::UObject* Character, bool ForceReroll, int ExplicitSwapIndex = -1, bool IsCompanionSync = false);
+        void ProcessPal(RC::Unreal::UObject* Character, bool ForceReroll, int ExplicitSwapIndex = -1, bool IsCompanionSync = false, bool IsEvolutionEnd = false);
         void CheckAndTriggerUpdate(RC::Unreal::UObject* Character);
 
         void ForceSwap(RC::Unreal::UObject* Character, int SwapIndex, int DelayMs = 10);
@@ -61,7 +61,7 @@ namespace DynPals {
         int EvaluateIdealSwapIndex(RC::Unreal::UObject* Character, std::wstring& OutInstanceID);
         void ApplySwap(RC::Unreal::UObject* Character, const SwapConfig& swap, PalPersistData& persist);
         
-        bool ExecuteSwap(RC::Unreal::UObject* Character, bool ForceReroll, int ExplicitSwapIndex = -1, bool IsCompanionSync = false);
+        bool ExecuteSwap(RC::Unreal::UObject* Character, bool ForceReroll, int ExplicitSwapIndex = -1, bool IsCompanionSync = false, bool IsEvolutionEnd = false);
 
         std::map<RC::Unreal::UObject*, std::wstring> SwappedInstances;
 

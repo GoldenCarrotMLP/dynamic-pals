@@ -1,4 +1,3 @@
-// --- START OF FILE include/NativeAsyncLoader.hpp ---
 #pragma once
 #include <string>
 #include <vector>
@@ -11,7 +10,7 @@ namespace DynPals {
         static void Tick(); 
         
         // Parallel Batch Loader
-        static bool RequestBatchAsyncLoad(const std::vector<std::wstring>& AssetPaths, RC::Unreal::UObject* Requester);
+        static bool RequestBatchAsyncLoad(const std::vector<std::wstring>& AssetPaths, RC::Unreal::UObject* Requester, int ExplicitSwapIndex = -1, bool ForceReroll = false, bool IsCompanionSync = false, bool IsEvolutionEnd = false);
         
         // Callback routed from HooksManager's SetOwner hook
         static void OnAsyncLoadComplete(RC::Unreal::UObject* ModActor, RC::Unreal::UObject* Requester);

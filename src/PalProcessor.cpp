@@ -1,4 +1,3 @@
-// --- START OF FILE src/PalProcessor.cpp ---
 #include "PalProcessor.hpp"
 #include "ConfigManager.hpp"
 #include "SaveManager.hpp"
@@ -223,7 +222,14 @@ namespace DynPals {
         
         float DelaySeconds = VFXManager::Get().PlayComposition(Character, CompName);
         int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
-        ForceSwap(Character, SwapIndex, DelayMs);
+        
+        std::thread([Character, SwapIndex, DelayMs]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
+            AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Character, SwapIndex]() {
+                if (!Utils::IsObjectValid(Character)) return; 
+                PalProcessor::Get().ProcessPal(Character, false, SwapIndex, false, true);
+            });
+        }).detach();
     }
 
     void PalProcessor::DelayedReroll(UObject* Character, const std::wstring& CompName) {
@@ -297,7 +303,7 @@ namespace DynPals {
         return -1; 
     }
 
-    void PalProcessor::ProcessPal(UObject* Character, bool ForceReroll, int ExplicitSwapIndex, bool IsCompanionSync) {
+    void PalProcessor::ProcessPal(UObject* Character, bool ForceReroll, int ExplicitSwapIndex, bool IsCompanionSync, bool IsEvolutionEnd) {
         if (!Character || !Utils::IsObjectValid(Character)) return;
 
         std::lock_guard<std::mutex> lock(QueueMutex);
@@ -306,10 +312,11 @@ namespace DynPals {
                 if (ForceReroll) q.ForceReroll = true;
                 if (ExplicitSwapIndex != -1) q.ExplicitSwapIndex = ExplicitSwapIndex;
                 if (IsCompanionSync) q.IsCompanionSync = true;
+                if (IsEvolutionEnd) q.IsEvolutionEnd = true;
                 return;
             }
         }
-        SwapQueue.push_back({Character, ForceReroll, ExplicitSwapIndex, IsCompanionSync});
+        SwapQueue.push_back({Character, ForceReroll, ExplicitSwapIndex, IsCompanionSync, IsEvolutionEnd});
     }
 
     void PalProcessor::CheckAndTriggerUpdate(UObject* Character) {
@@ -374,7 +381,7 @@ namespace DynPals {
             // Tell memory scanner which active Pal we are processing
             NativeAsyncLoader::SetActiveRequester(TargetChar);
 
-            ExecuteSwap(TargetChar, req.ForceReroll, req.ExplicitSwapIndex, req.IsCompanionSync);
+            ExecuteSwap(TargetChar, req.ForceReroll, req.ExplicitSwapIndex, req.IsCompanionSync, req.IsEvolutionEnd);
 
             // Clean up and flush ONLY this specific Pal's temporary pointers
             NativeAsyncLoader::ClearTemporaryPointers(TargetChar);
@@ -410,7 +417,7 @@ namespace DynPals {
         }
     }
 
-    bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int ExplicitSwapIndex, bool IsCompanionSync) {
+    bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int ExplicitSwapIndex, bool IsCompanionSync, bool IsEvolutionEnd) {
         if (!Character) return false;
         
         if (!Utils::IsObjectValid(Character)) {
@@ -557,19 +564,23 @@ namespace DynPals {
         if (ExplicitSwapIndex != -1) {
             finalSwap = ExplicitSwapIndex;
             
-            bool bIsSelectedSwapValid = false;
-            for (const auto& ev : evaluations) {
-                if (ev.ConfigIndex == finalSwap) {
-                    bIsSelectedSwapValid = ev.IsValid;
-                    break;
+            if (!IsEvolutionEnd) {
+                bool bIsSelectedSwapValid = false;
+                for (const auto& ev : evaluations) {
+                    if (ev.ConfigIndex == finalSwap) {
+                        bIsSelectedSwapValid = ev.IsValid;
+                        break;
+                    }
                 }
-            }
-            
-            bManualLockState = !bIsSelectedSwapValid;
-            if (bManualLockState) {
-                DP_LOG(Default, "Explicit swap is invalid for this Pal. Engaging Manual Lock.");
+                
+                bManualLockState = !bIsSelectedSwapValid;
+                if (bManualLockState) {
+                    DP_LOG(Default, "Explicit swap is invalid for this Pal. Engaging Manual Lock.");
+                } else {
+                    DP_LOG(Default, "Explicit swap is valid. Manual Lock disengaged.");
+                }
             } else {
-                DP_LOG(Default, "Explicit swap is valid. Manual Lock disengaged.");
+                bManualLockState = ExistingData ? ExistingData->bIsManuallyLocked : false;
             }
         } 
         else if (ForceReroll) {
@@ -642,27 +653,6 @@ namespace DynPals {
 
                 bool bIsLiveEvolution = bLiveEventTriggered && !bIsNewActor && (finalSwap != currentSwap) && (ExplicitSwapIndex == -1) && !ForceReroll;
 
-                if (bIsLiveEvolution) {
-                    DP_LOG(Normal, "Live Evolution Triggered! Deferring physical swap for visual composition...");
-                    DelayedSwap(Character, finalSwap, L"evolve_1");
-                    return true; 
-                }
-
-                PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ InstanceID, L"", L"", L"", {} };
-                newData.bIsManuallyLocked = bManualLockState; 
-
-                newData.PackName = finalConfig.PackName;
-                newData.SkinName = finalConfig.SkinName;
-                newData.SwapLabel = finalConfig.SwapLabel;
-                newData.SkelMeshPath = finalConfig.SkelMeshPath;
-
-                if (ForceReroll || ExplicitSwapIndex != -1 || finalSwap != currentSwap) {
-                    newData.MorphSet.clear();
-                    newData.MatSet.clear();
-                    newData.MatColorSet.clear(); 
-                }
-
-                // --- ASYNC MULTI-ASSET PRE-CACHING INTERCEPT ---
                 std::vector<std::wstring> assetsToLoad;
 
                 auto CheckDependency = [&](const std::wstring& Path) {
@@ -722,16 +712,21 @@ namespace DynPals {
                     CheckDependency(chosenPath);
                 }
 
+                // Preload VFX assets to avoid hitches
+                if (bIsLiveEvolution) {
+                    auto compAssets = VFXManager::Get().GetCompositionAssets(L"evolve_1");
+                    for (const auto& p : compAssets) CheckDependency(p);
+                } else if (ForceReroll || (ExplicitSwapIndex != -1 && !IsEvolutionEnd)) {
+                    CheckDependency(L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
+                }
+
                 // Trigger Parallel Async Load for all missing assets
                 if (!assetsToLoad.empty()) {
-                    SaveManager::Get().SetPersistData(InstanceID, newData, false);
                     NativeAsyncLoader::RegisterPendingRequests(Character, static_cast<int>(assetsToLoad.size()));
                     
-                    // Call the new C++ Batch Loader in a single, un-throttled, stutter-free call!
-                    if (NativeAsyncLoader::RequestBatchAsyncLoad(assetsToLoad, Character)) {
-                        return true; // Halt swap. Wait for the single completed batch callback
+                    if (NativeAsyncLoader::RequestBatchAsyncLoad(assetsToLoad, Character, ExplicitSwapIndex, ForceReroll, IsCompanionSync, IsEvolutionEnd)) {
+                        return true; 
                     } else {
-                        // Fallback
                         static bool bWarned = false;
                         if (!bWarned) {
                             DP_LOG(Warning, "ModActor .pak not found! Falling back to blocking load.");
@@ -740,6 +735,26 @@ namespace DynPals {
                     }
                 } else if (NativeAsyncLoader::GetPendingCount(Character) > 0) {
                     return true;
+                }
+
+                if (bIsLiveEvolution) {
+                    DP_LOG(Normal, "Live Evolution Triggered! Deferring physical swap for visual composition...");
+                    DelayedSwap(Character, finalSwap, L"evolve_1");
+                    return true; 
+                }
+
+                PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ InstanceID, L"", L"", L"", {} };
+                newData.bIsManuallyLocked = bManualLockState; 
+
+                newData.PackName = finalConfig.PackName;
+                newData.SkinName = finalConfig.SkinName;
+                newData.SwapLabel = finalConfig.SwapLabel;
+                newData.SkelMeshPath = finalConfig.SkelMeshPath;
+
+                if (ForceReroll || ExplicitSwapIndex != -1 || finalSwap != currentSwap) {
+                    newData.MorphSet.clear();
+                    newData.MatSet.clear();
+                    newData.MatColorSet.clear(); 
                 }
 
                 if (!finalConfig.SetNickname.empty()) {
@@ -819,6 +834,8 @@ namespace DynPals {
                 ApplySwap(Character, finalConfig, newData);
 
                 bool bIsManualAction = (ExplicitSwapIndex != -1) || ForceReroll;
+                if (IsEvolutionEnd) bIsManualAction = false; 
+
                 SaveManager::Get().SetPersistData(InstanceID, newData, bIsManualAction);
 
                 SwappedInstances[Character] = finalConfig.SwapLabel;

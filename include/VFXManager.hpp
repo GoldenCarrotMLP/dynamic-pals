@@ -42,7 +42,6 @@ namespace DynPals {
             return instance;
         }
 
-        // Reverted to 0 parameters (calculates paths internally!)
         void Initialize();
         void LoadCompositions(bool bForceReload = false);
         void CycleNext();
@@ -51,11 +50,21 @@ namespace DynPals {
 
         float PlayAnimMontage(RC::Unreal::UObject* Character, RC::Unreal::UObject* MontageAsset, float PlayRate = 1.0f);
         void AddComposerTask(RC::Unreal::UObject* PalActor, const std::vector<VFXTimelineEvent>& Events);
-        // Returns the swapTime so PalProcessor knows how long to wait
         float PlayComposition(RC::Unreal::UObject* PalActor, const std::wstring& CompName);
 
         void PlaySwapEffect(RC::Unreal::UObject* PalActor, const std::wstring& VfxPath, float ZOffset = -1.0f);
         RC::Unreal::UObject* AttachVFXToPal(RC::Unreal::UObject* PalActor, const std::wstring& VfxPath, const std::wstring& SocketName = L"None", float ScaleMult = 1.0f, float ZOffsetMult = 0.0f);
+
+        std::vector<std::wstring> GetCompositionAssets(const std::wstring& CompName) {
+            std::vector<std::wstring> assets;
+            auto it = Compositions.find(CompName);
+            if (it != Compositions.end()) {
+                for (const auto& ev : it->second.Events) {
+                    if (!ev.VfxPath.empty()) assets.push_back(ev.VfxPath);
+                }
+            }
+            return assets;
+        }
 
     private:
         VFXManager() = default;

@@ -370,16 +370,6 @@ namespace DynPals {
         UObject* MeshComp = nullptr;
         Utils::CallFunction(PalActor, STR("GetMainMesh"), &MeshComp);
 
-        if (MeshComp && Utils::IsObjectValid(MeshComp)) {
-            FVector_UE5 CompLoc = {0.0, 0.0, 0.0};
-            struct { FVector_UE5 ReturnValue; } LocParams{CompLoc};
-            Utils::CallFunction(MeshComp, STR("K2_GetComponentLocation"), &LocParams, true);
-
-            if (std::abs(LocParams.ReturnValue.X) < 1.0 && std::abs(LocParams.ReturnValue.Y) < 1.0 && std::abs(LocParams.ReturnValue.Z) < 1.0) {
-                return nullptr;
-            }
-        }
-
         UObject* RootComp = nullptr;
         Utils::GetPropertyValue(PalActor, STR("RootComponent"), RootComp);
 
