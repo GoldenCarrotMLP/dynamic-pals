@@ -204,12 +204,17 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
 
   NativeAsyncLoader::Tick(); // Triggers Watchdog
 
-  // Polling rate increased!
+  // Spaced-out queue processing restored!
   static auto LastSwapTime = std::chrono::steady_clock::now();
+  static int VirtualFrameCount = 0; // Restored variable
   auto Now = std::chrono::steady_clock::now();
   if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
       LastSwapTime = Now;
-      PalProcessor::Get().Tick();
+      VirtualFrameCount++;
+      if (VirtualFrameCount >= 6) { // ADJUST THIS TO CONTROL SPACING (e.g. 16, 30, etc.)
+          VirtualFrameCount = 0;
+          PalProcessor::Get().Tick();
+      }
   }
 
   if (!UIRegistry::Get().RequiresTick()) {
@@ -577,7 +582,7 @@ void HooksManager::RegisterHooks() {
     OpenLevelFunc->RegisterPreHook(OnOpenLevel, nullptr);
   }
 
-  // --- DIAGNOSTIC SET-OWNER HOOK ---
+  // --- NATIVE BLUEPRINT CALLBACK HOOK (Actor:SetOwner) ---
   UFunction* SetOwnerFunc = UObjectGlobals::StaticFindObject<UFunction*>(
       nullptr, nullptr, STR("/Script/Engine.Actor:SetOwner"));
 
@@ -594,13 +599,14 @@ void HooksManager::RegisterHooks() {
                 if (Ptr) Requester = *Ptr;
             }
 
-            DP_LOG(Default, "[Diagnostic] SetOwner Hook Triggered! ModActor: {}, Requester: {}", (void*)Context.Context, (void*)Requester);
-            NativeAsyncLoader::OnAsyncLoadComplete(Context.Context, Requester);
+            if (Requester && Utils::IsObjectValid(Requester)) {
+                // Route the completed callback into our state machine!
+                NativeAsyncLoader::OnAsyncLoadComplete(Context.Context, Requester);
+            }
         }
     }, nullptr);
-    DP_LOG(Default, "Successfully registered diagnostic native callback hook on Actor:SetOwner.");
+    DP_LOG(Default, "Successfully registered native callback hook on Actor:SetOwner.");
   }
-
 }
 
 }  // namespace DynPals

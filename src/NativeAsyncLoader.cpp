@@ -24,8 +24,8 @@ namespace DynPals {
     static std::set<std::wstring> GPendingAssets;
     static std::set<std::wstring> GFailedAssets;
     static std::map<UObject*, int> GPendingCount;
+    static std::map<UObject*, std::vector<std::wstring>> GActivePalBatches;
     
-    // --- THE FIX: C++ FIFO BATCH QUEUE ---
     static std::deque<FBatchRequest> GBatchQueue;
     static FBatchRequest GCurrentBatch;
 
@@ -52,7 +52,6 @@ namespace DynPals {
     void NativeAsyncLoader::DecrementPendingCount(UObject* Requester) { if (GPendingCount[Requester] > 0) GPendingCount[Requester]--; }
 
     static void ProcessNextBatch() {
-        // Strict lock to ensure Blueprint variables never overwrite each other
         if (bIsExecutingBP || GBatchQueue.empty()) return;
 
         bIsExecutingBP = true;
@@ -101,7 +100,6 @@ namespace DynPals {
             }
         }
         
-        // Failsafe: Abandon batch if BP is missing
         bIsExecutingBP = false;
         for (const auto& path : GCurrentBatch.AssetPaths) {
             GPendingAssets.erase(path);
@@ -117,9 +115,7 @@ namespace DynPals {
 
         DP_LOG(Default, "[NativeAsync] Parallel batch completion received for Pal: {}", (void*)Requester);
         
-        // Validate that this completion matches the batch we are actively tracking
         if (GCurrentBatch.Requester == Requester) {
-            
             for (const auto& path : GCurrentBatch.AssetPaths) {
                 GPendingAssets.erase(path);
                 if (!Utils::IsAssetLoaded(path)) {
@@ -131,11 +127,9 @@ namespace DynPals {
             bIsExecutingBP = false;
             GPendingCount[Requester] = 0;
             
-            // Advance the C++ queue to the next Pal BEFORE processing to keep the pipeline hot
             ProcessNextBatch();
             
             PalProcessor::Get().ProcessPal(Requester, false, -1);
-
         } else {
             DP_LOG(Warning, "[NativeAsync] Received orphaned/invalid batch completion for Pal: {}", (void*)Requester);
         }
@@ -145,7 +139,6 @@ namespace DynPals {
         if (!bIsExecutingBP) return;
         auto now = std::chrono::steady_clock::now();
 
-        // 5 second timeout for massive texture paks
         if (std::chrono::duration_cast<std::chrono::milliseconds>(now - GCurrentRequestStartTime).count() > 5000) { 
             DP_LOG(Error, "[NativeAsync] TIMEOUT! Background batch load hung for >5s for Pal: {}", (void*)GCurrentBatch.Requester);
             
@@ -157,10 +150,8 @@ namespace DynPals {
             UObject* stalledRequester = GCurrentBatch.Requester;
             bIsExecutingBP = false;
             
-            // Unclog the pipeline
-            ProcessNextBatch();
+            ProcessNextBatch(); 
 
-            // Resume processing the timed-out Pal
             if (Utils::IsObjectValid(stalledRequester)) {
                 GPendingCount[stalledRequester] = 0;
                 PalProcessor::Get().ProcessPal(stalledRequester, false, -1);
@@ -185,7 +176,6 @@ namespace DynPals {
 
         if (GAssetLoaderActor && Utils::IsObjectValid(GAssetLoaderActor)) {
             
-            // Mark all paths as pending so they don't get requested again
             for (const auto& path : AssetPaths) {
                 GPendingAssets.insert(path);
             }
@@ -197,7 +187,6 @@ namespace DynPals {
             GBatchQueue.push_back(req);
             DP_LOG(Default, "[NativeAsync] Queued batch of {} assets. Queue depth: {}", AssetPaths.size(), GBatchQueue.size());
             
-            // Automatically process if the queue is idle
             if (!bIsExecutingBP) {
                 ProcessNextBatch();
             }
