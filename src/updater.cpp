@@ -111,12 +111,15 @@ namespace DynPals {
         } catch (...) {
             std::wstring raw;
             raw.assign(versionStr.begin(), versionStr.end());
-            std::replace(raw.begin(), raw.end(), L'.', L'-');
+            // Safe range loop replaces std::replace to completely avoid narrow/wide compiler warnings
+            for (wchar_t& c : raw) {
+                if (c == L'.') c = L'-';
+            }
             return L"v" + raw;
         }
     }
 
-    // INDEPENDENT STEP: Local pak synchronization. Checks UE-priority pack, compares hashes, and copies files.
+    // INDEPENDENT STEP: Local pak synchronization.
     static void SyncLocalPakToLogicMods(const std::wstring& dllDir, const std::string& currentVersionStr) {
         std::wstring localStagingPakPath = dllDir + L"DynamicPals.pak";
         if (!fs::exists(localStagingPakPath)) {
@@ -134,60 +137,42 @@ namespace DynPals {
             }
         }
 
-        std::vector<fs::path> existingPaks;
-        for (const auto& entry : fs::directory_iterator(logicModsDir)) {
-            if (entry.is_regular_file()) {
-                std::wstring filename = entry.path().filename().wstring();
-                if (filename.rfind(L"DynamicPals_", 0) == 0 && entry.path().extension() == L".pak") {
-                    existingPaks.push_back(entry.path());
-                }
-            }
+        fs::path expectedPakPath = logicModsDir / L"DynamicPals.pak";
+        fs::path updatePakPath = logicModsDir / L"DynamicPals_update.pak";
+
+        // Clean up any stray update file from a previous failed copy session
+        if (fs::exists(updatePakPath)) {
+            try { fs::remove(updatePakPath); } catch (...) {}
         }
 
-        // Sort descending: The highest alphabetical name will be at index [0]
-        // Since UE mounts in alphabetical order, index [0] is the pak UE will ultimately prioritize.
-        std::sort(existingPaks.begin(), existingPaks.end(), [](const fs::path& a, const fs::path& b) {
-            return a.filename().wstring() > b.filename().wstring();
-        });
-
-        if (!existingPaks.empty()) {
-            fs::path activePak = existingPaks.front();
-            uintmax_t stagingSize = fs::file_size(localStagingPakPath);
-            uintmax_t activeSize = fs::file_size(activePak);
-
-            // Absolute path and byte-size diagnostic trace
-            DP_LOG(Default, "Auto-Updater: Comparing local staging pak [Path: {}, Size: {} bytes] with highest priority active LogicMod pak [Path: {}, Size: {} bytes]...", 
-                localStagingPakPath, stagingSize, activePak.wstring(), activeSize);
-
-            if (AreFilesEqual(localStagingPakPath, activePak)) {
-                DP_LOG(Default, "Auto-Updater: The active asset pack ({}) matches the staged files. Skip copy.", activePak.filename().wstring());
-                return; // The highest priority pak is already perfectly synced!
+        // Check if the file is already perfectly synced to prevent unnecessary disk writes
+        if (fs::exists(expectedPakPath)) {
+            if (AreFilesEqual(localStagingPakPath, expectedPakPath)) {
+                DP_LOG(Default, "Auto-Updater: The active asset pack (DynamicPals.pak) matches the staged files. Skip copy.");
+                return; 
             }
         }
-
-        // Zero-pad the version for standard alphabetical overriding (e.g., DynamicPals_V0106.pak)
-        int versionNum = 0;
-        try { versionNum = std::stoi(currentVersionStr); } catch (...) {}
-        wchar_t pakNameBuf[64];
-        swprintf(pakNameBuf, 64, L"DynamicPals_V%04d.pak", versionNum);
-        
-        std::wstring expectedFilename = pakNameBuf;
-        fs::path expectedPakPath = logicModsDir / expectedFilename;
 
         try {
+            // Attempt to directly overwrite DynamicPals.pak
             fs::copy_file(localStagingPakPath, expectedPakPath, fs::copy_options::overwrite_existing);
-            DP_LOG(Normal, "Auto-Updater: Successfully synced asset pack to LogicMods: {}", expectedFilename);
+            DP_LOG(Normal, "Auto-Updater: Successfully synced asset pack to LogicMods: DynamicPals.pak");
+        } catch (const std::exception&) { // Removed unused 'e' variable to fix C4101
+            // The copy failed, which means the game has locked the active DynamicPals.pak.
+            DP_LOG(Warning, "Auto-Updater: DynamicPals.pak is locked. Saving to DynamicPals_update.pak...");
             
-            // Validate if an older, alphabetically HIGHER string is hijacking the mount priority (e.g. V999 manually made)
-            if (!existingPaks.empty()) {
-                if (existingPaks[0].filename().wstring() > expectedFilename) {
-                    DP_LOG(Error, "Auto-Updater: CRITICAL WARNING! An older or invalid pak ({}) is alphabetically higher than the new one and is overriding it. You MUST delete it!", existingPaks[0].filename().wstring());
-                } else {
-                    DP_LOG(Warning, "Auto-Updater: Old asset packs found in LogicMods! Please delete older DynamicPals_V*.pak files to prevent conflicts.");
-                }
+            try {
+                fs::copy_file(localStagingPakPath, updatePakPath, fs::copy_options::overwrite_existing);
+                DP_LOG(Error, "=========================================================");
+                DP_LOG(Error, "UPDATE PENDING: DynamicPals.pak is locked by the game.");
+                DP_LOG(Error, "1. Close Palworld.");
+                DP_LOG(Error, "2. Navigate to: Pal\\Content\\Paks\\LogicMods\\");
+                DP_LOG(Error, "3. Delete 'DynamicPals.pak'.");
+                DP_LOG(Error, "4. Rename 'DynamicPals_update.pak' to 'DynamicPals.pak'.");
+                DP_LOG(Error, "=========================================================");
+            } catch (const std::exception& e2) {
+                DP_LOG(Error, "Auto-Updater: Failed to copy staged asset pack to LogicMods entirely: {}", Utils::StringToWString(e2.what()));
             }
-        } catch (const std::exception& e) {
-            DP_LOG(Error, "Auto-Updater: Failed to copy staged asset pack to LogicMods: {}", Utils::StringToWString(e.what()));
         }
     }
 
@@ -296,7 +281,7 @@ namespace DynPals {
                                         }
 
                                         DP_LOG(Default, "=========================================================");
-                                        DP_LOG(Normal, "DynPals has been auto-updated to version: {} \nPlease restart Palworld to apply the new update", (FormatVersionWithHyphens(remoteVersion)));
+                                        DP_LOG(Normal, "DynPals has been auto-updated to version: {} \nPlease restart Palworld to apply the new update", Utils::StringToWString(remoteVersion));
                                         DP_LOG(Default, "=========================================================");
                                     } else {
                                         MoveFileExW(oldDllPath.c_str(), currentDllPath.c_str(), MOVEFILE_REPLACE_EXISTING);
