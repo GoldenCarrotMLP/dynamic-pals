@@ -352,6 +352,7 @@ namespace DynPals {
         }
     }
 
+    // --- START OF FILE src/PalProcessor.cpp --- (The Tick Update Only)
     void PalProcessor::Tick() {
         UObject* KSL = Utils::GetKismetSystemLibrary();
         static UFunction* IsValidFunc = Utils::GetKismetFunction(STR("IsValid"));
@@ -369,7 +370,15 @@ namespace DynPals {
         UObject* TargetChar = req.Character;
 
         if (Utils::IsObjectTracked(TargetChar) && Utils::IsObjectValid(TargetChar)) {
+            // ---> THE DIRECT CONTEXT HOOK <---
+            // Tell memory scanner which active Pal we are processing
+            NativeAsyncLoader::SetActiveRequester(TargetChar);
+
             ExecuteSwap(TargetChar, req.ForceReroll, req.ExplicitSwapIndex, req.IsCompanionSync);
+
+            // Clean up and flush ONLY this specific Pal's temporary pointers
+            NativeAsyncLoader::ClearTemporaryPointers(TargetChar);
+            NativeAsyncLoader::SetActiveRequester(nullptr);
         }
 
         static int pruneCounter = 0;

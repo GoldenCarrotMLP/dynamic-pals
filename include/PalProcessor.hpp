@@ -1,3 +1,4 @@
+// --- START OF FILE include/PalProcessor.hpp ---
 #pragma once
 #include <string>
 #include <vector>
@@ -19,7 +20,6 @@ namespace DynPals {
     };
 
     struct QueuedPal {
-
         RC::Unreal::UObject* Character;
         bool ForceReroll;
         int State; 
@@ -68,7 +68,6 @@ namespace DynPals {
         std::map<std::wstring, std::set<RC::Unreal::UObject*>> ActivePalsByInstanceID;
         std::map<std::wstring, PalRuntimeStats> RuntimeStatsCache;
 
-
         std::set<RC::Unreal::UObject*> ProcessedPals; 
         std::vector<QueuedPal> ProcessingQueue; 
         std::chrono::steady_clock::time_point LastScanTime = std::chrono::steady_clock::now();
@@ -77,3 +76,4 @@ namespace DynPals {
         std::mutex QueueMutex;
     };
 }
+// --- END OF FILE include/PalProcessor.hpp ---

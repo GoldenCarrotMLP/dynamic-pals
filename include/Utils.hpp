@@ -15,6 +15,7 @@
 #include <string_view>
 #include <vector>
 #include <map>
+#include <set>
 #include <fstream>
 #include <shared_mutex>
 #include <chrono> 
@@ -66,6 +67,10 @@ namespace DynPals::Utils {
         inline std::shared_mutex KismetFuncMutex;
         inline std::map<std::wstring, std::vector<std::wstring>> FolderCache;
         inline std::shared_mutex FolderMutex;
+        
+        // --- NEW: Tracks automatically discovered asset folders ---
+        inline std::set<std::wstring> ScannedFolders;
+        inline std::shared_mutex ScannedFoldersMutex;
 
         inline UObject* CachedKSL = nullptr;
         inline UFunction* CachedIsValidFunc = nullptr;
@@ -78,9 +83,11 @@ namespace DynPals::Utils {
             std::unique_lock<std::shared_mutex> lock6(ClassMutex);
             std::unique_lock<std::shared_mutex> lock7(KismetFuncMutex);
             std::unique_lock<std::shared_mutex> lock8(FolderMutex);
+            std::unique_lock<std::shared_mutex> lock9(ScannedFoldersMutex);
 
             PropCache.clear(); FuncCache.clear(); LibraryCache.clear();
             LibFuncCache.clear(); ClassCache.clear(); KismetFuncCache.clear(); FolderCache.clear();
+            ScannedFolders.clear();
             CachedKSL = nullptr; CachedIsValidFunc = nullptr;
         }
     }
@@ -307,14 +314,72 @@ namespace DynPals::Utils {
     inline UObject* GetKSL() { return GetLibrary(STR("/Script/Engine.Default__KismetSystemLibrary")); }
     inline UFunction* GetKSLFunction(const wchar_t* FunctionName) { return GetLibraryFunction(STR("/Script/Engine.Default__KismetSystemLibrary"), FunctionName); }
 
-    // Core O(1) Fetch Function - Bypasses slow disk queries and string evaluations
+
+    // ==========================================
+    // ZERO-STUTTER ASSET MEMORY CHECKS
+    // ==========================================
+
+    // --- THE FIX: JIT FOLDER REGISTRATION ---
+    // This forces the Engine to discover exact-path materials hidden inside unmounted Mod .pak files!
+    inline void RegisterAssetFolder(const std::wstring& AssetPath) {
+        if (AssetPath.empty()) return;
+        size_t lastSlash = AssetPath.find_last_of(L'/');
+        if (lastSlash == std::wstring::npos) return;
+        std::wstring FolderPath = AssetPath.substr(0, lastSlash);
+
+        {
+            std::shared_lock<std::shared_mutex> read_lock(Caches::ScannedFoldersMutex);
+            if (Caches::ScannedFolders.count(FolderPath)) return; // Already scanned
+        }
+
+        UObject* ARH = GetLibrary(STR("/Script/AssetRegistry.Default__AssetRegistryHelpers"));
+        if (!ARH) return;
+
+        struct { UObject* ReturnValue; } GetARParams{nullptr};
+        CallFunction(ARH, STR("GetAssetRegistry"), &GetARParams);
+        UObject* AssetRegistry = GetARParams.ReturnValue;
+        if (!AssetRegistry) return;
+
+        UFunction* ScanFunc = AssetRegistry->GetFunctionByNameInChain(STR("ScanPathsSynchronous"));
+        if (ScanFunc) {
+            alignas(8) uint8_t ScanBuffer[512] = {0}; 
+            FString Src(FolderPath.c_str()); 
+            TArray<FString> LocalPaths;
+            LocalPaths.Add(Src); 
+            
+            FArrayProperty* InPathsProp = CastField<FArrayProperty>(ScanFunc->GetPropertyByNameInChain(STR("InPaths")));
+            if (InPathsProp) {
+                void* Dest = InPathsProp->ContainerPtrToValuePtr<void>(ScanBuffer);
+                if (Dest) memcpy(Dest, &LocalPaths, sizeof(TArray<FString>));
+            }
+            
+            FBoolProperty* ForceRescanProp = CastField<FBoolProperty>(ScanFunc->GetPropertyByNameInChain(STR("bForceRescan")));
+            if (ForceRescanProp) ForceRescanProp->SetPropertyValue(ForceRescanProp->ContainerPtrToValuePtr<void>(ScanBuffer), true);
+            
+            DP_LOG(Default, "[Asset Scanner] Forcing synchronous rescan of folder to discover exact path asset: '{}'", FolderPath);
+            SafeProcessEvent(AssetRegistry, ScanFunc, ScanBuffer);
+        }
+
+        std::unique_lock<std::shared_mutex> write_lock(Caches::ScannedFoldersMutex);
+        Caches::ScannedFolders.insert(FolderPath);
+    }
+
+    // Core O(1) Fetch Function
     inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBlocking = true) {
         if (AssetPath.empty()) return nullptr;
-        std::wstring formatted = FormatAssetPath(AssetPath); 
+
+        // 1. --- THE INSTANT PATH: CHECK DIRECT POINTER CACHE ---
+        // If the Async Loader just handled this, it has the pointer. This takes 0.000ms.
+        UObject* DirectPtr = NativeAsyncLoader::GetLoadedPointer(AssetPath);
+        if (DirectPtr) {
+            return DirectPtr;
+        }
+
+        // Resolve lowercase path to its Engine-capitialized memory path instantly
+        std::wstring resolvedPath = NativeAsyncLoader::ResolveCasing(AssetPath);
+        std::wstring formatted = FormatAssetPath(resolvedPath); 
         
-        // 1. --- FASTEST PATH: Exact Path RAM Search (0.001 ms) ---
-        // ---> THE ULTIMATE OPTIMIZATION: Bypassed ANY_PACKAGE for fully qualified paths <---
-        // This triggers Unreal's O(1) direct hash tables instead of doing a 35ms linear sweep!
+        // 2. --- FAST PATH: Exact Path RAM Search (0.001 ms) ---
         UObject* ExistingObj = nullptr;
         if (formatted.rfind(L"/", 0) == 0) {
             ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, formatted.c_str());
@@ -337,8 +402,9 @@ namespace DynPals::Utils {
         }
 
         // 2. --- SLOW PATH: Blocking Disk Load ---
-        // (Only executes if the file legitimately hasn't been loaded via Async yet)
         if (!bAllowBlocking) return nullptr;
+
+        DP_LOG(Warning, "[Utils] Executing SLOW BLOCKING LOAD for '{}' (This causes a game hitch!)", AssetPath);
 
         std::wstring package, asset;
         size_t dot = formatted.find(L'.');
@@ -406,16 +472,13 @@ namespace DynPals::Utils {
         return LoadAssetInternal(AssetPath, true);
     }
 
-    // Handles fallback logic strictly without hitting disk checks first
     inline UObject* LoadSkeletalMeshSafely(const std::wstring& AssetPath) {
-        // Fast path: Check exact path in memory (0.001 ms)
         UObject* Loaded = LoadAssetInternal(AssetPath, false);
         if (Loaded) return Loaded;
 
         std::wstring fallbackSK;
         std::wstring fallbacksk;
 
-        // Fast path: Check fallback paths in memory
         if (AssetPath.find(L"/Mods/") != std::wstring::npos) {
             size_t lastSlash = AssetPath.find_last_of(L'/');
             if (lastSlash != std::wstring::npos) {
@@ -434,11 +497,9 @@ namespace DynPals::Utils {
             }
         }
 
-        // Slow path: Blocking load on exact path
         Loaded = LoadAssetInternal(AssetPath, true);
         if (Loaded) return Loaded;
 
-        // Slow path: Blocking load on fallbacks
         if (!fallbackSK.empty()) {
             Loaded = LoadAssetInternal(fallbackSK, true);
             if (Loaded) return Loaded;
@@ -453,7 +514,7 @@ namespace DynPals::Utils {
     inline std::vector<std::wstring> GetAssetsInVirtualFolder(const std::wstring& FolderPath) {
         {
             std::shared_lock<std::shared_mutex> read_lock(Caches::FolderMutex);
-            if (Caches::FolderCache.find(FolderPath) != Caches::FolderCache.end()) return Caches::FolderCache[FolderPath];
+            if (Caches::FolderCache.count(FolderPath)) return Caches::FolderCache[FolderPath];
         }
 
         std::vector<std::wstring> Results;
@@ -466,17 +527,11 @@ namespace DynPals::Utils {
         struct { UObject* ReturnValue; } GetARParams{nullptr};
         CallFunction(ARH, STR("GetAssetRegistry"), &GetARParams);
         UObject* AssetRegistry = GetARParams.ReturnValue;
-        if (!AssetRegistry) {
-            DP_LOG(Error, "[Asset Scanner] Failed: AssetRegistry instance not found.");
-            return Results;
-        }
-
-        DP_LOG(Default, "[Asset Scanner] Initializing search for folder: '{}'", FolderPath);
+        if (!AssetRegistry) return Results;
 
         UFunction* ScanFunc = AssetRegistry->GetFunctionByNameInChain(STR("ScanPathsSynchronous"));
         if (ScanFunc) {
             alignas(8) uint8_t ScanBuffer[512] = {0}; 
-            
             FString Src(FolderPath.c_str()); 
             TArray<FString> LocalPaths;
             LocalPaths.Add(Src); 
@@ -490,20 +545,13 @@ namespace DynPals::Utils {
             FBoolProperty* ForceRescanProp = CastField<FBoolProperty>(ScanFunc->GetPropertyByNameInChain(STR("bForceRescan")));
             if (ForceRescanProp) ForceRescanProp->SetPropertyValue(ForceRescanProp->ContainerPtrToValuePtr<void>(ScanBuffer), true);
             
-            DP_LOG(Default, "[Asset Scanner] Forcing synchronous rescan of folder to register modded .pak assets...");
             SafeProcessEvent(AssetRegistry, ScanFunc, ScanBuffer);
-        } else {
-            DP_LOG(Warning, "[Asset Scanner] ScanPathsSynchronous function missing. Unregistered .pak assets may not be found.");
         }
 
         UFunction* GetAssetsFunc = AssetRegistry->GetFunctionByNameInChain(STR("GetAssetsByPath"));
-        if (!GetAssetsFunc) {
-            DP_LOG(Error, "[Asset Scanner] Failed: GetAssetsByPath function not found.");
-            return Results;
-        }
+        if (!GetAssetsFunc) return Results;
 
         alignas(8) uint8_t ParamsBuffer[512] = {0}; 
-
         FProperty* PackagePathProp = GetAssetsFunc->GetPropertyByNameInChain(STR("PackagePath"));
         if (PackagePathProp) {
             FName* Dest = static_cast<FName*>(PackagePathProp->ContainerPtrToValuePtr<void>(ParamsBuffer));
@@ -525,8 +573,6 @@ namespace DynPals::Utils {
 
             if (ScriptArray && InnerProp) {
                 int32_t NumAssets = ScriptArray->Num();
-                DP_LOG(Default, "[Asset Scanner] Search complete. Discovered {} total assets in folder.", NumAssets);
-
                 int32_t ElementSize = InnerProp->GetSize();
                 uint8_t* ArrayData = static_cast<uint8_t*>(ScriptArray->GetData());
 
@@ -556,9 +602,6 @@ namespace DynPals::Utils {
 
                                     if (ClassName.find(L"Material") != std::wstring::npos) {
                                         Results.push_back(Path);
-                                        DP_LOG(Default, "  -> [Accepted Material] Class: '{}', Path: '{}'", ClassName, Path);
-                                    } else {
-                                        DP_LOG(Default, "  -> [Rejected Asset] Class: '{}', Path: '{}'", ClassName, Path);
                                     }
                                 } else {
                                     Results.push_back(FullName);
@@ -567,14 +610,18 @@ namespace DynPals::Utils {
                         }
                     }
                 }
-            } else {
-                DP_LOG(Warning, "[Asset Scanner] Warning: Output array was structurally invalid.");
-            }
+            } 
         }
 
         std::unique_lock<std::shared_mutex> write_lock(Caches::FolderMutex);
-        Caches::FolderCache[FolderPath] = Results;
-        return Results;
+        
+        // --- ADD TO SCANNED FOLDERS CACHE AUTOMATICALLY ---
+        {
+            std::unique_lock<std::shared_mutex> scan_lock(Caches::ScannedFoldersMutex);
+            Caches::ScannedFolders.insert(FolderPath);
+        }
+        
+        return Caches::FolderCache[FolderPath] = Results;
     }
 
 }

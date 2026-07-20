@@ -8,6 +8,7 @@
 #include <map>
 #include <deque>
 #include <chrono>
+#include <algorithm>
 
 using namespace RC::Unreal;
 
@@ -26,6 +27,12 @@ namespace DynPals {
     static std::map<UObject*, int> GPendingCount;
     static std::map<UObject*, std::vector<std::wstring>> GActivePalBatches;
     
+    static std::map<std::wstring, std::wstring> GCorrectCasingCache;
+
+    // --- THE FIX: CONTEXT-SEGREGATED POINTER CACHE ---
+    static std::map<UObject*, std::map<std::wstring, UObject*>> GResolvedPointers;
+    static UObject* GActiveRequester = nullptr;
+
     static std::deque<FBatchRequest> GBatchQueue;
     static FBatchRequest GCurrentBatch;
 
@@ -36,11 +43,14 @@ namespace DynPals {
         GPendingAssets.clear();
         GFailedAssets.clear();
         GPendingCount.clear();
+        GActivePalBatches.clear();
         GBatchQueue.clear();
+        GCorrectCasingCache.clear(); 
+        GResolvedPointers.clear();
         GCurrentBatch = {};
         bIsExecutingBP = false;
-        
         GAssetLoaderActor = nullptr; 
+        GActiveRequester = nullptr;
     }
 
     bool NativeAsyncLoader::IsPending(const std::wstring& AssetPath) { return GPendingAssets.find(AssetPath) != GPendingAssets.end(); }
@@ -50,6 +60,35 @@ namespace DynPals {
     int NativeAsyncLoader::GetPendingCount(UObject* Requester) { return GPendingCount.count(Requester) ? GPendingCount[Requester] : 0; }
     void NativeAsyncLoader::RegisterPendingRequests(UObject* Requester, int Count) { GPendingCount[Requester] += Count; }
     void NativeAsyncLoader::DecrementPendingCount(UObject* Requester) { if (GPendingCount[Requester] > 0) GPendingCount[Requester]--; }
+
+    std::wstring NativeAsyncLoader::ResolveCasing(const std::wstring& Path) {
+        auto it = GCorrectCasingCache.find(Path);
+        return it != GCorrectCasingCache.end() ? it->second : Path;
+    }
+
+    void NativeAsyncLoader::SetActiveRequester(UObject* Requester) {
+        GActiveRequester = Requester;
+    }
+
+    UObject* NativeAsyncLoader::GetLoadedPointer(const std::wstring& Path) {
+        if (!GActiveRequester || !Utils::IsObjectValid(GActiveRequester)) return nullptr;
+        
+        auto it = GResolvedPointers.find(GActiveRequester);
+        if (it != GResolvedPointers.end()) {
+            auto& palMap = it->second;
+            auto assetIt = palMap.find(Path);
+            if (assetIt != palMap.end() && Utils::IsObjectValid(assetIt->second)) {
+                return assetIt->second;
+            }
+        }
+        return nullptr;
+    }
+
+    void NativeAsyncLoader::ClearTemporaryPointers(UObject* Requester) {
+        if (Requester) {
+            GResolvedPointers.erase(Requester); // Erase only this specific Pal's cache
+        }
+    }
 
     static void ProcessNextBatch() {
         if (bIsExecutingBP || GBatchQueue.empty()) return;
@@ -116,11 +155,57 @@ namespace DynPals {
         DP_LOG(Default, "[NativeAsync] Parallel batch completion received for Pal: {}", (void*)Requester);
         
         if (GCurrentBatch.Requester == Requester) {
+
+            // --- THE DIRECT POINTER EXTRACTOR ---
+            TArray<UObject*> LoadedAssets;
+            bool bReadSuccess = Utils::GetPropertyValue<TArray<UObject*>>(ModActor, STR("LoadedAssetsTemp"), LoadedAssets);
+            
+            if (bReadSuccess) {
+                UObject* KSL = Utils::GetKTL();
+                UFunction* GetPathFunc = KSL ? KSL->GetFunctionByNameInChain(STR("GetPathName")) : nullptr;
+
+                for (int32_t i = 0; i < LoadedAssets.Num(); ++i) {
+                    UObject* Asset = LoadedAssets[i];
+                    if (Asset && Utils::IsObjectValid(Asset)) {
+                        
+                        std::wstring leafName = Asset->GetName();
+                        std::wstring lowerLeafName = leafName;
+                        std::transform(lowerLeafName.begin(), lowerLeafName.end(), lowerLeafName.begin(), ::towlower);
+
+                        std::wstring correctPath = L"";
+                        if (GetPathFunc) {
+                            struct { UObject* Obj; FString RetVal; } Params{ Asset, FString() };
+                            KSL->ProcessEvent(GetPathFunc, &Params);
+                            correctPath = Utils::FStringToWString(Params.RetVal);
+                        }
+
+                        // Map the raw pointer back to its requested C++ path string
+                        for (const auto& reqPath : GCurrentBatch.AssetPaths) {
+                            std::wstring formattedReq = Utils::FormatAssetPath(reqPath);
+                            std::wstring lowerReq = formattedReq;
+                            std::transform(lowerReq.begin(), lowerReq.end(), lowerReq.begin(), ::towlower);
+
+                            if (lowerReq.find(lowerLeafName) != std::wstring::npos) {
+                                GResolvedPointers[Requester][reqPath] = Asset; // Store under this specific Pal
+                                if (!correctPath.empty()) {
+                                    GCorrectCasingCache[reqPath] = correctPath;
+                                }
+                                GPendingAssets.erase(reqPath); 
+                                DP_LOG(Default, "[NativeAsync] Verified and registered pointer: '{}' (Matched: '{}')", reqPath, leafName);
+                            }
+                        }
+                    }
+                }
+            } else {
+                DP_LOG(Error, "[NativeAsync] CRITICAL: Failed to read 'LoadedAssetsTemp' from ModActor_C! Please ensure it is a Class Variable.");
+            }
+
+            // Cleanup any assets that genuinely failed to load (e.g. invalid file paths)
             for (const auto& path : GCurrentBatch.AssetPaths) {
-                GPendingAssets.erase(path);
-                if (!Utils::IsAssetLoaded(path)) {
-                    DP_LOG(Warning, "[NativeAsync] Batch load completed but asset failed RAM verification: '{}'", path);
+                if (GPendingAssets.count(path)) {
+                    GPendingAssets.erase(path);
                     GFailedAssets.insert(path);
+                    DP_LOG(Warning, "[NativeAsync] Batch load completed but asset failed RAM verification: '{}'", path);
                 }
             }
 
