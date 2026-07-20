@@ -54,7 +54,31 @@ function Get-ModStatus {
 }
 
 function Install-DynamicPals($PalworldPath, $Win64Dir, $ModDir, $RemoteVersion) {
-    Write-Host "`nDownloading Dynamic Pals v$RemoteVersion..." -ForegroundColor Cyan
+    # -------------------------------------------------------------
+    # 1. Download and Extract the Base Release ZIP
+    # -------------------------------------------------------------
+    Write-Host "`nDownloading Dynamic Pals Base Package (Folders & Assets)..." -ForegroundColor Cyan
+    
+    $BaseZipUrl = "https://github.com/GoldenCarrotMLP/dynamic-pals/releases/latest/download/DynamicPals_AutoUpdate.zip"
+    $ZipTempPath = Join-Path $env:TEMP "DynamicPals_Base.zip"
+    $ModsDir = Join-Path $Win64Dir "ue4ss\Mods"
+    
+    New-Item -ItemType Directory -Force -Path $ModsDir | Out-Null
+
+    try {
+        Invoke-WebRequest -Uri $BaseZipUrl -OutFile $ZipTempPath -UseBasicParsing
+        Write-Host "Extracting Base Package..." -ForegroundColor Cyan
+        Expand-Archive -Path $ZipTempPath -DestinationPath $ModsDir -Force
+        Remove-Item $ZipTempPath -Force
+    } catch {
+        Write-Host "Warning: Could not download the base ZIP from GitHub Releases. Proceeding with bleeding-edge files only..." -ForegroundColor Yellow
+    }
+
+    # -------------------------------------------------------------
+    # 2. Download and Apply Bleeding-Edge Main/Raw Files
+    # -------------------------------------------------------------
+    Write-Host "Fetching Latest Bleeding-Edge DLL and PAK (v$RemoteVersion)..." -ForegroundColor Cyan
+    
     $DllDir = Join-Path $ModDir "dlls"
     $LogicModsDir = Join-Path $PalworldPath "Pal\Content\Paks\LogicMods"
     
