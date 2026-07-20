@@ -62,7 +62,7 @@ function Install-DynamicPals($PalworldPath, $Win64Dir, $ModDir, $RemoteVersion) 
     New-Item -ItemType Directory -Force -Path $LogicModsDir | Out-Null
 
     $DllUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/main/dlls/main.dll"
-    $PakUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/refs/heads/main/dlls/DynamicPals.pak"
+    $PakUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/main/dlls/DynamicPals.pak"
 
     $DllPath = Join-Path $DllDir "main.dll"
     $PakTemp = Join-Path $env:TEMP "DynamicPals.pak"
