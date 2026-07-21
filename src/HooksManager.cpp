@@ -569,6 +569,8 @@ void HooksManager::RegisterHooks() {
   if (SetOwnerFunc) {
     SetOwnerFunc->RegisterPreHook([](UnrealScriptFunctionCallableContext& Context, void*) {
         if (Context.Context && Context.Context->GetClassPrivate()->GetName() == L"ModActor_C") {
+
+             if (!Context.Context->GetClassPrivate()->GetPropertyByNameInChain(STR("LoadedAssetsTemp"))) return;
             UFunction* Func = Context.TheStack.Node();
             if (!Func) return;
 

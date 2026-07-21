@@ -101,8 +101,16 @@ namespace DynPals {
         GCurrentRequestStartTime = std::chrono::steady_clock::now();
 
         if (!GAssetLoaderActor || !Utils::IsObjectValid(GAssetLoaderActor)) {
-            GAssetLoaderActor = UObjectGlobals::FindFirstOf(STR("ModActor_C"));
+    std::vector<UObject*> modActors;
+    UObjectGlobals::FindAllOf(STR("ModActor_C"), modActors);
+    for (UObject* actor : modActors) {
+        // Ensure we grab OUR ModActor_C, not another mod's!
+        if (LoaderClass && actor->GetClassPrivate() == LoaderClass) {
+            GAssetLoaderActor = actor;
+            break;
         }
+    }
+}
 
         if (GAssetLoaderActor && Utils::IsObjectValid(GAssetLoaderActor)) {
             UFunction* Func = GAssetLoaderActor->GetFunctionByNameInChain(STR("RequestBatchAsyncLoad"));
@@ -151,72 +159,103 @@ namespace DynPals {
     }
 
     void NativeAsyncLoader::OnAsyncLoadComplete(UObject* ModActor, UObject* Requester) {
-        if (!ModActor || !Requester) return;
+    if (!ModActor || !Requester) return;
 
-        DP_LOG(Default, "[NativeAsync] Parallel batch completion received for Pal: {}", (void*)Requester);
-        
-        if (GCurrentBatch.Requester == Requester) {
+    DP_LOG(Default, "[NativeAsync] Parallel batch completion received for Pal: {}", (void*)Requester);
+    
+    // 1. Keep your original requester validation gate
+    if (GCurrentBatch.Requester == Requester) {
 
-            TArray<UObject*> LoadedAssets;
-            bool bReadSuccess = Utils::GetPropertyValue<TArray<UObject*>>(ModActor, STR("LoadedAssetsTemp"), LoadedAssets);
-            
-            if (bReadSuccess) {
-                UObject* KSL = Utils::GetKTL();
-                UFunction* GetPathFunc = KSL ? KSL->GetFunctionByNameInChain(STR("GetPathName")) : nullptr;
+        TArray<UObject*> LoadedAssets;
+        bool bReadSuccess = false;
 
-                for (int32_t i = 0; i < LoadedAssets.Num(); ++i) {
-                    UObject* Asset = LoadedAssets[i];
-                    if (Asset && Utils::IsObjectValid(Asset)) {
-                        
-                        std::wstring leafName = Asset->GetName();
-                        std::wstring lowerLeafName = leafName;
-                        std::transform(lowerLeafName.begin(), lowerLeafName.end(), lowerLeafName.begin(), ::towlower);
+        // 2. Invoke the Blueprint function to retrieve this specific Pal's assets
+        UFunction* GetFunc = ModActor->GetFunctionByNameInChain(STR("GetAndRemoveLoadedAssets"));
+        if (GetFunc) {
+            alignas(8) uint8_t BPParams[256] = {0};
 
-                        std::wstring correctPath = L"";
-                        if (GetPathFunc) {
-                            struct { UObject* Obj; FString RetVal; } Params{ Asset, FString() };
-                            KSL->ProcessEvent(GetPathFunc, &Params);
-                            correctPath = Utils::FStringToWString(Params.RetVal);
-                        }
+            // Pass the Requester as the input key
+            FProperty* ReqProp = GetFunc->GetPropertyByNameInChain(STR("Requester"));
+            if (ReqProp) {
+                UObject** Ptr = ReqProp->ContainerPtrToValuePtr<UObject*>(BPParams);
+                if (Ptr) *Ptr = Requester;
+            }
 
-                        for (const auto& reqPath : GCurrentBatch.AssetPaths) {
-                            std::wstring formattedReq = Utils::FormatAssetPath(reqPath);
-                            std::wstring lowerReq = formattedReq;
-                            std::transform(lowerReq.begin(), lowerReq.end(), lowerReq.begin(), ::towlower);
+            Utils::SafeProcessEvent(ModActor, GetFunc, BPParams);
 
-                            if (lowerReq.find(lowerLeafName) != std::wstring::npos) {
-                                GResolvedPointers[Requester][reqPath] = Asset; 
-                                if (!correctPath.empty()) {
-                                    GCorrectCasingCache[reqPath] = correctPath;
-                                }
-                                GPendingAssets.erase(reqPath); 
-                                DP_LOG(Default, "[NativeAsync] Verified and registered pointer: '{}' (Matched: '{}')", reqPath, leafName);
+            // Read the output array
+            FProperty* OutProp = GetFunc->GetPropertyByNameInChain(STR("OutAssets"));
+            if (OutProp) {
+                TArray<UObject*>* Ptr = OutProp->ContainerPtrToValuePtr<TArray<UObject*>>(BPParams);
+                if (Ptr) {
+                    LoadedAssets = *Ptr;
+                    bReadSuccess = true;
+                    
+                    // Manually destruct the temporary TArray in raw memory to prevent a leak
+                    Ptr->~TArray<UObject*>(); 
+                }
+            }
+        }
+
+        if (bReadSuccess) {
+            UObject* KSL = Utils::GetKTL();
+            UFunction* GetPathFunc = KSL ? KSL->GetFunctionByNameInChain(STR("GetPathName")) : nullptr;
+
+            // 3. Preserve your original exact verification and capitalization cache loop
+            for (int32_t i = 0; i < LoadedAssets.Num(); ++i) {
+                UObject* Asset = LoadedAssets[i];
+                if (Asset && Utils::IsObjectValid(Asset)) {
+                    
+                    std::wstring leafName = Asset->GetName();
+                    std::wstring lowerLeafName = leafName;
+                    std::transform(lowerLeafName.begin(), lowerLeafName.end(), lowerLeafName.begin(), ::towlower);
+
+                    std::wstring correctPath = L"";
+                    if (GetPathFunc) {
+                        struct { UObject* Obj; FString RetVal; } Params{ Asset, FString() };
+                        KSL->ProcessEvent(GetPathFunc, &Params);
+                        correctPath = Utils::FStringToWString(Params.RetVal);
+                    }
+
+                    for (const auto& reqPath : GCurrentBatch.AssetPaths) {
+                        std::wstring formattedReq = Utils::FormatAssetPath(reqPath);
+                        std::wstring lowerReq = formattedReq;
+                        std::transform(lowerReq.begin(), lowerReq.end(), lowerReq.begin(), ::towlower);
+
+                        if (lowerReq.find(lowerLeafName) != std::wstring::npos) {
+                            GResolvedPointers[Requester][reqPath] = Asset; 
+                            if (!correctPath.empty()) {
+                                GCorrectCasingCache[reqPath] = correctPath;
                             }
+                            GPendingAssets.erase(reqPath); 
+                            DP_LOG(Default, "[NativeAsync] Verified and registered pointer: '{}' (Matched: '{}')", reqPath, leafName);
                         }
                     }
                 }
-            } else {
-                DP_LOG(Error, "[NativeAsync] CRITICAL: Failed to read 'LoadedAssetsTemp' from ModActor_C! Please ensure it is a Class Variable.");
             }
-
-            for (const auto& path : GCurrentBatch.AssetPaths) {
-                if (GPendingAssets.count(path)) {
-                    GPendingAssets.erase(path);
-                    GFailedAssets.insert(path);
-                    DP_LOG(Warning, "[NativeAsync] Batch load completed but asset failed RAM verification: '{}'", path);
-                }
-            }
-
-            bIsExecutingBP = false;
-            GPendingCount[Requester] = 0;
-            
-            ProcessNextBatch();
-            
-            PalProcessor::Get().ProcessPal(Requester, GCurrentBatch.ForceReroll, GCurrentBatch.ExplicitSwapIndex, GCurrentBatch.IsCompanionSync, GCurrentBatch.IsEvolutionEnd);
         } else {
-            DP_LOG(Warning, "[NativeAsync] Received orphaned/invalid batch completion for Pal: {}", (void*)Requester);
+            DP_LOG(Error, "[NativeAsync] CRITICAL: Failed to execute 'GetAndRemoveLoadedAssets' on ModActor_C! Please ensure the Blueprint function is implemented.");
         }
+
+        // 4. Preserve your original fallback loop for failed assets
+        for (const auto& path : GCurrentBatch.AssetPaths) {
+            if (GPendingAssets.count(path)) {
+                GPendingAssets.erase(path);
+                GFailedAssets.insert(path);
+                DP_LOG(Warning, "[NativeAsync] Batch load completed but asset failed RAM verification: '{}'", path);
+            }
+        }
+
+        bIsExecutingBP = false;
+        GPendingCount[Requester] = 0;
+        
+        ProcessNextBatch();
+        
+        PalProcessor::Get().ProcessPal(Requester, GCurrentBatch.ForceReroll, GCurrentBatch.ExplicitSwapIndex, GCurrentBatch.IsCompanionSync, GCurrentBatch.IsEvolutionEnd);
+    } else {
+        DP_LOG(Warning, "[NativeAsync] Received orphaned/invalid batch completion for Pal: {}", (void*)Requester);
     }
+}
 
     void NativeAsyncLoader::Tick() {
         if (!bIsExecutingBP) return;
@@ -258,8 +297,16 @@ namespace DynPals {
         }
 
         if (!GAssetLoaderActor || !Utils::IsObjectValid(GAssetLoaderActor)) {
-            GAssetLoaderActor = UObjectGlobals::FindFirstOf(STR("ModActor_C"));
+    std::vector<UObject*> modActors;
+    UObjectGlobals::FindAllOf(STR("ModActor_C"), modActors);
+    for (UObject* actor : modActors) {
+        // Ensure we grab OUR ModActor_C, not another mod's!
+        if (LoaderClass && actor->GetClassPrivate() == LoaderClass) {
+            GAssetLoaderActor = actor;
+            break;
         }
+    }
+}
 
         if (GAssetLoaderActor && Utils::IsObjectValid(GAssetLoaderActor)) {
             

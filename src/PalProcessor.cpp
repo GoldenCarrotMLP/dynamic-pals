@@ -1018,7 +1018,7 @@ namespace DynPals {
                             Utils::SetPropertyValue<UObject*>(NewMesh, STR("Skeleton"), TargetSkeleton);
                         }
 
-                        struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, true};
+                        struct { UObject* InMesh; bool bReinitPose; } MeshParams{NewMesh, false};
                         Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
                         ProfileStep(L"Trace 7.3: SetSkinnedAssetAndUpdate Native Call");
                     } else {
