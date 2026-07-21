@@ -106,7 +106,7 @@ namespace DynPals {
             int minor = (versionNum / 100) % 10;
             int patch = versionNum % 100;
             wchar_t buf[64];
-            swprintf(buf, 64, L"v%d-%d-%02d", major, minor, patch);
+            swprintf(buf, 64, L"v%d.%d.%02d", major, minor, patch);
             return std::wstring(buf);
         } catch (...) {
             std::wstring raw;

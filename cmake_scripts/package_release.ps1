@@ -54,9 +54,15 @@ if (-not [string]::IsNullOrEmpty($VFXDir)) {
     Copy-Item -Path $VFXDir -Destination "$StageOffline/vfx" -Recurse -Force
 }
 
-# Distribute generated configs and version tracking
+# Distribute generated configs, paks, and version tracking
 foreach ($stage in @($StageAuto, $StageOffline)) {
     Copy-Item "$SourceDir/dlls/version.txt" -Destination "$stage/dlls/version.txt" -Force
+    
+    # Copy DynamicPals.pak asset package into the staged dlls folder
+    if (Test-Path "$SourceDir/dlls/DynamicPals.pak") {
+        Copy-Item "$SourceDir/dlls/DynamicPals.pak" -Destination "$stage/dlls/DynamicPals.pak" -Force
+    }
+    
     if (Test-Path "$SourceDir/dlls/_Template_SwapConfig.json") {
         Copy-Item "$SourceDir/dlls/_Template_SwapConfig.json" -Destination "$stage/dlls/_Template_SwapConfig.json" -Force
     }

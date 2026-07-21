@@ -117,9 +117,8 @@ namespace DynPals {
                         new (AssetPathsPtr) TArray<FString>();
                         for (const auto& path : GCurrentBatch.AssetPaths) {
                             std::wstring formatted = Utils::FormatAssetPath(path);
-                            if (formatted.length() > 2 && formatted.substr(formatted.length() - 2) == L"_C") {
-                                formatted = formatted.substr(0, formatted.length() - 2);
-                            }
+                            // CRITICAL FIX: Do NOT strip the _C suffix! 
+                            // Packaged Shipping builds delete Blueprint assets and only keep the generated _C classes!
                             AssetPathsPtr->Add(FString(formatted.c_str()));
                         }
                     }
@@ -204,6 +203,7 @@ namespace DynPals {
                 if (GPendingAssets.count(path)) {
                     GPendingAssets.erase(path);
                     GFailedAssets.insert(path);
+                    DP_LOG(Warning, "[NativeAsync] Batch load completed but asset failed RAM verification: '{}'", path);
                 }
             }
 

@@ -206,6 +206,7 @@ namespace DynPals {
     }
 
     std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
+        if (InputID.rfind(L"MiddleBoss_", 0) == 0) return InputID.substr(11);
         if (InputID.rfind(L"BOSS_", 0) == 0) return InputID.substr(5);
         if (InputID.rfind(L"RAID_", 0) == 0) return InputID.substr(5);
         if (InputID.rfind(L"GYM_", 0) == 0) return InputID.substr(4);

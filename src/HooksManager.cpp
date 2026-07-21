@@ -192,13 +192,19 @@ static void OnStartedWorldAutoSave(UnrealScriptFunctionCallableContext&,
   SaveManager::Get().SaveWorldData();
 }
 
+// RAII Reentrant Guard to ensure thread lock clears safely even on exceptions
+struct FReentrantGuard {
+    bool& bFlag;
+    FReentrantGuard(bool& InFlag) : bFlag(InFlag) { bFlag = true; }
+    ~FReentrantGuard() { bFlag = false; }
+};
+
 static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
                              void*) {
   static bool bIsReentrant = false;
 
   if (bIsReentrant) return;
-
-  bIsReentrant = true;
+  FReentrantGuard Guard(bIsReentrant);
 
   VFXManager::Get().Tick();
 
@@ -218,14 +224,12 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
   }
 
   if (!UIRegistry::Get().RequiresTick()) {
-    bIsReentrant = false;
     return;
   }
 
   static auto LastUITickTime = std::chrono::steady_clock::now();
   if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastUITickTime).count() >= 16) {
     LastUITickTime = Now;
-
 
     UObject* ActorContext = Context.Context;
 
@@ -259,8 +263,6 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
       }
     }
   }
-
-  bIsReentrant = false;
 }
 
 static void OnWidgetAddedToViewport(
@@ -278,20 +280,12 @@ static void OnWidgetAddedToViewport(
   std::wstring WidgetName = WidgetClass->GetName();
 
   if (WidgetName.find(L"WBP_Title") != std::wstring::npos ||
-
-      WidgetName.find(L"WBP_Login") != std::wstring::npos)
-
-  {
+      WidgetName.find(L"WBP_Login") != std::wstring::npos) {
     bIsAtMenu = true;
-
     bCompletedInitReady = false;
-
     SaveManager::Get().Reset();
-
     NotificationManager::Get().SetReady(false);
-
     PalProcessor::Get().ClearAllSwappedStatus();
-
     UIRegistry::Get().InvalidateAllUIs();
 
     DP_LOG(Default,
@@ -305,8 +299,6 @@ static void OnWidgetAddedToViewport(
   }
 }
 
-
-
 static void OnOpenLevel(UnrealScriptFunctionCallableContext& Context, void*) {
   bIsAtMenu = false;
   bCompletedInitReady = false;
@@ -316,7 +308,6 @@ static void OnOpenLevel(UnrealScriptFunctionCallableContext& Context, void*) {
   Utils::Caches::ClearAll(); 
   NativeAsyncLoader::ClearCache(); 
 }
-
 
 static std::wstring GetFormattedVersionString() {
   HMODULE hModule = NULL;
@@ -389,10 +380,7 @@ void HooksManager::OnPalSpawnedReady(
 
   auto start = std::chrono::high_resolution_clock::now();
 
-  //DP_LOG(Default, "[Hook Monitor] OnPalSpawnedReady fired for {}", palName);
-
   if (!bCompletedInitReady) {
-    DP_LOG(Default, "  -> Aborted: Mod is still in startup standby.");
     return;
   }
 
@@ -434,9 +422,7 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
       std::wstring MapName = Utils::FStringToWString(Params.ReturnValue);
 
       bool bIsMenu = (MapName.find(L"Title") != std::wstring::npos ||
-
                       MapName.find(L"Login") != std::wstring::npos ||
-
                       MapName.empty());
 
       if (bIsMenu) {
@@ -500,10 +486,7 @@ void HooksManager::RegisterHooks() {
 
   if (InitFunc) {
     InitFunc->RegisterPostHook(OnPalSpawnedReady, nullptr);
-
-    DP_LOG(
-        Default,
-        "Successfully hooked OnCompletedInitParam (Native Pipeline Active!)\n");
+    DP_LOG(Default, "Successfully hooked OnCompletedInitParam (Native Pipeline Active!)\n");
   }
 
   UFunction* RestartFunc = UObjectGlobals::StaticFindObject<UFunction*>(
@@ -511,7 +494,6 @@ void HooksManager::RegisterHooks() {
 
   if (RestartFunc) {
     RestartFunc->RegisterPostHook(OnClientRestart, nullptr);
-
     DP_LOG(Default, "Successfully hooked ClientRestart for map transitions.\n");
   }
 
@@ -520,9 +502,7 @@ void HooksManager::RegisterHooks() {
 
   if (ActorRotFunc) {
     ActorRotFunc->RegisterPreHook(OnGameThreadTick, nullptr);
-
-    DP_LOG(Default,
-           "Successfully hooked K2_GetActorRotation on the Game Thread.\n");
+    DP_LOG(Default, "Successfully hooked K2_GetActorRotation on the Game Thread.\n");
   }
 
   UFunction* SaveFunc = UObjectGlobals::StaticFindObject<UFunction*>(
