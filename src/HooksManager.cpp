@@ -211,17 +211,18 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
   NativeAsyncLoader::Tick(); // Triggers Watchdog
 
   // Spaced-out queue processing restored!
-  static auto LastSwapTime = std::chrono::steady_clock::now();
-  static int VirtualFrameCount = 0; // Restored variable
+//  static auto LastSwapTime = std::chrono::steady_clock::now();
+//  static int VirtualFrameCount = 0; // Restored variable
   auto Now = std::chrono::steady_clock::now();
-  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
-      LastSwapTime = Now;
-      VirtualFrameCount++;
-      if (VirtualFrameCount >= 6) { // ADJUST THIS TO CONTROL SPACING (e.g. 16, 30, etc.)
-          VirtualFrameCount = 0;
-          PalProcessor::Get().Tick();
-      }
-  }
+//  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
+//      LastSwapTime = Now;
+//      VirtualFrameCount++;
+//      if (VirtualFrameCount >= 6) { // ADJUST THIS TO CONTROL SPACING (e.g. 16, 30, etc.)
+//          VirtualFrameCount = 0;
+//          PalProcessor::Get().Tick();
+//      }
+//  }
+  PalProcessor::Get().Tick();
 
   if (!UIRegistry::Get().RequiresTick()) {
     return;

@@ -366,27 +366,29 @@ namespace DynPals {
         static UFunction* IsValidFunc = Utils::GetKismetFunction(STR("IsValid"));
         if (!KSL || !IsValidFunc) return;
 
-        QueuedSwap req;
+        // 1. Grab ALL pending swaps at once to avoid locking the mutex for too long
+        std::vector<QueuedSwap> pendingSwaps;
         {
             std::lock_guard<std::mutex> lock(QueueMutex);
             if (SwapQueue.empty()) return;
             
-            req = SwapQueue.front();
-            SwapQueue.pop_front();
+            pendingSwaps.assign(SwapQueue.begin(), SwapQueue.end());
+            SwapQueue.clear();
         }
 
-        UObject* TargetChar = req.Character;
+        // 2. Loop through and execute every swap concurrently
+        for (const auto& req : pendingSwaps) {
+            UObject* TargetChar = req.Character;
 
-        if (Utils::IsObjectTracked(TargetChar) && Utils::IsObjectValid(TargetChar)) {
-            // ---> THE DIRECT CONTEXT HOOK <---
-            // Tell memory scanner which active Pal we are processing
-            NativeAsyncLoader::SetActiveRequester(TargetChar);
+            if (Utils::IsObjectTracked(TargetChar) && Utils::IsObjectValid(TargetChar)) {
+                // ---> THE DIRECT CONTEXT HOOK <---
+                NativeAsyncLoader::SetActiveRequester(TargetChar);
 
-            ExecuteSwap(TargetChar, req.ForceReroll, req.ExplicitSwapIndex, req.IsCompanionSync, req.IsEvolutionEnd);
+                ExecuteSwap(TargetChar, req.ForceReroll, req.ExplicitSwapIndex, req.IsCompanionSync, req.IsEvolutionEnd);
 
-            // Clean up and flush ONLY this specific Pal's temporary pointers
-            NativeAsyncLoader::ClearTemporaryPointers(TargetChar);
-            NativeAsyncLoader::SetActiveRequester(nullptr);
+                NativeAsyncLoader::ClearTemporaryPointers(TargetChar);
+                NativeAsyncLoader::SetActiveRequester(nullptr);
+            }
         }
 
         static int pruneCounter = 0;
@@ -655,18 +657,33 @@ namespace DynPals {
                 bool bIsLiveEvolution = bLiveEventTriggered && !bIsNewActor && (finalSwap != currentSwap) && (ExplicitSwapIndex == -1) && !ForceReroll;
 
                 std::vector<std::wstring> assetsToLoad;
+                bool bHasFailedDependency = false;
+                std::wstring failedPath = L"";
 
                 auto CheckDependency = [&](const std::wstring& Path) {
                     if (Path.empty()) return;
-                    
+
+                    // 1. CRITICAL RHO CHECK: If asset is currently loading asynchronously, IT IS NOT READY YET!
+                    // Force this Pal to wait for the async callback instead of rushing to ApplySwap with an incomplete mesh!
+                    if (NativeAsyncLoader::IsPending(Path)) {
+                        assetsToLoad.push_back(Path);
+                        return;
+                    }
+
+                    // 2. Abort if asset previously failed
+                    if (NativeAsyncLoader::IsFailed(Path)) {
+                        bHasFailedDependency = true;
+                        failedPath = Path;
+                        return;
+                    }
+
+                    // 3. Check if asset is ALREADY 100% loaded and ready in RAM
                     bool bIsMeshLoaded = (Path == finalConfig.SkelMeshPath) ? Utils::IsSkeletalMeshLoaded(Path) : Utils::IsAssetLoaded(Path);
                     if (bIsMeshLoaded) {
-                        if (NativeAsyncLoader::IsPending(Path)) NativeAsyncLoader::MarkAsLoaded(Path);
                         return; 
                     }
-                    
-                    if (NativeAsyncLoader::IsFailed(Path)) return; 
 
+                    // 4. Otherwise, queue asset for async loading
                     assetsToLoad.push_back(Path);
                 };
 
@@ -686,8 +703,6 @@ namespace DynPals {
                         CheckDependency(layer);
                     }
                 } 
-                // We REMOVED the VanillaClassPath check entirely. The spawned Actor IS the valid BP.
-                // This natively handles BOSS_, RAID_, and GYM_ BP overrides without string guessing!
 
                 // 3. Check Material Replacements
                 for (const auto& mat : finalConfig.MatReplaceList) {
@@ -719,6 +734,12 @@ namespace DynPals {
                     for (const auto& p : compAssets) CheckDependency(p);
                 } else if (ForceReroll || (ExplicitSwapIndex != -1 && !IsEvolutionEnd)) {
                     CheckDependency(L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
+                }
+
+                // ABORT SWAP IMMEDIATELY IF ANY ASSET FAILED TO LOAD!
+                if (bHasFailedDependency) {
+                    DP_LOG(Error, "[Swap Aborted] Pal '{}' swap failed: Material or Mesh asset does not exist! Path: '{}'", RawCharID, failedPath);
+                    return false;
                 }
 
                 // Trigger Parallel Async Load for all missing assets
@@ -1245,9 +1266,13 @@ namespace DynPals {
         }
         ProfileStep(L"Trace 9: Applying Materials");
 
+        // UNPAUSE ANIMATIONS HERE! Must happen before Morph Targets to prevent D3D12 render crashes
+        Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), false, false);
+
         if (!swap.MorphTargetList.empty()) {
             static std::random_device rd;
             static std::mt19937 gen(rd());
+
 
             for (auto& morph : swap.MorphTargetList) {
                 double val = 0.0;
@@ -1296,7 +1321,6 @@ namespace DynPals {
         struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
-        Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), false, false);
 
         UObject* FacialComp = nullptr;
         Utils::GetPropertyValue<UObject*>(Character, STR("PalFacial"), FacialComp);

@@ -25,6 +25,9 @@ namespace DynPals {
         // Flushes startup/menu warnings once in-game
         void FlushQueuedToasts(); 
 
+        // Instantly clears active on-screen logs from WBP_PalLogWidget
+        void ClearInGameLogs();
+
         // Controls whether toasts queue up or fire immediately
         void SetReady(bool bReady) { bIsReadyForToasts = bReady; }
 

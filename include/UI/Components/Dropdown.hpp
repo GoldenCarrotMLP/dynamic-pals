@@ -14,6 +14,16 @@ namespace DynPals::UI {
 
     class Dropdown {
     public:
+        struct PooledHeader {
+            RC::Unreal::UObject* RootWidget;
+            RC::Unreal::UObject* TextWidget;
+        };
+        struct PooledButton {
+            RC::Unreal::UObject* RootWidget;
+            RC::Unreal::UObject* TextWidget;
+            class DynPals::UI::Button* BtnCtrl; 
+        };
+
         Dropdown(const std::vector<std::wstring>& InOptions, int InitialIndex = 0) {
             SetOptions(InOptions, InitialIndex);
         }
@@ -31,7 +41,6 @@ namespace DynPals::UI {
             bNeedsListRebuild = true;
             UpdateMainButtonText();
 
-            // Calculate Max Width for pooling bounds
             MaxWidth = 250.0f;
             for (const auto& opt : Options) {
                 float w = static_cast<float>(opt.length()) * 12.0f + 120.0f;
@@ -47,7 +56,6 @@ namespace DynPals::UI {
         void PreloadPool(RC::Unreal::UObject* Outer, int btnCount, int headerCount = 10) {
             OuterContext = Outer;
             
-            // Preload Headers
             RC::Unreal::UObject* PalFont = Utils::LoadAssetSafely(DynPals::UI::Assets::Fonts::PalDefault);
             for (int i = 0; i < headerCount; i++) {
                 auto TitleTxt = DynPals::UI::Text(OuterContext).Text(L"").Font(PalFont, L"Bold", 16).TextColor({0.063f, 0.725f, 0.506f, 1.0f}); 
@@ -65,7 +73,6 @@ namespace DynPals::UI {
                 HeaderPool.push_back(PooledHeader{RootObj, TextObj});
             }
 
-            // Preload Buttons
             for (int i = 0; i < btnCount; i++) {
                 DynPals::WidgetBuilder Item(DynPals::UI::Assets::Blueprints::CommonButton, OuterContext);
                 Item.DesiredSizeOverride(600.0f - 40.0f, 45.0f);
@@ -112,8 +119,12 @@ namespace DynPals::UI {
             if (MainButtonCtrl) MainButtonCtrl->Tick();
 
             if (bIsPopupOpen) {
+                if (m_bIsBuildingListAsync) {
+                    ProcessSingleBuildStep();
+                }
+
                 for (auto& btnCtrl : AllButtonCtrls) {
-                    btnCtrl->Tick();
+                    if (btnCtrl) btnCtrl->Tick();
                 }
             }
         }
@@ -123,6 +134,11 @@ namespace DynPals::UI {
                 struct { uint8_t InVisibility; } Params{ 1 }; // 1 = Collapsed
                 Utils::CallFunction(PopupOverlay, STR("SetVisibility"), &Params);
                 bIsPopupOpen = false;
+                
+                if (m_bIsBuildingListAsync) {
+                    m_bIsBuildingListAsync = false;
+                    CleanupUnusedPoolWidgets(); // Safely stash unused widgets to trash bin if closed early
+                }
             }
         }
 
@@ -132,18 +148,7 @@ namespace DynPals::UI {
                 Utils::CallFunction(PopupOverlay, STR("RemoveFromParent"));
             }
         }
-        
-        // Expose pools so PreloadUI can preserve their layouts
-        struct PooledHeader {
-            RC::Unreal::UObject* RootWidget;
-            RC::Unreal::UObject* TextWidget;
-        };
-        struct PooledButton {
-            RC::Unreal::UObject* RootWidget;
-            RC::Unreal::UObject* TextWidget;
-            class DynPals::UI::Button* BtnCtrl; 
-        };
-        
+
         const std::vector<PooledHeader>& GetHeaderPool() const { return HeaderPool; }
         const std::vector<PooledButton>& GetButtonPool() const { return ButtonPool; }
 
@@ -154,6 +159,12 @@ namespace DynPals::UI {
         bool bNeedsListRebuild = true;
         bool bIsPopupOpen = false; 
         std::function<void(int, std::wstring)> OnSelectionChanged;
+
+        // Async Time-slicing state
+        bool m_bIsBuildingListAsync = false;
+        size_t m_BuildIndex = 0;
+        int m_HeaderUsedIndex = 0;
+        int m_ButtonUsedIndex = 0;
 
         RC::Unreal::UObject* OuterContext = nullptr;
         RC::Unreal::UObject* PlayerController = nullptr;
@@ -188,60 +199,96 @@ namespace DynPals::UI {
 
             Utils::CallFunction(ScrollBoxList, STR("ClearChildren"));
 
-            int headerUsed = 0;
-            int buttonUsed = 0;
+            m_BuildIndex = 0;
+            m_HeaderUsedIndex = 0;
+            m_ButtonUsedIndex = 0;
             TargetWidget = nullptr;
-            RC::Unreal::UObject* PalFont = Utils::LoadAssetSafely(DynPals::UI::Assets::Fonts::PalDefault);
+            
+            m_bIsBuildingListAsync = true;
+            // NOTE: bNeedsListRebuild is NOT set to false here anymore!
+            // It will be cleared in ProcessSingleBuildStep() ONLY when construction finishes.
+        }
 
+        void ProcessSingleBuildStep() {
+            if (!ScrollBoxList || m_BuildIndex >= Options.size()) {
+                m_bIsBuildingListAsync = false; // Building finished!
+                bNeedsListRebuild = false;      // Mark rebuild complete
+                CleanupUnusedPoolWidgets();
+
+                if (TargetWidget) {
+                    struct {
+                        RC::Unreal::UObject* WidgetToFind;
+                        bool bAnimateScroll;
+                        uint8_t ScrollDestination;
+                        float Padding;
+                    } ScrollParams{TargetWidget, false, 2, 0.0f};
+                    Utils::CallFunction(ScrollBoxList, STR("ScrollWidgetIntoView"), &ScrollParams);
+                }
+                return;
+            }
+
+            RC::Unreal::UObject* PalFont = Utils::LoadAssetSafely(DynPals::UI::Assets::Fonts::PalDefault);
             RC::Unreal::UObject* KTL = DynPals::Utils::GetKTL();
             RC::Unreal::UFunction* ConvFunc = DynPals::Utils::GetKTLFunction(STR("Conv_StringToText"));
 
-            for (size_t i = 0; i < Options.size(); ++i) {
-                const auto& opt = Options[i];
-                bool isHeader = (opt.rfind(L"[", 0) == 0); 
-                
-                if (isHeader) {
-                    std::wstring cleanHeader = opt;
-                    if (cleanHeader.front() == L'[' && cleanHeader.back() == L']') {
-                        cleanHeader = cleanHeader.substr(2, cleanHeader.length() - 4);
-                    }
+            const auto& opt = Options[m_BuildIndex];
+            bool isHeader = (opt.rfind(L"[", 0) == 0); 
+            
+            if (isHeader) {
+                std::wstring cleanHeader = opt;
+                if (cleanHeader.front() == L'[' && cleanHeader.back() == L']') {
+                    cleanHeader = cleanHeader.substr(2, cleanHeader.length() - 4);
+                }
 
-                    if (headerUsed >= HeaderPool.size()) {
-                        auto TitleTxt = DynPals::UI::Text(OuterContext).Text(cleanHeader).Font(PalFont, L"Bold", 16).TextColor({0.063f, 0.725f, 0.506f, 1.0f}); 
-                        RC::Unreal::UObject* TextObj = TitleTxt.Build();
+                // VALIDITY CHECK: Ensure pooled widget hasn't been GC'd
+                bool bNeedsNewHeader = (m_HeaderUsedIndex >= static_cast<int>(HeaderPool.size())) || 
+                                       !Utils::IsObjectValid(HeaderPool[m_HeaderUsedIndex].RootWidget);
 
-                        auto HeaderVBox = DynPals::UI::VerticalBox(OuterContext);
-                        HeaderVBox.AddToVerticalBox(DynPals::WidgetBuilder(TextObj), [](DynPals::BoxSlotBuilder& Slot) {
-                            Slot.Padding(10.0f, 14.0f, 10.0f, 4.0f);
-                        });
+                if (bNeedsNewHeader) {
+                    auto TitleTxt = DynPals::UI::Text(OuterContext).Text(cleanHeader).Font(PalFont, L"Bold", 16).TextColor({0.063f, 0.725f, 0.506f, 1.0f}); 
+                    RC::Unreal::UObject* TextObj = TitleTxt.Build();
 
-                        auto DividerLine = DynPals::UI::SizeBox(OuterContext).HeightOverride(1.0f).AddChild(DynPals::UI::Border(OuterContext).BrushColor({0.063f, 0.725f, 0.506f, 0.3f}));
-                        HeaderVBox.AddToVerticalBox(DividerLine, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(10.0f, 0.0f, 10.0f, 6.0f); });
+                    auto HeaderVBox = DynPals::UI::VerticalBox(OuterContext);
+                    HeaderVBox.AddToVerticalBox(DynPals::WidgetBuilder(TextObj), [](DynPals::BoxSlotBuilder& Slot) {
+                        Slot.Padding(10.0f, 14.0f, 10.0f, 4.0f);
+                    });
 
-                        RC::Unreal::UObject* RootObj = HeaderVBox.Build();
+                    auto DividerLine = DynPals::UI::SizeBox(OuterContext).HeightOverride(1.0f).AddChild(DynPals::UI::Border(OuterContext).BrushColor({0.063f, 0.725f, 0.506f, 0.3f}));
+                    HeaderVBox.AddToVerticalBox(DividerLine, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(10.0f, 0.0f, 10.0f, 6.0f); });
+
+                    RC::Unreal::UObject* RootObj = HeaderVBox.Build();
+                    
+                    if (m_HeaderUsedIndex < static_cast<int>(HeaderPool.size())) {
+                        HeaderPool[m_HeaderUsedIndex] = PooledHeader{RootObj, TextObj};
+                    } else {
                         HeaderPool.push_back(PooledHeader{RootObj, TextObj});
                     }
+                }
 
-                    PooledHeader& ph = HeaderPool[headerUsed++];
+                PooledHeader& ph = HeaderPool[m_HeaderUsedIndex++];
+                
+                if (ph.TextWidget && KTL && ConvFunc) {
+                    struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(cleanHeader.c_str()), RC::Unreal::FText() };
+                    KTL->ProcessEvent(ConvFunc, &P1);
+                    struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
+                    Utils::CallFunction(ph.TextWidget, STR("SetText"), &P2, true);
+                }
+
+                struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{ph.RootWidget, nullptr};
+                Utils::CallFunction(ScrollBoxList, STR("AddChild"), &AddParams);
+
+            } else {
+                // VALIDITY CHECK: Ensure pooled button hasn't been GC'd
+                bool bNeedsNewButton = (m_ButtonUsedIndex >= static_cast<int>(ButtonPool.size())) || 
+                                       !Utils::IsObjectValid(ButtonPool[m_ButtonUsedIndex].RootWidget);
+
+                if (bNeedsNewButton) {
+                    DynPals::WidgetBuilder Item(DynPals::UI::Assets::Blueprints::CommonButton, OuterContext);
+                    Item.DesiredSizeOverride(MaxWidth - 40.0f, 45.0f);
+                    Item.UnlockButtonSize(MaxWidth - 60.0f); 
                     
-                    if (ph.TextWidget && KTL && ConvFunc) {
-                        struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(cleanHeader.c_str()), RC::Unreal::FText() };
-                        KTL->ProcessEvent(ConvFunc, &P1);
-                        struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
-                        Utils::CallFunction(ph.TextWidget, STR("SetText"), &P2, true);
-                    }
-
-                    struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{ph.RootWidget, nullptr};
-                    Utils::CallFunction(ScrollBoxList, STR("AddChild"), &AddParams);
-
-                } else {
-                    if (buttonUsed >= ButtonPool.size()) {
-                        DynPals::WidgetBuilder Item(DynPals::UI::Assets::Blueprints::CommonButton, OuterContext);
-                        Item.DesiredSizeOverride(MaxWidth - 40.0f, 45.0f);
-                        Item.UnlockButtonSize(MaxWidth - 60.0f); 
-                        
-                        RC::Unreal::UObject* RootObj = Item.Build();
-                        if (!RootObj) continue;
+                    RC::Unreal::UObject* RootObj = Item.Build();
+                    if (RootObj) {
                         RC::Unreal::UObject* TextObj = nullptr;
                         Utils::GetPropertyValue(RootObj, STR("Text_Main"), TextObj, true);
 
@@ -249,10 +296,16 @@ namespace DynPals::UI {
                         class DynPals::UI::Button* RawCtrl = Ctrl.get();
                         AllButtonCtrls.push_back(std::move(Ctrl));
                         
-                        ButtonPool.push_back(PooledButton{RootObj, TextObj, RawCtrl});
+                        if (m_ButtonUsedIndex < static_cast<int>(ButtonPool.size())) {
+                            ButtonPool[m_ButtonUsedIndex] = PooledButton{RootObj, TextObj, RawCtrl};
+                        } else {
+                            ButtonPool.push_back(PooledButton{RootObj, TextObj, RawCtrl});
+                        }
                     }
+                }
 
-                    PooledButton& pb = ButtonPool[buttonUsed++];
+                if (m_ButtonUsedIndex < static_cast<int>(ButtonPool.size())) {
+                    PooledButton& pb = ButtonPool[m_ButtonUsedIndex++];
                     
                     if (pb.TextWidget && KTL && ConvFunc) {
                         struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(opt.c_str()), RC::Unreal::FText() };
@@ -261,7 +314,8 @@ namespace DynPals::UI {
                         Utils::CallFunction(pb.TextWidget, STR("SetText"), &P2, true);
                     }
 
-                    if (static_cast<int>(i) == SelectedIndex) {
+                    int itemIndex = static_cast<int>(m_BuildIndex);
+                    if (itemIndex == SelectedIndex) {
                         TargetWidget = pb.RootWidget;
                         DynPals::UI::SetTextColor(pb.TextWidget, {0.024f, 0.714f, 0.831f, 1.0f});
 
@@ -291,7 +345,6 @@ namespace DynPals::UI {
                         }
                     }
 
-                    int itemIndex = static_cast<int>(i);
                     pb.BtnCtrl->OnClicked([this, itemIndex]() {
                         SelectedIndex = itemIndex;
                         UpdateMainButtonText();
@@ -311,23 +364,24 @@ namespace DynPals::UI {
                 }
             }
 
-            // --- MOVE ALL UNUSED POOLED WIDGETS INTO TRASH BIN TO PREVENT GC ---
-            for (size_t i = headerUsed; i < HeaderPool.size(); ++i) {
+            m_BuildIndex++;
+        }
+
+        void CleanupUnusedPoolWidgets() {
+            for (size_t i = m_HeaderUsedIndex; i < HeaderPool.size(); ++i) {
                 if (Utils::IsObjectValid(HeaderPool[i].RootWidget) && DropdownTrashBin) {
                     Utils::CallFunction(HeaderPool[i].RootWidget, STR("RemoveFromParent"));
                     struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{HeaderPool[i].RootWidget, nullptr};
                     Utils::CallFunction(DropdownTrashBin, STR("AddChild"), &AddParams);
                 }
             }
-            for (size_t i = buttonUsed; i < ButtonPool.size(); ++i) {
+            for (size_t i = m_ButtonUsedIndex; i < ButtonPool.size(); ++i) {
                 if (Utils::IsObjectValid(ButtonPool[i].RootWidget) && DropdownTrashBin) {
                     Utils::CallFunction(ButtonPool[i].RootWidget, STR("RemoveFromParent"));
                     struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{ButtonPool[i].RootWidget, nullptr};
                     Utils::CallFunction(DropdownTrashBin, STR("AddChild"), &AddParams);
                 }
             }
-
-            bNeedsListRebuild = false;
         }
 
         void OpenPopup() {
@@ -399,16 +453,6 @@ namespace DynPals::UI {
             struct { uint8_t InVisibility; } VisParams{ 0 }; // 0 = Visible
             Utils::CallFunction(PopupOverlay, STR("SetVisibility"), &VisParams);
             bIsPopupOpen = true;
-
-            if (TargetWidget) {
-                struct {
-                    RC::Unreal::UObject* WidgetToFind;
-                    bool bAnimateScroll;
-                    uint8_t ScrollDestination;
-                    float Padding;
-                } ScrollParams{TargetWidget, false, 2, 0.0f};
-                Utils::CallFunction(ScrollBoxList, STR("ScrollWidgetIntoView"), &ScrollParams);
-            }
         }
     };
 }

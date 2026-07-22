@@ -2,6 +2,7 @@
 #include "ConfigManager.hpp"
 #include "PalProcessor.hpp"
 #include "AsyncHelper.hpp"
+#include "NotificationManager.hpp"
 #include "DataTypes.hpp"
 #include <Windows.h>
 #include <thread>
@@ -81,12 +82,15 @@ namespace DynPals {
                     std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
                     AsyncHelper::AsyncTask(ENamedThreads::GameThread, []() {
+                        // 1. Instantly clear old error notifications from the screen
+                        NotificationManager::Get().ClearInGameLogs();
+
                         DP_LOG(Normal, "[Hot-Reload] Config change detected! Recompiling matchmaking table...");
                         
-                        // 1. Reload the JSON database
+                        // 2. Reload the JSON database
                         ConfigManager::Get().LoadConfigJSONs();
 
-                        // 2. Refresh all Pals in the world to apply potential new skins
+                        // 3. Refresh all Pals in the world to apply potential new skins
                         std::vector<UObject*> AllPals;
                         UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
                         for (UObject* Pal : AllPals) {

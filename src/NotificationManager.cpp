@@ -18,7 +18,7 @@ namespace DynPals {
         UFunction* GetLogFunc = PalUtil->GetFunctionByNameInChain(STR("GetLogManager"));
         if (!GetLogFunc) return nullptr;
 
-        // Iterate through all loaded World instances to find the live, active gameplay world [1]
+        // Iterate through all loaded World instances to find the live, active gameplay world
         for (UObject* World : worlds) {
             if (!World) continue;
 
@@ -108,4 +108,58 @@ namespace DynPals {
             DP_LOG(Verbose, "Dispatched {} queued messages.", ToastsToFlush.size());
         });
     }
+
+    void NotificationManager::ClearInGameLogs() {
+    // 1. Force-remove ALL active log toast widgets (Normal, Important, Error) from screen directly
+    std::vector<UObject*> logItems;
+    UObjectGlobals::FindAllOf(STR("PalLogWidgetBase"), logItems);
+    for (UObject* Item : logItems) {
+        if (Item && Utils::IsObjectValid(Item)) {
+            Utils::CallFunction(Item, STR("RemoveFromParent"));
+        }
+    }
+
+    // 2. Clear WBP_PalLogWidget_C UI containers and tracking arrays
+    std::vector<UObject*> logWidgets;
+    UObjectGlobals::FindAllOf(STR("WBP_PalLogWidget_C"), logWidgets);
+
+    for (UObject* LogWidget : logWidgets) {
+        if (!LogWidget || !Utils::IsObjectValid(LogWidget)) continue;
+
+        // A. Clear visual UI containers for Normal, Important, and Very Important
+        UObject* NormalScrollBox = nullptr;
+        if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ScrollBox_NormalLog"), NormalScrollBox) && NormalScrollBox) {
+            Utils::CallFunction(NormalScrollBox, STR("ClearChildren"));
+        }
+
+        UObject* ImportantBorder = nullptr;
+        if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ImportantBorder"), ImportantBorder) && ImportantBorder) {
+            Utils::CallFunction(ImportantBorder, STR("ClearChildren"));
+        }
+
+        UObject* VeryImportantBorder = nullptr;
+        if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("VeryImportantBorder"), VeryImportantBorder) && VeryImportantBorder) {
+            Utils::CallFunction(VeryImportantBorder, STR("ClearChildren"));
+        }
+
+        // B. Empty internal tracking arrays on WBP_PalLogWidget
+        FProperty* NormalListProp = Utils::GetProperty(LogWidget, STR("NormalLogList"));
+        if (NormalListProp) {
+            TArray<UObject*>* NormalList = NormalListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
+            if (NormalList) NormalList->Empty();
+        }
+
+        FProperty* ImportantListProp = Utils::GetProperty(LogWidget, STR("ImportantLogList"));
+        if (ImportantListProp) {
+            TArray<UObject*>* ImportantList = ImportantListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
+            if (ImportantList) ImportantList->Empty();
+        }
+
+        FProperty* VeryImpIDArrayProp = Utils::GetProperty(LogWidget, STR("veryImportantLogIDArray"));
+        if (VeryImpIDArrayProp) {
+            TArray<DynPalsGuid>* VeryImpIDArray = VeryImpIDArrayProp->ContainerPtrToValuePtr<TArray<DynPalsGuid>>(LogWidget);
+            if (VeryImpIDArray) VeryImpIDArray->Empty();
+        }
+    }
+}
 }
