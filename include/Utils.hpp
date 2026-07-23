@@ -170,16 +170,14 @@ namespace DynPals::Utils {
     }
 
     inline bool IsObjectTracked(UObject* TargetObj) {
-        if (!TargetObj) return false;
-        uintptr_t addr = reinterpret_cast<uintptr_t>(TargetObj);
-        if (addr < 0x100000000ULL || (addr % 8) != 0) return false;
-        bool bFound = false;
-        UObjectGlobals::ForEachUObject([&](UObject* Obj, int32_t Index, int32_t SerialNumber) -> RC::LoopAction {
-            if (Obj == TargetObj) { bFound = true; return RC::LoopAction::Break; }
-            return RC::LoopAction::Continue;
-        });
-        return bFound;
-    }
+    if (!TargetObj) return false;
+    uintptr_t addr = reinterpret_cast<uintptr_t>(TargetObj);
+    
+    // FIX: Changed 0x100000000ULL (4GB) to 0x10000ULL (64KB)
+    if (addr < 0x10000ULL || (addr % 8) != 0) return false;
+    
+    return IsObjectValid(TargetObj);
+}
 
     inline FField* GetNextField(FField* Field) {
         if (!Field) return nullptr;

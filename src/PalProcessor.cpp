@@ -397,18 +397,18 @@ namespace DynPals {
 
         // 2. Loop through and execute every swap concurrently
         for (const auto& req : pendingSwaps) {
-            UObject* TargetChar = req.Character;
+    UObject* TargetChar = req.Character;
 
-            if (Utils::IsObjectTracked(TargetChar) && Utils::IsObjectValid(TargetChar)) {
-                // ---> THE DIRECT CONTEXT HOOK <---
-                NativeAsyncLoader::SetActiveRequester(TargetChar);
+    if (Utils::IsObjectValid(TargetChar)) { // <--- Clean, fast, and Wine/Proton compatible!
+        NativeAsyncLoader::SetActiveRequester(TargetChar);
 
-                ExecuteSwap(TargetChar, req.ForceReroll, req.ExplicitSwapIndex, req.IsCompanionSync, req.IsEvolutionEnd);
+        ExecuteSwap(TargetChar, req.ForceReroll, req.ExplicitSwapIndex, req.IsCompanionSync, req.IsEvolutionEnd);
 
-                NativeAsyncLoader::ClearTemporaryPointers(TargetChar);
-                NativeAsyncLoader::SetActiveRequester(nullptr);
-            }
-        }
+        NativeAsyncLoader::ClearTemporaryPointers(TargetChar);
+        NativeAsyncLoader::SetActiveRequester(nullptr);
+    }
+}
+
 
         static int pruneCounter = 0;
         pruneCounter++;
