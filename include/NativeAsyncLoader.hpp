@@ -18,10 +18,15 @@ namespace DynPals {
         // Safe Casing Resolver
         static std::wstring ResolveCasing(const std::wstring& Path);
 
-        // --- NEW: Active Requester Context ---
+        // Active Requester Context
         static void SetActiveRequester(RC::Unreal::UObject* Requester);
         static RC::Unreal::UObject* GetLoadedPointer(const std::wstring& Path);
         static void ClearTemporaryPointers(RC::Unreal::UObject* Requester);
+
+        // --- GLOBAL CACHE & RECYCLING VERIFICATION ---
+        static RC::Unreal::UObject* GetGlobalPointer(const std::wstring& Path);
+        static RC::Unreal::UObject* FetchFromBPMasterArray(const std::wstring& Path);
+        static void RegisterGlobalPointer(const std::wstring& Path, RC::Unreal::UObject* Asset);
 
         // State Machine Queries
         static bool IsPending(const std::wstring& AssetPath);
@@ -37,4 +42,3 @@ namespace DynPals {
         static void ClearCache();
     };
 }
-// --- END OF FILE include/NativeAsyncLoader.hpp ---

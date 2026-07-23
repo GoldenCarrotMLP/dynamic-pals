@@ -84,6 +84,9 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
                         &MoveParams);
 
     if (OpenUI && OpenUI->GetWidget()) {
+      UObject* TargetFocusWidget = OpenUI->GetDesiredFocusTarget();
+      if (!TargetFocusWidget) TargetFocusWidget = OpenUI->GetWidget();
+
       UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(
           nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
 
@@ -99,20 +102,17 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
         if (InputModeFunc) {
           struct {
             UObject* TargetPlayerController;
-
             UObject* InWidgetToFocus;
-
             uint8_t InMouseLockMode;
-
             bool bHideCursorDuringCapture;
-
-          } Params{PlayerController, OpenUI->GetWidget(), 0, false};
+          } Params{PlayerController, TargetFocusWidget, 0, false};
 
           WBL->ProcessEvent(InputModeFunc, &Params);
         }
       }
 
-      Utils::CallFunction(OpenUI->GetWidget(), STR("SetKeyboardFocus"));
+      // Set keyboard/gamepad focus to the specific button!
+      Utils::CallFunction(TargetFocusWidget, STR("SetKeyboardFocus"));
     }
 
     bIsInputLocked = true;

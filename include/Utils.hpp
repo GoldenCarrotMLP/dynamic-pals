@@ -368,18 +368,28 @@ namespace DynPals::Utils {
     inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBlocking = true) {
         if (AssetPath.empty()) return nullptr;
 
-        // 1. --- THE INSTANT PATH: CHECK DIRECT POINTER CACHE ---
-        // If the Async Loader just handled this, it has the pointer. This takes 0.000ms.
+        // TIER 1: Check Requester-Specific Cache (0.001 ms)
         UObject* DirectPtr = NativeAsyncLoader::GetLoadedPointer(AssetPath);
-        if (DirectPtr) {
+        if (DirectPtr && IsObjectValid(DirectPtr)) {
             return DirectPtr;
         }
 
-        // Resolve lowercase path to its Engine-capitialized memory path instantly
+        // TIER 2: Check Global C++ Cache with Pointer Recycling Verification (0.001 ms)
+        UObject* GlobalPtr = NativeAsyncLoader::GetGlobalPointer(AssetPath);
+        if (GlobalPtr && IsObjectValid(GlobalPtr)) {
+            return GlobalPtr;
+        }
+
+        // TIER 3: Check Blueprint Master Array (1.0 ms Failsafe)
+        UObject* BPArrayPtr = NativeAsyncLoader::FetchFromBPMasterArray(AssetPath);
+        if (BPArrayPtr && IsObjectValid(BPArrayPtr)) {
+            return BPArrayPtr;
+        }
+
+        // TIER 4: Slow Native Engine Search (47.0 ms Last Resort)
         std::wstring resolvedPath = NativeAsyncLoader::ResolveCasing(AssetPath);
         std::wstring formatted = FormatAssetPath(resolvedPath); 
         
-        // 2. --- FAST PATH: Exact Path RAM Search (0.001 ms) ---
         UObject* ExistingObj = nullptr;
         if (formatted.rfind(L"/", 0) == 0) {
             ExistingObj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, formatted.c_str());
@@ -391,17 +401,21 @@ namespace DynPals::Utils {
         if (ExistingObj && IsObjectValid(ExistingObj)) {
             std::wstring ClassName = ExistingObj->GetClassPrivate()->GetName();
             
-            // Reject unloaded Engine 'Package' placeholders
             if (ClassName != L"Package") {
                 if (ClassName == L"ObjectRedirector") {
                     UObject* Dest = nullptr;
-                    if (GetPropertyValue<UObject*>(ExistingObj, STR("DestinationObject"), Dest)) return Dest;
+                    if (GetPropertyValue<UObject*>(ExistingObj, STR("DestinationObject"), Dest)) {
+                        NativeAsyncLoader::RegisterGlobalPointer(AssetPath, Dest);
+                        return Dest;
+                    }
                 }
+                DP_LOG(Warning, "[Utils] Asset '{}' resolved via SLOW StaticFindObject. Re-caching globally.", AssetPath);
+                NativeAsyncLoader::RegisterGlobalPointer(AssetPath, ExistingObj);
                 return ExistingObj;
             }
         }
 
-        // 2. --- SLOW PATH: Blocking Disk Load ---
+        // TIER 5: Blocking Disk Load (Only if permitted)
         if (!bAllowBlocking) return nullptr;
 
         DP_LOG(Warning, "[Utils] Executing SLOW BLOCKING LOAD for '{}' (This causes a game hitch!)", AssetPath);
@@ -437,14 +451,17 @@ namespace DynPals::Utils {
             std::wstring ClassName = LoadedObj->GetClassPrivate()->GetName();
             if (ClassName == L"ObjectRedirector") {
                 UObject* Dest = nullptr;
-                if (GetPropertyValue<UObject*>(LoadedObj, STR("DestinationObject"), Dest)) return Dest;
+                if (GetPropertyValue<UObject*>(LoadedObj, STR("DestinationObject"), Dest)) {
+                    NativeAsyncLoader::RegisterGlobalPointer(AssetPath, Dest);
+                    return Dest;
+                }
             }
+            NativeAsyncLoader::RegisterGlobalPointer(AssetPath, LoadedObj);
             return LoadedObj;
         }
         
         return nullptr;
     }
-
     inline bool IsAssetLoaded(const std::wstring& AssetPath) {
         if (AssetPath.empty()) return true;
         return LoadAssetInternal(AssetPath, false) != nullptr;

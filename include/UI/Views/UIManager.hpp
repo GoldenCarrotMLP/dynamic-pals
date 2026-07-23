@@ -27,6 +27,7 @@ namespace DynPals {
         bool IsMenuOpen() const { return IsOpen(); }
 
         void PreloadUI(RC::Unreal::UObject* PC);
+        virtual RC::Unreal::UObject* GetDesiredFocusTarget() const override;
 
     protected:
         virtual bool OnSetup() override;

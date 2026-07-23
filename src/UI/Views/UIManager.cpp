@@ -565,6 +565,16 @@ namespace DynPals {
                duration, duration / 1000.0f);
 
     }
+    // In UIManager.cpp:
+RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
+    if (RerollButton && RerollButton->GetWidget()) {
+        return RerollButton->GetWidget();
+    }
+    if (SkinDropdown && SkinDropdown->Build(MyWidget, CurrentPlayerController)) {
+        return SkinDropdown->Build(MyWidget, CurrentPlayerController);
+    }
+    return MyWidget;
+}
 
     void UIManager::RefreshUI() {
         if (!TargetPal || !DynamicLogBox || !DynamicMorphBox || !CameraRotationContainer) return;

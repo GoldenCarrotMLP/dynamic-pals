@@ -168,6 +168,7 @@ namespace DynPals {
 
         if (ToLowerW(AnimTarget) == ToLowerW(CharID)) return L""; 
 
+        // 1. SHORT NAME MODE: e.g. "DarkScorpion" (No slashes)
         if (AnimTarget.find(L'/') == std::wstring::npos) {
             std::wstring ResolvedPath;
             if (ResolvePalBlueprintPath(Character, AnimTarget, ResolvedPath)) {
@@ -176,7 +177,25 @@ namespace DynPals {
             std::wstring TryPath1 = L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + AnimTarget + L"/BP_" + AnimTarget + L".BP_" + AnimTarget + L"_C";
             return TryPath1;
         }
-        return AnimTarget;
+
+        // 2. DIRECT PATH MODE: e.g. "/Game/Pal/Blueprint/Character/Monster/PalActorBP/DarkScorpion_Override/BP_DarkScorpion_Override"
+        std::wstring fullPath = AnimTarget;
+        
+        // If path has no dot, convert "/.../BP_DarkScorpion_Override" to "/.../BP_DarkScorpion_Override.BP_DarkScorpion_Override_C"
+        size_t dotPos = fullPath.find(L'.');
+        if (dotPos == std::wstring::npos) {
+            size_t lastSlash = fullPath.find_last_of(L'/');
+            if (lastSlash != std::wstring::npos) {
+                std::wstring leafName = fullPath.substr(lastSlash + 1);
+                fullPath = fullPath + L"." + leafName + L"_C";
+            }
+        } 
+        // If path has a dot but is missing the '_C' class suffix, append '_C'
+        else if (fullPath.length() < 2 || fullPath.substr(fullPath.length() - 2) != L"_C") {
+            fullPath += L"_C";
+        }
+
+        return fullPath;
     }
 
     static bool IsPalBlueprintValid(UObject* Pal, std::wstring& OutBlueprintName) {
@@ -663,8 +682,7 @@ namespace DynPals {
                 auto CheckDependency = [&](const std::wstring& Path) {
                     if (Path.empty()) return;
 
-                    // 1. CRITICAL RHO CHECK: If asset is currently loading asynchronously, IT IS NOT READY YET!
-                    // Force this Pal to wait for the async callback instead of rushing to ApplySwap with an incomplete mesh!
+                    // 1. If asset is currently loading asynchronously, wait for it!
                     if (NativeAsyncLoader::IsPending(Path)) {
                         assetsToLoad.push_back(Path);
                         return;
@@ -677,13 +695,13 @@ namespace DynPals {
                         return;
                     }
 
-                    // 3. Check if asset is ALREADY 100% loaded and ready in RAM
-                    bool bIsMeshLoaded = (Path == finalConfig.SkelMeshPath) ? Utils::IsSkeletalMeshLoaded(Path) : Utils::IsAssetLoaded(Path);
-                    if (bIsMeshLoaded) {
-                        return; 
+                    // 3. FAST PATH: Check if pointer is ALREADY cached in C++ (0.001 ms, NO StaticFindObject!)
+                    if (NativeAsyncLoader::GetGlobalPointer(Path) != nullptr) {
+                        return; // Fully cached and verified in RAM!
                     }
 
-                    // 4. Otherwise, queue asset for async loading
+                    // 4. UNCACHED ASSET: Hand off to BP_Fetcher to resolve/load asynchronously!
+                    // This prevents StaticFindObject from freezing the Game Thread.
                     assetsToLoad.push_back(Path);
                 };
 
@@ -746,6 +764,16 @@ namespace DynPals {
                 if (!assetsToLoad.empty()) {
                     NativeAsyncLoader::RegisterPendingRequests(Character, static_cast<int>(assetsToLoad.size()));
                     
+                    // ---> FIX 1: COMMIT THE CHOSEN SKIN BEFORE YIELDING TO BACKGROUND THREAD!
+                    // This prevents the system from randomly rolling a different skin when the callback fires.
+                    PalPersistData tempPersist = ExistingData ? *ExistingData : PalPersistData{ InstanceID, L"", L"", L"", {} };
+                    tempPersist.bIsManuallyLocked = bManualLockState; 
+                    tempPersist.PackName = finalConfig.PackName;
+                    tempPersist.SkinName = finalConfig.SkinName;
+                    tempPersist.SwapLabel = finalConfig.SwapLabel;
+                    tempPersist.SkelMeshPath = finalConfig.SkelMeshPath;
+                    SaveManager::Get().SetPersistData(InstanceID, tempPersist, false);
+
                     if (NativeAsyncLoader::RequestBatchAsyncLoad(assetsToLoad, Character, ExplicitSwapIndex, ForceReroll, IsCompanionSync, IsEvolutionEnd)) {
                         return true; 
                     } else {
@@ -1099,14 +1127,12 @@ namespace DynPals {
             if (NewAnimInst && Utils::IsObjectValid(NewAnimInst)) {
                 UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
                 if (LinkFunc) {
-                    // ---> EXPLICIT FIX: Only Base and Physics exist as classes on disk/RAM in Palworld
                     std::vector<std::wstring> StandardLayers = {
                         L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C",
                         L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C"
                     };
 
                     for (const auto& LayerPath : StandardLayers) {
-                        // Use non-blocking mode (false) to prevent the 70ms disk search penalty
                         UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetInternal(LayerPath, false));
                         
                         if (!IsPalBlueprintValid(Character, BPName)) return;
@@ -1123,12 +1149,16 @@ namespace DynPals {
             ProfileStep(L"Trace 8: Syncing Static Params");
         }
 
+        // =========================================================================
+        // GRANULAR MATERIAL APPLICATION PROFILING (TRACE 9)
+        // =========================================================================
         struct { int32_t RetVal; } NumMatParams{0};
         Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
         for (int32_t i = 0; i < NumMatParams.RetVal; ++i) {
             struct { int32_t ElementIndex; UObject* Material; } ClearMatParams{i, nullptr};
             Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
         }
+        ProfileStep(L"Trace 9.0: Clear Existing Materials");
 
         for (auto& mat : swap.MatReplaceList) {
             std::wstring ChosenPath = mat.matPath;
@@ -1138,6 +1168,7 @@ namespace DynPals {
                 std::wstring VirtualFolder = mat.matPath.substr(0, mat.matPath.length() - 2);
 
                 std::vector<std::wstring> AvailableMats = Utils::GetAssetsInVirtualFolder(VirtualFolder);
+                ProfileStep(L"Trace 9.1 [Slot " + WideIndex + L"]: Wildcard Folder Scan ('" + VirtualFolder + L"')");
 
                 auto savedMatIt = persist.MatSet.find(mat.index);
                 if (savedMatIt != persist.MatSet.end() && !savedMatIt->second.empty()) {
@@ -1166,6 +1197,8 @@ namespace DynPals {
             UObject* NewMat = nullptr;
             if (!ChosenPath.empty()) {
                 NewMat = Utils::LoadAssetSafely(ChosenPath);
+                ProfileStep(L"Trace 9.2 [Slot " + WideIndex + L"]: LoadAssetSafely ('" + ChosenPath + L"')");
+
                 if (!NewMat || !Utils::IsObjectValid(NewMat)) {
                     DP_LOG(Warning, "[Slot {}] LoadAssetSafely FAILED for path: '{}'", WideIndex, ChosenPath);
                     continue;
@@ -1174,6 +1207,7 @@ namespace DynPals {
                 struct { int32_t ElementIndex; UObject* ReturnValue; } GetMatParams{idx, nullptr};
                 Utils::CallFunction(MeshComp, STR("GetMaterial"), &GetMatParams);
                 NewMat = GetMatParams.ReturnValue;
+                ProfileStep(L"Trace 9.2 [Slot " + WideIndex + L"]: GetMaterial Native Fallback");
                 
                 if (!NewMat || !Utils::IsObjectValid(NewMat)) {
                     continue;
@@ -1257,14 +1291,16 @@ namespace DynPals {
                     
                     struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, MID};
                     Utils::CallFunction(CurrentMeshComp, STR("SetMaterial"), &MatParams);
+                    ProfileStep(L"Trace 9.3 [Slot " + WideIndex + L"]: Create & Apply Dynamic Material Instance (RandomHue)");
                     continue;
                 }
             }
 
             struct { int32_t ElementIndex; UObject* Material; } MatParams{idx, NewMat};
             Utils::CallFunction(CurrentMeshComp, STR("SetMaterial"), &MatParams);
+            ProfileStep(L"Trace 9.4 [Slot " + WideIndex + L"]: SetMaterial Native Call");
         }
-        ProfileStep(L"Trace 9: Applying Materials");
+        ProfileStep(L"Trace 9.5: Total Applying Materials Finished");
 
         // UNPAUSE ANIMATIONS HERE! Must happen before Morph Targets to prevent D3D12 render crashes
         Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), false, false);
@@ -1272,7 +1308,6 @@ namespace DynPals {
         if (!swap.MorphTargetList.empty()) {
             static std::random_device rd;
             static std::mt19937 gen(rd());
-
 
             for (auto& morph : swap.MorphTargetList) {
                 double val = 0.0;
@@ -1321,7 +1356,6 @@ namespace DynPals {
         struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
-
         UObject* FacialComp = nullptr;
         Utils::GetPropertyValue<UObject*>(Character, STR("PalFacial"), FacialComp);
         
@@ -1365,6 +1399,5 @@ namespace DynPals {
         auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - total_start).count();
         DP_LOG(Default, "[Profile] [ApplySwap] Trace 12: Done! Total ApplySwap execution took {:.3f} ms", total_duration / 1000.0f);
     }
-
 }
 // --- END OF FILE src/PalProcessor.cpp ---

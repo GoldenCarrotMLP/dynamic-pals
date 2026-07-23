@@ -7,6 +7,7 @@ namespace DynPals {
     public:
         UIBase();
         virtual ~UIBase();
+        
 
         // Toggles open/close state
         void RequestToggle();
@@ -25,6 +26,7 @@ namespace DynPals {
         bool IsToggleRequested() const { return bToggleRequested; }
         bool RequiresInputLock() const { return bRequiresInputLock; }
         RC::Unreal::UObject* GetWidget() const { return MyWidget; }
+        virtual RC::Unreal::UObject* GetDesiredFocusTarget() const { return MyWidget; }
 
         void ProcessTick(RC::Unreal::UObject* PlayerController);
 
