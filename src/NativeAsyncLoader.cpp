@@ -355,7 +355,7 @@ namespace DynPals {
             if (GPendingAssets.count(path)) {
                 GPendingAssets.erase(path);
                 GFailedAssets.insert(path);
-                DP_LOG(Warning, "[NativeAsync] Batch load completed but asset failed RAM verification: '{}'", path);
+                DP_LOG(Default, "[NativeAsync] Batch load completed but asset failed RAM verification: '{}'", path);
             }
         }
 

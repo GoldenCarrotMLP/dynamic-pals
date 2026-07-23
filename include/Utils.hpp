@@ -409,7 +409,7 @@ namespace DynPals::Utils {
                         return Dest;
                     }
                 }
-                DP_LOG(Warning, "[Utils] Asset '{}' resolved via SLOW StaticFindObject. Re-caching globally.", AssetPath);
+                DP_LOG(Default, "[Utils] Asset '{}' resolved via SLOW StaticFindObject. Re-caching globally.", AssetPath);
                 NativeAsyncLoader::RegisterGlobalPointer(AssetPath, ExistingObj);
                 return ExistingObj;
             }
@@ -418,7 +418,7 @@ namespace DynPals::Utils {
         // TIER 5: Blocking Disk Load (Only if permitted)
         if (!bAllowBlocking) return nullptr;
 
-        DP_LOG(Warning, "[Utils] Executing SLOW BLOCKING LOAD for '{}' (This causes a game hitch!)", AssetPath);
+        DP_LOG(Default, "[Utils] Executing SLOW BLOCKING LOAD for '{}' (This causes a game hitch!)", AssetPath);
 
         std::wstring package, asset;
         size_t dot = formatted.find(L'.');

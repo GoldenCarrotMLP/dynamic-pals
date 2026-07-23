@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <functional>
 #include <mutex>
 #include <Unreal/UObjectGlobals.hpp>
 #include "DataTypes.hpp"
@@ -21,14 +22,17 @@ namespace DynPals {
         }
 
         void EnqueueToast(const std::wstring& Message, EPalLogPriority Priority = EPalLogPriority::Normal, EPalLogContentToneType Tone = EPalLogContentToneType::Normal);
-        
-        // Flushes startup/menu warnings once in-game
         void FlushQueuedToasts(); 
-
-        // Instantly clears active on-screen logs from WBP_PalLogWidget
         void ClearInGameLogs();
+        void ShowModalDialog(const std::wstring& Message);
 
-        // Controls whether toasts queue up or fire immediately
+        // Native 2-button hijacked modal dialog (Yes/No style with custom labels & actions)
+        void ShowTwoButtonModal(
+            const std::wstring& Message,
+            const std::wstring& RightBtnText, std::function<void()> OnRightClick,
+            const std::wstring& LeftBtnText = L"Cancel", std::function<void()> OnLeftClick = nullptr
+        );
+
         void SetReady(bool bReady) { bIsReadyForToasts = bReady; }
 
     private:
@@ -38,6 +42,6 @@ namespace DynPals {
 
         std::mutex ToastMutex;
         std::vector<PendingToast> ToastQueue;
-        bool bIsReadyForToasts = false; // Locked to false by default!
+        bool bIsReadyForToasts = false;
     };
 }

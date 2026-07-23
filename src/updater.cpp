@@ -5,6 +5,7 @@
 
 #include "Updater.hpp"
 #include "Utils.hpp"
+#include "NotificationManager.hpp" 
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <vector>
 #include <fstream>
@@ -157,19 +158,33 @@ namespace DynPals {
             // Attempt to directly overwrite DynamicPals.pak
             fs::copy_file(localStagingPakPath, expectedPakPath, fs::copy_options::overwrite_existing);
             DP_LOG(Normal, "Auto-Updater: Successfully synced asset pack to LogicMods: DynamicPals.pak");
-        } catch (const std::exception&) { // Removed unused 'e' variable to fix C4101
+        } catch (const std::exception&) { 
             // The copy failed, which means the game has locked the active DynamicPals.pak.
             DP_LOG(Warning, "Auto-Updater: DynamicPals.pak is locked. Saving to DynamicPals_update.pak...");
             
             try {
                 fs::copy_file(localStagingPakPath, updatePakPath, fs::copy_options::overwrite_existing);
-                DP_LOG(Error, "=========================================================");
-                DP_LOG(Error, "UPDATE PENDING: DynamicPals.pak is locked by the game.");
-                DP_LOG(Error, "1. Close Palworld.");
-                DP_LOG(Error, "2. Navigate to: Pal\\Content\\Paks\\LogicMods\\");
-                DP_LOG(Error, "3. Delete 'DynamicPals.pak'.");
-                DP_LOG(Error, "4. Rename 'DynamicPals_update.pak' to 'DynamicPals.pak'.");
-                DP_LOG(Error, "=========================================================");
+                
+                std::wstring instructions = 
+                    L"UPDATE PENDING:\n\n"
+    L"1. Click open folder.\n"
+    L"2. Delete DynamicPals.pak\n"
+    L"3. Rename 'DynamicPals_update.pak' to 'DynamicPals.pak\n"
+    L"4. Restart game";
+
+                // Displays the native modal popup window to the player!
+                NotificationManager::Get().ShowTwoButtonModal(
+    instructions,
+    L"Open Folder", []() {
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        std::filesystem::path palDir = std::filesystem::path(exePath).parent_path().parent_path().parent_path();
+        std::wstring modsPath = (palDir / L"Content" / L"Paks" / L"LogicMods").wstring();
+        ShellExecuteW(NULL, L"open", modsPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+    },
+    L"Close", []() {}
+);
+
             } catch (const std::exception& e2) {
                 DP_LOG(Error, "Auto-Updater: Failed to copy staged asset pack to LogicMods entirely: {}", Utils::StringToWString(e2.what()));
             }
@@ -283,6 +298,26 @@ namespace DynPals {
                                         DP_LOG(Default, "=========================================================");
                                         DP_LOG(Normal, "DynPals has been auto-updated to version: {} \nPlease restart Palworld to apply the new update", Utils::StringToWString(remoteVersion));
                                         DP_LOG(Default, "=========================================================");
+                                        
+                                        std::wstring instructions = 
+    L"UPDATE PENDING: DynamicPals.pak is locked by Palworld.\n\n"
+    L"Click 'Open Folder' to replace the file, or 'Open GitHub' to view releases.";
+
+NotificationManager::Get().ShowTwoButtonModal(
+    instructions,
+    L"Open Folder", []() {
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        std::filesystem::path palDir = std::filesystem::path(exePath).parent_path().parent_path().parent_path();
+        std::wstring modsPath = (palDir / L"Content" / L"Paks" / L"LogicMods").wstring();
+        ShellExecuteW(NULL, L"open", modsPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+    },
+    L"Open GitHub", []() {
+        ShellExecuteW(NULL, L"open", L"https://github.com/GoldenCarrotMLP/dynamic-pals/releases", NULL, NULL, SW_SHOWNORMAL);
+    }
+);
+                                    
+                                    
                                     } else {
                                         MoveFileExW(oldDllPath.c_str(), currentDllPath.c_str(), MOVEFILE_REPLACE_EXISTING);
                                         DP_LOG(Warning, "Auto-Updater: Failed to write new main.dll payload to disk.");

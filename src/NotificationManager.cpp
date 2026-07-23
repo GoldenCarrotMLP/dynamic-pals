@@ -1,12 +1,20 @@
+#define NOMINMAX
+#include <Windows.h>
+#include <shellapi.h>
+
 #include "NotificationManager.hpp"
+#include "UI/UIBase.hpp"
+#include "UI/WidgetBuilder.hpp"
+#include "UI/Components/Button.hpp"
 #include "AsyncHelper.hpp"
 #include "Utils.hpp"
+#include <Unreal/FText.hpp>
+#include <Unreal/FString.hpp>
 
 using namespace RC::Unreal;
 
 namespace DynPals {
 
-    // Safely fetches the active native LogManager subsystem by scanning all active World instances
     static UObject* GetActiveLogManager() {
         std::vector<UObject*> worlds;
         UObjectGlobals::FindAllOf(STR("World"), worlds);
@@ -18,7 +26,6 @@ namespace DynPals {
         UFunction* GetLogFunc = PalUtil->GetFunctionByNameInChain(STR("GetLogManager"));
         if (!GetLogFunc) return nullptr;
 
-        // Iterate through all loaded World instances to find the live, active gameplay world
         for (UObject* World : worlds) {
             if (!World) continue;
 
@@ -28,14 +35,13 @@ namespace DynPals {
                 PalUtil->ProcessEvent(GetLogFunc, &GetLogParams);
                 
                 if (GetLogParams.LogMgr) {
-                    return GetLogParams.LogMgr; // Found the active live game World!
+                    return GetLogParams.LogMgr;
                 }
             }
         }
         return nullptr;
     }
 
-    // Direct caller utilizing an already verified active LogManager
     static void ShowToastDirectWithLogManager(UObject* LogManager, const std::wstring& Message, EPalLogPriority Priority, EPalLogContentToneType Tone) {
         UObject* KTL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetTextLibrary"));
         if (!KTL) return;
@@ -60,6 +66,28 @@ namespace DynPals {
         LogManager->ProcessEvent(AddLogFunc, &LogParams);
     }
 
+    // Helper: Sets text directly on WBP_CommonButton's internal Text_Main component
+    static void SetCommonButtonText(UObject* CommonButtonObj, const std::wstring& TextStr) {
+        if (!CommonButtonObj || !Utils::IsObjectValid(CommonButtonObj)) return;
+
+        UObject* KTL = Utils::GetKTL();
+        UFunction* ConvFunc = Utils::GetKTLFunction(STR("Conv_StringToText"));
+        if (!KTL || !ConvFunc) return;
+
+        struct { FString InStr; FText OutText; } ConvParams{ FString(TextStr.c_str()), FText() };
+        KTL->ProcessEvent(ConvFunc, &ConvParams);
+
+        // Target the inner Text_Main text block proved by FModel JSON dump!
+        UObject* TextMainObj = nullptr;
+        if (Utils::GetPropertyValue<UObject*>(CommonButtonObj, STR("Text_Main"), TextMainObj, true) && TextMainObj) {
+            struct { FText InText; } TextParams{ ConvParams.OutText };
+            Utils::CallFunction(TextMainObj, STR("SetText"), &TextParams);
+        } else {
+            struct { FText InText; } TextParams{ ConvParams.OutText };
+            Utils::CallFunction(CommonButtonObj, STR("SetText"), &TextParams);
+        }
+    }
+
     void EnqueueUIToast(const std::wstring& Message, uint8_t PriorityType, uint8_t ToneType) {
         NotificationManager::Get().EnqueueToast(
             Message, 
@@ -70,14 +98,12 @@ namespace DynPals {
 
     void NotificationManager::EnqueueToast(const std::wstring& Message, EPalLogPriority Priority, EPalLogContentToneType Tone) {
         AsyncHelper::AsyncTask(ENamedThreads::GameThread, [this, Message, Priority, Tone]() {
-            // STRICT CHECK: Are we fully loaded in the overworld?
             if (!bIsReadyForToasts) {
                 std::lock_guard<std::mutex> lock(ToastMutex);
                 ToastQueue.push_back({Message, Priority, Tone});
                 return;
             }
 
-            // We are fully loaded, safely grab the log manager and print instantly
             UObject* LogManager = GetActiveLogManager();
             if (LogManager) {
                 ShowToastDirectWithLogManager(LogManager, Message, Priority, Tone);
@@ -96,7 +122,7 @@ namespace DynPals {
             std::vector<PendingToast> ToastsToFlush;
             {
                 std::lock_guard<std::mutex> lock(ToastMutex);
-                bIsReadyForToasts = true; // UNLOCK the queue! We are officially in-game.
+                bIsReadyForToasts = true;
                 ToastsToFlush = std::move(ToastQueue);
                 ToastQueue.clear();
             }
@@ -110,56 +136,211 @@ namespace DynPals {
     }
 
     void NotificationManager::ClearInGameLogs() {
-    // 1. Force-remove ALL active log toast widgets (Normal, Important, Error) from screen directly
-    std::vector<UObject*> logItems;
-    UObjectGlobals::FindAllOf(STR("PalLogWidgetBase"), logItems);
-    for (UObject* Item : logItems) {
-        if (Item && Utils::IsObjectValid(Item)) {
-            Utils::CallFunction(Item, STR("RemoveFromParent"));
+        std::vector<UObject*> logWidgets;
+        UObjectGlobals::FindAllOf(STR("WBP_PalLogWidget_C"), logWidgets);
+
+        for (UObject* LogWidget : logWidgets) {
+            if (!LogWidget || !Utils::IsObjectValid(LogWidget)) continue;
+
+            UObject* NormalScrollBox = nullptr;
+            if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ScrollBox_NormalLog"), NormalScrollBox) && NormalScrollBox) {
+                Utils::CallFunction(NormalScrollBox, STR("ClearChildren"));
+            }
+
+            UObject* ImportantBorder = nullptr;
+            if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ImportantBorder"), ImportantBorder) && ImportantBorder) {
+                Utils::CallFunction(ImportantBorder, STR("ClearChildren"));
+            }
+
+            UObject* VeryImportantBorder = nullptr;
+            if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("VeryImportantBorder"), VeryImportantBorder) && VeryImportantBorder) {
+                Utils::CallFunction(VeryImportantBorder, STR("ClearChildren"));
+            }
+
+            FProperty* NormalListProp = Utils::GetProperty(LogWidget, STR("NormalLogList"));
+            if (NormalListProp) {
+                TArray<UObject*>* NormalList = NormalListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
+                if (NormalList) NormalList->Empty();
+            }
+
+            FProperty* ImportantListProp = Utils::GetProperty(LogWidget, STR("ImportantLogList"));
+            if (ImportantListProp) {
+                TArray<UObject*>* ImportantList = ImportantListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
+                if (ImportantList) ImportantList->Empty();
+            }
+
+            FProperty* VeryImpIDArrayProp = Utils::GetProperty(LogWidget, STR("veryImportantLogIDArray"));
+            if (VeryImpIDArrayProp) {
+                TArray<DynPalsGuid>* VeryImpIDArray = VeryImpIDArrayProp->ContainerPtrToValuePtr<TArray<DynPalsGuid>>(LogWidget);
+                if (VeryImpIDArray) VeryImpIDArray->Empty();
+            }
         }
     }
 
-    // 2. Clear WBP_PalLogWidget_C UI containers and tracking arrays
-    std::vector<UObject*> logWidgets;
-    UObjectGlobals::FindAllOf(STR("WBP_PalLogWidget_C"), logWidgets);
+    void NotificationManager::ShowModalDialog(const std::wstring& Message) {
+        AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Message]() {
+            UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+            if (!PlayerController || !Utils::IsObjectValid(PlayerController)) return;
 
-    for (UObject* LogWidget : logWidgets) {
-        if (!LogWidget || !Utils::IsObjectValid(LogWidget)) continue;
+            UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+            UObject* KTL = Utils::GetKTL();
+            if (!PalUtil || !KTL) return;
 
-        // A. Clear visual UI containers for Normal, Important, and Very Important
-        UObject* NormalScrollBox = nullptr;
-        if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ScrollBox_NormalLog"), NormalScrollBox) && NormalScrollBox) {
-            Utils::CallFunction(NormalScrollBox, STR("ClearChildren"));
-        }
+            UFunction* AlertFunc = PalUtil->GetFunctionByNameInChain(STR("Alert"));
+            UFunction* ConvFunc = KTL->GetFunctionByNameInChain(STR("Conv_StringToText"));
+            if (!AlertFunc || !ConvFunc) return;
 
-        UObject* ImportantBorder = nullptr;
-        if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ImportantBorder"), ImportantBorder) && ImportantBorder) {
-            Utils::CallFunction(ImportantBorder, STR("ClearChildren"));
-        }
+            struct { FString InStr; FText OutText; } ConvParams{ FString(Message.c_str()), FText() };
+            KTL->ProcessEvent(ConvFunc, &ConvParams);
 
-        UObject* VeryImportantBorder = nullptr;
-        if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("VeryImportantBorder"), VeryImportantBorder) && VeryImportantBorder) {
-            Utils::CallFunction(VeryImportantBorder, STR("ClearChildren"));
-        }
+            struct { UObject* WorldContext; FText Message; } AlertParams{ PlayerController, ConvParams.OutText };
+            PalUtil->ProcessEvent(AlertFunc, &AlertParams);
 
-        // B. Empty internal tracking arrays on WBP_PalLogWidget
-        FProperty* NormalListProp = Utils::GetProperty(LogWidget, STR("NormalLogList"));
-        if (NormalListProp) {
-            TArray<UObject*>* NormalList = NormalListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
-            if (NormalList) NormalList->Empty();
-        }
-
-        FProperty* ImportantListProp = Utils::GetProperty(LogWidget, STR("ImportantLogList"));
-        if (ImportantListProp) {
-            TArray<UObject*>* ImportantList = ImportantListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
-            if (ImportantList) ImportantList->Empty();
-        }
-
-        FProperty* VeryImpIDArrayProp = Utils::GetProperty(LogWidget, STR("veryImportantLogIDArray"));
-        if (VeryImpIDArrayProp) {
-            TArray<DynPalsGuid>* VeryImpIDArray = VeryImpIDArrayProp->ContainerPtrToValuePtr<TArray<DynPalsGuid>>(LogWidget);
-            if (VeryImpIDArray) VeryImpIDArray->Empty();
-        }
+            DP_LOG(Default, "[NotificationManager] Displayed native modal alert dialog.");
+        });
     }
-}
+
+    // 2-Button Hijacked Modal Controller
+    class TwoButtonModalUI : public UIBase {
+    public:
+        TwoButtonModalUI(
+            const std::wstring& InMessage,
+            const std::wstring& InRightText, std::function<void()> InRightClick,
+            const std::wstring& InLeftText, std::function<void()> InLeftClick
+        ) : Message(InMessage), 
+            RightText(InRightText), OnRightClick(InRightClick),
+            LeftText(InLeftText), OnLeftClick(InLeftClick)
+        {
+            bCloseOnEscape = true;
+            bRequiresInputLock = true;
+        }
+
+    protected:
+        virtual void BuildWidget() override {
+            if (!CurrentPlayerController) return;
+
+            UClass* DialogClass = Utils::GetClassCached(STR("/Game/Pal/Blueprint/UI/Dialog/WBP_PalDialog.WBP_PalDialog_C"));
+            if (!DialogClass) return;
+
+            UObject* WBL = Utils::GetWBL();
+            UFunction* CreateFunc = Utils::GetWBLFunction(STR("Create"));
+            if (!WBL || !CreateFunc) return;
+
+            struct { UObject* WorldContext; UClass* WidgetType; UObject* OwningPlayer; UObject* ReturnValue; } CreateParams{
+                CurrentPlayerController, DialogClass, CurrentPlayerController, nullptr
+            };
+            WBL->ProcessEvent(CreateFunc, &CreateParams);
+            MyWidget = CreateParams.ReturnValue;
+            if (!MyWidget) return;
+
+            // Add Background Blur to CanvasPanel_0
+            UObject* CanvasRoot = nullptr;
+            if (Utils::GetPropertyValue<UObject*>(MyWidget, STR("CanvasPanel_0"), CanvasRoot) && CanvasRoot) {
+                UClass* BlurClass = Utils::GetClassCached(STR("/Script/UMG.BackgroundBlur"));
+                if (BlurClass) {
+                    FStaticConstructObjectParameters BlurParams{BlurClass, MyWidget};
+                    BlurParams.Name = FName();
+                    UObject* BlurWidget = UObjectGlobals::StaticConstructObject(BlurParams);
+                    if (BlurWidget) {
+                        Utils::SetPropertyValue<float>(BlurWidget, STR("BlurStrength"), 4.0f);
+                        struct { UObject* Content; UObject* ReturnValue; } AddParams{BlurWidget, nullptr};
+                        Utils::CallFunction(CanvasRoot, STR("AddChild"), &AddParams);
+                        if (AddParams.ReturnValue) {
+                            struct { int32_t ZOrder; } ZParams{-1};
+                            Utils::CallFunction(AddParams.ReturnValue, STR("SetZOrder"), &ZParams);
+                        }
+                    }
+                }
+            }
+
+            // Call SetupUI with DialogType = 1 (YesNo mode - forces 2 native buttons)
+            UObject* KTL = Utils::GetKTL();
+            UFunction* ConvFunc = Utils::GetKTLFunction(STR("Conv_StringToText"));
+            if (KTL && ConvFunc) {
+                struct { FString InStr; FText OutText; } ConvParams{ FString(Message.c_str()), FText() };
+                KTL->ProcessEvent(ConvFunc, &ConvParams);
+
+                struct { uint8_t DialogType; uint8_t Pad[7]; FText Msg; } SetupParams{ 1, {0}, ConvParams.OutText };
+                Utils::CallFunction(MyWidget, STR("SetupUI"), &SetupParams);
+            }
+
+            // Fetch inner WBP_CommonPopupWindow
+            UObject* PopupWindow = nullptr;
+            Utils::GetPropertyValue<UObject*>(MyWidget, STR("WBP_CommonPopupWindow"), PopupWindow);
+
+            if (PopupWindow) {
+                // Exact Property Names from FModel Dump: WBP_CommonButton_L and WBP_CommonButton_R
+                UObject* LeftBtnObj = nullptr;
+                UObject* RightBtnObj = nullptr;
+
+                Utils::GetPropertyValue<UObject*>(PopupWindow, STR("WBP_CommonButton_L"), LeftBtnObj, true);
+                Utils::GetPropertyValue<UObject*>(PopupWindow, STR("WBP_CommonButton_R"), RightBtnObj, true);
+
+                // Fallback via functions
+                if (!LeftBtnObj) {
+                    struct { UObject* ReturnValue; } LeftRes{ nullptr };
+                    Utils::CallFunction(PopupWindow, STR("GetLeftButton"), &LeftRes);
+                    LeftBtnObj = LeftRes.ReturnValue;
+                }
+                if (!RightBtnObj) {
+                    struct { UObject* ReturnValue; } RightRes{ nullptr };
+                    Utils::CallFunction(PopupWindow, STR("GetRightButton"), &RightRes);
+                    RightBtnObj = RightRes.ReturnValue;
+                }
+
+                // Hijack Right Button ("Yes" / Confirm)
+                if (RightBtnObj) {
+                    SetCommonButtonText(RightBtnObj, RightText);
+                    
+                    RightBtnCtrl = std::make_unique<UI::Button>(RightBtnObj);
+                    auto action = OnRightClick;
+                    RightBtnCtrl->OnClicked([this, action]() {
+                        if (action) action();
+                        RequestToggle();
+                    });
+                }
+
+                // Hijack Left Button ("No" / Cancel)
+                if (LeftBtnObj) {
+                    SetCommonButtonText(LeftBtnObj, LeftText);
+
+                    LeftBtnCtrl = std::make_unique<UI::Button>(LeftBtnObj);
+                    auto action = OnLeftClick;
+                    LeftBtnCtrl->OnClicked([this, action]() {
+                        if (action) action();
+                        RequestToggle();
+                    });
+                }
+            }
+
+            struct { int32_t ZOrder; } ViewportParams{99999};
+            Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
+        }
+
+        virtual void OnTickUI() override {
+            if (RightBtnCtrl) RightBtnCtrl->Tick();
+            if (LeftBtnCtrl) LeftBtnCtrl->Tick();
+        }
+
+    private:
+        std::wstring Message;
+        std::wstring RightText;
+        std::function<void()> OnRightClick;
+        std::wstring LeftText;
+        std::function<void()> OnLeftClick;
+
+        std::unique_ptr<UI::Button> RightBtnCtrl;
+        std::unique_ptr<UI::Button> LeftBtnCtrl;
+    };
+
+    void NotificationManager::ShowTwoButtonModal(
+        const std::wstring& Message,
+        const std::wstring& RightBtnText, std::function<void()> OnRightClick,
+        const std::wstring& LeftBtnText, std::function<void()> OnLeftClick
+    ) {
+        AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Message, RightBtnText, OnRightClick, LeftBtnText, OnLeftClick]() {
+            auto Modal = new TwoButtonModalUI(Message, RightBtnText, OnRightClick, LeftBtnText, OnLeftClick);
+            Modal->RequestToggle();
+        });
+    }
 }

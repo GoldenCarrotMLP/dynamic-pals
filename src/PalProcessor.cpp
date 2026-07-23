@@ -779,7 +779,7 @@ namespace DynPals {
                     } else {
                         static bool bWarned = false;
                         if (!bWarned) {
-                            DP_LOG(Warning, "ModActor .pak not found! Falling back to blocking load.");
+                            DP_LOG(Warning, "DynamicPals.pak not found! Please restart game.");
                             bWarned = true;
                         }
                     }
