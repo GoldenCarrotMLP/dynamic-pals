@@ -224,14 +224,24 @@ namespace DynPals {
         return true;
     }
 
-    std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
-        if (InputID.rfind(L"MiddleBoss_", 0) == 0) return InputID.substr(11);
-        if (InputID.rfind(L"BOSS_", 0) == 0) return InputID.substr(5);
-        if (InputID.rfind(L"RAID_", 0) == 0) return InputID.substr(5);
-        if (InputID.rfind(L"GYM_", 0) == 0) return InputID.substr(4);
-        if (InputID.rfind(L"PREDATOR_", 0) == 0) return InputID.substr(9); 
-        return InputID;
+    #include <cwctype> // for std::towlower
+
+static bool StartsWithIgnoreCase(std::wstring_view str, std::wstring_view prefix) {
+    if (str.size() < prefix.size()) return false;
+    for (size_t i = 0; i < prefix.size(); ++i) {
+        if (std::towlower(str[i]) != std::towlower(prefix[i])) return false;
     }
+    return true;
+}
+
+std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
+    if (StartsWithIgnoreCase(InputID, L"MiddleBoss_")) return InputID.substr(11);
+    if (StartsWithIgnoreCase(InputID, L"BOSS_"))       return InputID.substr(5);
+    if (StartsWithIgnoreCase(InputID, L"RAID_"))       return InputID.substr(5);
+    if (StartsWithIgnoreCase(InputID, L"GYM_"))        return InputID.substr(4);
+    if (StartsWithIgnoreCase(InputID, L"PREDATOR_"))   return InputID.substr(9); 
+    return InputID;
+}
 
     void PalProcessor::ScanActivePals() {
         return;
