@@ -491,6 +491,22 @@ void HooksManager::RegisterHooks() {
     DP_LOG(Default, "Successfully hooked OnCompletedInitParam (Native Pipeline Active!)\n");
   }
 
+  // --- FUNNEL CHARACTER SPECIFIC HOOKS ---
+  UFunction* FunnelSpawnFunc = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr, STR("/Script/Pal.PalFunnelCharacter:OnSpawned"));
+  if (FunnelSpawnFunc) {
+      FunnelSpawnFunc->RegisterPostHook(OnPalSpawnedReady, nullptr);
+      DP_LOG(Default, "Successfully hooked PalFunnelCharacter:OnSpawned");
+  }
+
+  UFunction* FunnelOnActiveFunc = UObjectGlobals::StaticFindObject<UFunction*>(
+      nullptr, nullptr, STR("/Script/Pal.PalFunnelCharacter:OnActive"));
+  if (FunnelOnActiveFunc) {
+      FunnelOnActiveFunc->RegisterPostHook(OnPalSpawnedReady, nullptr);
+      DP_LOG(Default, "Successfully hooked PalFunnelCharacter:OnActive");
+  }
+  // ----------------------------------------
+
   UFunction* RestartFunc = UObjectGlobals::StaticFindObject<UFunction*>(
       nullptr, nullptr, STR("/Script/Engine.PlayerController:ClientRestart"));
 

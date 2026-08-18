@@ -56,6 +56,9 @@ namespace DynPals {
         void ClearAllSwappedStatus();
         void ClearSwappedStatus(const std::wstring& InstanceID, RC::Unreal::UObject* Character);
 
+        // Helper to locate all linked actors (Funnels, Owners, Party members)
+        std::set<RC::Unreal::UObject*> FindLinkedPals(RC::Unreal::UObject* Character, const std::wstring& InstanceID, const FPalInstanceID& InstanceIDStruct);
+
     private:
         PalProcessor() = default;
         PalProcessor(const PalProcessor&) = delete;

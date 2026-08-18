@@ -602,9 +602,6 @@ RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
     if (RerollButton && RerollButton->GetWidget()) {
         return RerollButton->GetWidget();
     }
-    if (SkinDropdown && SkinDropdown->Build(MyWidget, CurrentPlayerController)) {
-        return SkinDropdown->Build(MyWidget, CurrentPlayerController);
-    }
     return MyWidget;
 }
 
@@ -1197,7 +1194,7 @@ RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
         if (SkinDropdown)         SkinDropdown->Tick();
         if (HideInvalidSwitch)    HideInvalidSwitch->Tick();
         if (RerollButton)         RerollButton->Tick();
-        if (ResetButton)          ResetButton->Tick();
+        if (ResetButton)          ResetButton->Tick(); // NEW: Tick reset button
         if (FocusPalSwitch)       FocusPalSwitch->Tick();
         if (CameraRotationSlider) CameraRotationSlider->Tick();
 

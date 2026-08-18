@@ -246,7 +246,72 @@ std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
     void PalProcessor::ScanActivePals() {
         return;
     }
+std::set<UObject*> PalProcessor::FindLinkedPals(UObject* Character, const std::wstring& InstanceID, const FPalInstanceID& InstanceIDStruct) {
+        std::set<UObject*> result;
+        if (!Character || !Utils::IsObjectValid(Character)) return result;
 
+        result.insert(Character);
+
+        // 1. Existing tracked companions
+        auto it = ActivePalsByInstanceID.find(InstanceID);
+        if (it != ActivePalsByInstanceID.end()) {
+            for (UObject* pal : it->second) {
+                if (pal && Utils::IsObjectValid(pal)) result.insert(pal);
+            }
+        }
+
+        UClass* FunnelClass = Utils::GetClassCached(STR("/Script/Pal.PalFunnelCharacter"));
+        bool bIsFunnel = FunnelClass && Character->GetClassPrivate()->IsChildOf(FunnelClass);
+
+        // 2. If Funnel -> Find Owner Pal Actor
+        if (bIsFunnel) {
+            UFunction* GetOwnerFunc = Character->GetFunctionByNameInChain(STR("GetOwnerPal"));
+            if (GetOwnerFunc) {
+                struct { UObject* RetVal; } Params{ nullptr };
+                Utils::SafeProcessEvent(Character, GetOwnerFunc, &Params);
+                if (Params.RetVal && Utils::IsObjectValid(Params.RetVal)) {
+                    result.insert(Params.RetVal);
+                }
+            }
+        }
+        // 3. If Owner Pal -> Find Funnel Actor
+        else {
+            UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+            if (PalUtil && Utils::IsObjectValid(PalUtil)) {
+                struct { UObject* WorldContext; UObject* RetVal; } FMgrParams{ Character, nullptr };
+                Utils::CallFunction(PalUtil, STR("GetFunnelCharacterManager"), &FMgrParams);
+                if (FMgrParams.RetVal && Utils::IsObjectValid(FMgrParams.RetVal)) {
+                    struct { UObject* Owner; UObject* RetVal; } FunnelParams{ Character, nullptr };
+                    Utils::SafeProcessEvent(FMgrParams.RetVal, FMgrParams.RetVal->GetFunctionByNameInChain(STR("GetFunnelCharacterByOwner")), &FunnelParams);
+                    if (FunnelParams.RetVal && Utils::IsObjectValid(FunnelParams.RetVal)) {
+                        result.insert(FunnelParams.RetVal);
+                    }
+                }
+            }
+        }
+
+        // 4. World Scan Fallback: Match any Funnel whose OwnerCharacterId matches
+        if (InstanceIDStruct.InstanceId.IsValid()) {
+            std::vector<UObject*> AllFunnels;
+            UObjectGlobals::FindAllOf(STR("PalFunnelCharacter"), AllFunnels);
+            for (UObject* FunnelObj : AllFunnels) {
+                if (FunnelObj && Utils::IsObjectValid(FunnelObj)) {
+                    FPalInstanceID FId;
+                    if (Utils::GetPropertyValue<FPalInstanceID>(FunnelObj, STR("OwnerCharacterId"), FId, true)) {
+                        if (FId.InstanceId.A == InstanceIDStruct.InstanceId.A &&
+                            FId.InstanceId.B == InstanceIDStruct.InstanceId.B &&
+                            FId.InstanceId.C == InstanceIDStruct.InstanceId.C &&
+                            FId.InstanceId.D == InstanceIDStruct.InstanceId.D) {
+                            result.insert(FunnelObj);
+                        }
+                    }
+                }
+            }
+        }
+
+        ActivePalsByInstanceID[InstanceID] = result;
+        return result;
+    }
     void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
         if (!Character || !Utils::IsObjectValid(Character)) return;
         
@@ -260,211 +325,6 @@ std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
                 PalProcessor::Get().ProcessPal(Character, false, SwapIndex, false, true);
             });
         }).detach();
-    }
-
-    void PalProcessor::ResetPal(UObject* Character) {
-        if (!Character || !Utils::IsObjectValid(Character)) return;
-
-        UObject* ParamComp = nullptr;
-        Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp, true);
-        if (!ParamComp || !Utils::IsObjectValid(ParamComp)) return;
-
-        UObject* IndivParam = nullptr;
-        Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam, true);
-        if (!IndivParam || !Utils::IsObjectValid(IndivParam)) return;
-
-        FPalInstanceID InstanceIDStruct;
-        if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct, true)) return;
-        if (!InstanceIDStruct.InstanceId.IsValid()) return;
-
-        std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
-
-        // 1. Fetch current persist data to grab any morphs that need zeroing out
-        PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
-        std::map<std::wstring, double> MorphsToZero;
-        if (ExistingData) {
-            MorphsToZero = ExistingData->MorphSet;
-        }
-
-        // 2. Prepare wiped persist data locked to default
-        PalPersistData newData;
-        newData.InstanceID = InstanceID;
-        newData.PackName = L"";
-        newData.SkinName = L"";
-        newData.SwapLabel = L"";
-        newData.SkelMeshPath = L"";
-        newData.MorphSet.clear();
-        newData.MatSet.clear();
-        newData.MatColorSet.clear();
-        newData.bIsManuallyLocked = true; // Lock so the matchmaker won't auto-assign skins
-
-        SaveManager::Get().SetPersistData(InstanceID, newData, true);
-
-        // 3. Clear tracked swapped instance
-        SwappedInstances.erase(Character);
-
-        // 4. Revert visuals on Character and any active companion instances (party/glider/mount)
-        auto& palSet = ActivePalsByInstanceID[InstanceID];
-        palSet.insert(Character);
-
-        for (UObject* TargetPalObj : palSet) {
-            if (!TargetPalObj || !Utils::IsObjectValid(TargetPalObj)) continue;
-
-            SwappedInstances.erase(TargetPalObj);
-
-            std::wstring BPName;
-            if (!IsPalBlueprintValid(TargetPalObj, BPName)) continue;
-
-            UObject* MeshComp = nullptr;
-            Utils::CallFunction(TargetPalObj, STR("GetMainMesh"), &MeshComp);
-            if (!MeshComp || !Utils::IsObjectValid(MeshComp)) continue;
-
-            Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), true, false);
-
-            struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ true };
-            Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &EnablePP);
-
-            UClass* VanillaAnimClass = nullptr;
-            UObject* VanillaSkeleton = nullptr;
-            UObject* VanillaStaticParam = nullptr;
-            UObject* VanillaSkelMesh = nullptr;
-
-            UClass* CharClass = TargetPalObj->GetClassPrivate();
-            if (CharClass && Utils::IsObjectValid(CharClass)) {
-                UObject* VanillaCDO = CharClass->GetClassDefaultObject();
-                if (VanillaCDO && Utils::IsObjectValid(VanillaCDO)) {
-                    UObject* VanillaMesh = nullptr;
-                    Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("Mesh"), VanillaMesh);
-                    if (VanillaMesh && Utils::IsObjectValid(VanillaMesh)) {
-                        Utils::GetPropertyValue<UClass*>(VanillaMesh, STR("AnimClass"), VanillaAnimClass);
-                        if (VanillaAnimClass && Utils::IsObjectValid(VanillaAnimClass)) {
-                            Utils::GetPropertyValue<UObject*>(VanillaAnimClass, STR("TargetSkeleton"), VanillaSkeleton);
-                        }
-                        if (!Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkeletalMesh"), VanillaSkelMesh)) {
-                            Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkinnedAsset"), VanillaSkelMesh);
-                        }
-                        if (VanillaSkelMesh && Utils::IsObjectValid(VanillaSkelMesh) && !VanillaSkeleton) {
-                            Utils::GetPropertyValue<UObject*>(VanillaSkelMesh, STR("Skeleton"), VanillaSkeleton);
-                        }
-                    }
-                    Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("StaticCharacterParameterComponent"), VanillaStaticParam);
-                }
-            }
-
-            // A. Restore AnimClass
-            UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
-            if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
-            if (SetAnimFunc && VanillaAnimClass) {
-                struct { UClass* NewClass; } Params{ VanillaAnimClass };
-                Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &Params);
-            }
-
-            // B. Restore StaticCharacterParameterComponent (Montages, blend maps)
-            if (VanillaStaticParam && Utils::IsObjectValid(VanillaStaticParam)) {
-                UObject* CurrentStaticParam = nullptr;
-                Utils::GetPropertyValue<UObject*>(TargetPalObj, STR("StaticCharacterParameterComponent"), CurrentStaticParam);
-                if (CurrentStaticParam && Utils::IsObjectValid(CurrentStaticParam)) {
-                    auto CopyProp = [](UObject* Src, UObject* Dest, const wchar_t* PropName) {
-                        FProperty* SrcProp = Utils::GetProperty(Src, PropName);
-                        FProperty* DestProp = Utils::GetProperty(Dest, PropName);
-                        if (SrcProp && DestProp) {
-                            void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(Src);
-                            void* DestPtr = DestProp->ContainerPtrToValuePtr<void>(Dest);
-                            if (SrcPtr && DestPtr) {
-                                DestProp->CopyCompleteValue(DestPtr, SrcPtr);
-                            }
-                        }
-                    };
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("PettingSize"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("PettingStartAddDistance"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("PettingEndLeaveDistance"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("PettingDistance"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("HPGaugeUIOffset"));
-                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("SleepOnSideInfoMapForMapObject"));
-                }
-            }
-
-            // C. Re-link Anim Layers
-            UObject* NewAnimInst = nullptr;
-            Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
-            if (NewAnimInst && Utils::IsObjectValid(NewAnimInst)) {
-                UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
-                if (LinkFunc) {
-                    std::vector<std::wstring> StandardLayers = {
-                        L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C",
-                        L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C"
-                    };
-                    for (const auto& LayerPath : StandardLayers) {
-                        UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetInternal(LayerPath, false));
-                        if (LayerClass && Utils::IsObjectValid(LayerClass)) {
-                            struct { UClass* InClass; } LinkParams{ LayerClass };
-                            Utils::SafeProcessEvent(NewAnimInst, LinkFunc, &LinkParams);
-                        }
-                    }
-                }
-            }
-
-            // D. Restore Skeletal Mesh
-            if (VanillaSkelMesh && Utils::IsObjectValid(VanillaSkelMesh)) {
-                if (VanillaSkeleton && Utils::IsObjectValid(VanillaSkeleton)) {
-                    Utils::SetPropertyValue<UObject*>(VanillaSkelMesh, STR("Skeleton"), VanillaSkeleton);
-                }
-                struct { UObject* InMesh; bool bReinitPose; } MeshParams{VanillaSkelMesh, true};
-                Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
-            }
-
-            // E. Clear all Material Overrides (Unreal Engine automatically reverts to the default SkeletalMesh materials)
-            struct { int32_t RetVal; } NumMatParams{0};
-            Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
-            for (int32_t i = 0; i < NumMatParams.RetVal; ++i) {
-                struct { int32_t ElementIndex; UObject* Material; } ClearMatParams{i, nullptr};
-                Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
-            }
-
-            // F. Zero out previously active Morph Targets
-            for (const auto& [morphName, _] : MorphsToZero) {
-                struct { FName MorphTargetName; float Value; bool bRemoveZeroWeight; } MorphParams{
-                    FName(morphName.c_str(), FNAME_Add), 0.0f, true
-                };
-                Utils::CallFunction(MeshComp, STR("SetMorphTarget"), &MorphParams);
-            }
-
-            // G. Unpause Animations & re-enable PostProcess
-            Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), false, false);
-            struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
-            Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
-
-            // H. Reset PalFacialComponent
-            UObject* FacialComp = nullptr;
-            Utils::GetPropertyValue<UObject*>(TargetPalObj, STR("PalFacial"), FacialComp);
-            if (!FacialComp || !Utils::IsObjectValid(FacialComp)) {
-                UClass* FacialClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Pal.PalFacialComponent"));
-                if (FacialClass && Utils::IsObjectValid(FacialClass)) {
-                    struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{FacialClass, nullptr};
-                    Utils::CallFunction(TargetPalObj, STR("GetComponentByClass"), &GetCompParams);
-                    FacialComp = GetCompParams.ReturnValue;
-                }
-            }
-            if (FacialComp && Utils::IsObjectValid(FacialComp)) {
-                UObject* MainModule = nullptr;
-                if (Utils::GetPropertyValue<UObject*>(FacialComp, STR("MainModule"), MainModule) && MainModule && Utils::IsObjectValid(MainModule)) {
-                    struct { UObject* SkeletalMeshComponent; } SetupParams{ MeshComp };
-                    UFunction* SetupFunc = MainModule->GetFunctionByNameInChain(STR("Setup_FacialModule"));
-                    if (SetupFunc) {
-                        Utils::SafeProcessEvent(MainModule, SetupFunc, &SetupParams);
-                    }
-                }
-            }
-        }
-
-        VFXManager::Get().PlaySwapEffect(Character, L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
-        DP_LOG(Default, "[PalProcessor] Pal '{}' (ID: '{}') successfully reset to default vanilla mesh and locked.", Character->GetName(), InstanceID);
     }
 
     void PalProcessor::DelayedReroll(UObject* Character, const std::wstring& CompName) {
@@ -494,8 +354,21 @@ std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
         if (!IndivParam || !Utils::IsObjectValid(IndivParam)) return;
 
         FPalInstanceID InstanceIDStruct;
-        if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct)) return;
-        
+        bool bGotID = false;
+
+        UClass* FunnelClass = Utils::GetClassCached(STR("/Script/Pal.PalFunnelCharacter"));
+        bool bIsFunnel = FunnelClass && Character->GetClassPrivate()->IsChildOf(FunnelClass);
+
+        if (bIsFunnel) {
+            bGotID = Utils::GetPropertyValue<FPalInstanceID>(Character, STR("OwnerCharacterId"), InstanceIDStruct, true);
+            if (!bGotID || !InstanceIDStruct.InstanceId.IsValid()) {
+                bGotID = Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct, true);
+            }
+        } else {
+            bGotID = Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct, true);
+        }
+
+        if (!bGotID || !InstanceIDStruct.InstanceId.IsValid()) return;
         std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
 
         ClearSwappedStatus(InstanceID, Character);
@@ -524,6 +397,9 @@ std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
             SaveManager::Get().SetPersistData(InstanceID, *ExistingData, true); 
         }
 
+        // Link up companions immediately
+        FindLinkedPals(Character, InstanceID, InstanceIDStruct);
+
         std::thread([Character, SwapIndex, DelayMs]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
             
@@ -532,8 +408,8 @@ std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
                 PalProcessor::Get().ProcessPal(Character, false, SwapIndex);
             });
         }).detach();
+    
     }
-
     int PalProcessor::EvaluateIdealSwapIndex(UObject* Character, std::wstring& OutInstanceID) {
         return -1; 
     }
@@ -567,29 +443,25 @@ std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
         struct { UObject* WorldContext; UObject* ReturnValue; } HolderParams{ WorldContext, nullptr };
         Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetOtomoHolderComponent")), &HolderParams);
         UObject* OtomoHolder = HolderParams.ReturnValue;
-        if (!OtomoHolder || !Utils::IsObjectValid(OtomoHolder)) return;
-
-        struct { UObject* WorldContext; UObject* ReturnValue; } FunnelMgrParams{ WorldContext, nullptr };
-        Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetFunnelCharacterManager")), &FunnelMgrParams);
-        UObject* FunnelManager = FunnelMgrParams.ReturnValue;
-
-        for (int32_t i = 0; i < 5; ++i) {
-            struct { int32_t SlotIndex; UObject* ReturnValue; } OtomoParams{ i, nullptr };
-            Utils::SafeProcessEvent(OtomoHolder, OtomoHolder->GetFunctionByNameInChain(STR("TryGetOtomoActorBySlotIndex")), &OtomoParams);
-            UObject* OtomoChar = OtomoParams.ReturnValue;
-            
-            if (OtomoChar && Utils::IsObjectValid(OtomoChar)) {
-                ProcessPal(OtomoChar, false);
-
-                if (FunnelManager && Utils::IsObjectValid(FunnelManager)) {
-                    struct { UObject* Owner; UObject* ReturnValue; } FunnelParams{ OtomoChar, nullptr };
-                    Utils::SafeProcessEvent(FunnelManager, FunnelManager->GetFunctionByNameInChain(STR("GetFunnelCharacterByOwner")), &FunnelParams);
-                    UObject* FunnelChar = FunnelParams.ReturnValue;
-                    
-                    if (FunnelChar && Utils::IsObjectValid(FunnelChar)) {
-                        ProcessPal(FunnelChar, false);
-                    }
+        
+        if (OtomoHolder && Utils::IsObjectValid(OtomoHolder)) {
+            for (int32_t i = 0; i < 5; ++i) {
+                struct { int32_t SlotIndex; UObject* ReturnValue; } OtomoParams{ i, nullptr };
+                Utils::SafeProcessEvent(OtomoHolder, OtomoHolder->GetFunctionByNameInChain(STR("TryGetOtomoActorBySlotIndex")), &OtomoParams);
+                UObject* OtomoChar = OtomoParams.ReturnValue;
+                
+                if (OtomoChar && Utils::IsObjectValid(OtomoChar)) {
+                    ProcessPal(OtomoChar, false);
                 }
+            }
+        }
+
+        // --- NEW: Global Funnel Sweep ---
+        std::vector<UObject*> AllFunnels;
+        UObjectGlobals::FindAllOf(STR("PalFunnelCharacter"), AllFunnels);
+        for (UObject* Funnel : AllFunnels) {
+            if (Funnel && Utils::IsObjectValid(Funnel)) {
+                ProcessPal(Funnel, false);
             }
         }
     }
@@ -673,15 +545,29 @@ std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
             return false;
         }
 
+        // --- NEW: FUNNEL SYNC LOGIC ---
         FPalInstanceID InstanceIDStruct;
-        if (!Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct, true)) {
-            return false;
+        bool bGotID = false;
+
+        UClass* FunnelClass = Utils::GetClassCached(STR("/Script/Pal.PalFunnelCharacter"));
+        bool bIsFunnel = FunnelClass && Character->GetClassPrivate()->IsChildOf(FunnelClass);
+
+        if (bIsFunnel) {
+            // Force Funnel Characters to use their Owner's InstanceID so they share the exact same skin saves!
+            bGotID = Utils::GetPropertyValue<FPalInstanceID>(Character, STR("OwnerCharacterId"), InstanceIDStruct, true);
+            if (!bGotID || !InstanceIDStruct.InstanceId.IsValid()) {
+                bGotID = Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct, true);
+            }
+        } else {
+            bGotID = Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct, true);
         }
-        if (!InstanceIDStruct.InstanceId.IsValid()) {
+
+        if (!bGotID || !InstanceIDStruct.InstanceId.IsValid()) {
             return false;
         } 
 
         std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
+        // ------------------------------
 
         {
             auto& palSet = ActivePalsByInstanceID[InstanceID];
@@ -1110,15 +996,16 @@ std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
                 }
 
                 if (!IsCompanionSync) {
-                    auto& palSet = ActivePalsByInstanceID[InstanceID];
-                    for (UObject* Companion : palSet) {
+                    std::set<UObject*> linkedCompanions = FindLinkedPals(Character, InstanceID, InstanceIDStruct);
+                    for (UObject* Companion : linkedCompanions) {
                         if (Utils::IsObjectValid(Companion) && Companion != Character) {
+                            DP_LOG(Default, "[PalProcessor] Bidirectionally syncing partner actor: '{}' (Actor: {})", Companion->GetName(), (void*)Companion);
                             ProcessPal(Companion, false, finalSwap, true);
                         }
                     }
                 }
 
-                return true; 
+                return true;
             } else {
                 return false;
             }
@@ -1614,5 +1501,228 @@ std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
         auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - total_start).count();
         DP_LOG(Default, "[Profile] [ApplySwap] Trace 12: Done! Total ApplySwap execution took {:.3f} ms", total_duration / 1000.0f);
     }
+
+    void PalProcessor::ResetPal(UObject* Character) {
+        if (!Character || !Utils::IsObjectValid(Character)) {
+            DP_LOG(Warning, "[PalProcessor::ResetPal] Invalid Character passed!");
+            return;
+        }
+
+        UObject* ParamComp = nullptr;
+        Utils::GetPropertyValue<UObject*>(Character, STR("CharacterParameterComponent"), ParamComp, true);
+        if (!ParamComp || !Utils::IsObjectValid(ParamComp)) return;
+
+        UObject* IndivParam = nullptr;
+        Utils::GetPropertyValue<UObject*>(ParamComp, STR("IndividualParameter"), IndivParam, true);
+        if (!IndivParam || !Utils::IsObjectValid(IndivParam)) return;
+
+        // --- FUNNEL SYNC LOGIC ---
+        FPalInstanceID InstanceIDStruct;
+        bool bGotID = false;
+
+        UClass* FunnelClass = Utils::GetClassCached(STR("/Script/Pal.PalFunnelCharacter"));
+        bool bIsFunnel = FunnelClass && Character->GetClassPrivate()->IsChildOf(FunnelClass);
+
+        if (bIsFunnel) {
+            bGotID = Utils::GetPropertyValue<FPalInstanceID>(Character, STR("OwnerCharacterId"), InstanceIDStruct, true);
+            if (!bGotID || !InstanceIDStruct.InstanceId.IsValid()) {
+                bGotID = Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct, true);
+            }
+        } else {
+            bGotID = Utils::GetPropertyValue<FPalInstanceID>(IndivParam, STR("IndividualId"), InstanceIDStruct, true);
+        }
+
+        if (!bGotID || !InstanceIDStruct.InstanceId.IsValid()) return;
+        std::wstring InstanceID = Utils::GuidToWString(InstanceIDStruct.InstanceId);
+
+        DP_LOG(Default, "[PalProcessor] Resetting Pal '{}' (ID: '{}') to Vanilla Defaults...", Character->GetName(), InstanceID);
+
+        // 1. Fetch current persist data to grab any morphs that need zeroing out
+        PalPersistData* ExistingData = SaveManager::Get().GetPersistData(InstanceID);
+        std::map<std::wstring, double> MorphsToZero;
+        if (ExistingData) {
+            MorphsToZero = ExistingData->MorphSet;
+        }
+
+        // 2. Prepare wiped persist data locked to default
+        PalPersistData newData;
+        newData.InstanceID = InstanceID;
+        newData.PackName = L"";
+        newData.SkinName = L"";
+        newData.SwapLabel = L"";
+        newData.SkelMeshPath = L"";
+        newData.MorphSet.clear();
+        newData.MatSet.clear();
+        newData.MatColorSet.clear();
+        newData.bIsManuallyLocked = true; // Lock so the matchmaker won't auto-assign skins
+
+        SaveManager::Get().SetPersistData(InstanceID, newData, true);
+
+        // 3. Clear tracked swapped instance
+        SwappedInstances.erase(Character);
+
+        // 4. Find all partners (both Funnel and Owner) and reset all of them
+        std::set<UObject*> palSet = FindLinkedPals(Character, InstanceID, InstanceIDStruct);
+
+        for (UObject* TargetPalObj : palSet) {
+            if (!TargetPalObj || !Utils::IsObjectValid(TargetPalObj)) continue;
+
+            SwappedInstances.erase(TargetPalObj);
+
+            std::wstring BPName;
+            if (!IsPalBlueprintValid(TargetPalObj, BPName)) continue;
+
+            UObject* MeshComp = nullptr;
+            Utils::CallFunction(TargetPalObj, STR("GetMainMesh"), &MeshComp);
+            if (!MeshComp || !Utils::IsObjectValid(MeshComp)) continue;
+
+            Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), true, false);
+
+            struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ true };
+            Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &EnablePP);
+
+            UClass* VanillaAnimClass = nullptr;
+            UObject* VanillaSkeleton = nullptr;
+            UObject* VanillaStaticParam = nullptr;
+            UObject* VanillaSkelMesh = nullptr;
+
+            UClass* CharClass = TargetPalObj->GetClassPrivate();
+            if (CharClass && Utils::IsObjectValid(CharClass)) {
+                UObject* VanillaCDO = CharClass->GetClassDefaultObject();
+                if (VanillaCDO && Utils::IsObjectValid(VanillaCDO)) {
+                    UObject* VanillaMesh = nullptr;
+                    Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("Mesh"), VanillaMesh);
+                    if (VanillaMesh && Utils::IsObjectValid(VanillaMesh)) {
+                        Utils::GetPropertyValue<UClass*>(VanillaMesh, STR("AnimClass"), VanillaAnimClass);
+                        if (VanillaAnimClass && Utils::IsObjectValid(VanillaAnimClass)) {
+                            Utils::GetPropertyValue<UObject*>(VanillaAnimClass, STR("TargetSkeleton"), VanillaSkeleton);
+                        }
+                        if (!Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkeletalMesh"), VanillaSkelMesh)) {
+                            Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkinnedAsset"), VanillaSkelMesh);
+                        }
+                        if (VanillaSkelMesh && Utils::IsObjectValid(VanillaSkelMesh) && !VanillaSkeleton) {
+                            Utils::GetPropertyValue<UObject*>(VanillaSkelMesh, STR("Skeleton"), VanillaSkeleton);
+                        }
+                    }
+                    Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("StaticCharacterParameterComponent"), VanillaStaticParam);
+                }
+            }
+
+            // A. Restore AnimClass
+            UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
+            if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
+            if (SetAnimFunc && VanillaAnimClass) {
+                struct { UClass* NewClass; } Params{ VanillaAnimClass };
+                Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &Params);
+            }
+
+            // B. Restore StaticCharacterParameterComponent
+            if (VanillaStaticParam && Utils::IsObjectValid(VanillaStaticParam)) {
+                UObject* CurrentStaticParam = nullptr;
+                Utils::GetPropertyValue<UObject*>(TargetPalObj, STR("StaticCharacterParameterComponent"), CurrentStaticParam);
+                if (CurrentStaticParam && Utils::IsObjectValid(CurrentStaticParam)) {
+                    auto CopyProp = [](UObject* Src, UObject* Dest, const wchar_t* PropName) {
+                        FProperty* SrcProp = Utils::GetProperty(Src, PropName);
+                        FProperty* DestProp = Utils::GetProperty(Dest, PropName);
+                        if (SrcProp && DestProp) {
+                            void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(Src);
+                            void* DestPtr = DestProp->ContainerPtrToValuePtr<void>(Dest);
+                            if (SrcPtr && DestPtr) {
+                                DestProp->CopyCompleteValue(DestPtr, SrcPtr);
+                            }
+                        }
+                    };
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("RandomRestMontageInfos"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("GeneralAnimSequenceMap"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("GeneralMontageMap"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("GeneralBlendSpaceMap"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("ActionMontageMap"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("SleepOnSideAnimMontage"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("PettingSize"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("PettingStartAddDistance"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("PettingEndLeaveDistance"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("PettingDistance"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("HPGaugeUIOffset"));
+                    CopyProp(VanillaStaticParam, CurrentStaticParam, STR("SleepOnSideInfoMapForMapObject"));
+                }
+            }
+
+            // C. Re-link Anim Layers
+            UObject* NewAnimInst = nullptr;
+            Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &NewAnimInst);
+            if (NewAnimInst && Utils::IsObjectValid(NewAnimInst)) {
+                UFunction* LinkFunc = NewAnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
+                if (LinkFunc) {
+                    std::vector<std::wstring> StandardLayers = {
+                        L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C",
+                        L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C"
+                    };
+                    for (const auto& LayerPath : StandardLayers) {
+                        UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetInternal(LayerPath, false));
+                        if (LayerClass && Utils::IsObjectValid(LayerClass)) {
+                            struct { UClass* InClass; } LinkParams{ LayerClass };
+                            Utils::SafeProcessEvent(NewAnimInst, LinkFunc, &LinkParams);
+                        }
+                    }
+                }
+            }
+
+            // D. Restore Skeletal Mesh
+            if (VanillaSkelMesh && Utils::IsObjectValid(VanillaSkelMesh)) {
+                if (VanillaSkeleton && Utils::IsObjectValid(VanillaSkeleton)) {
+                    Utils::SetPropertyValue<UObject*>(VanillaSkelMesh, STR("Skeleton"), VanillaSkeleton);
+                }
+                struct { UObject* InMesh; bool bReinitPose; } MeshParams{VanillaSkelMesh, true};
+                Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
+            }
+
+            // E. Clear Material Overrides
+            struct { int32_t RetVal; } NumMatParams{0};
+            Utils::CallFunction(MeshComp, STR("GetNumMaterials"), &NumMatParams);
+            for (int32_t i = 0; i < NumMatParams.RetVal; ++i) {
+                struct { int32_t ElementIndex; UObject* Material; } ClearMatParams{i, nullptr};
+                Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
+            }
+
+            // F. Zero out Morph Targets
+            for (const auto& [morphName, _] : MorphsToZero) {
+                struct { FName MorphTargetName; float Value; bool bRemoveZeroWeight; } MorphParams{
+                    FName(morphName.c_str(), FNAME_Add), 0.0f, true
+                };
+                Utils::CallFunction(MeshComp, STR("SetMorphTarget"), &MorphParams);
+            }
+
+            // G. Unpause Animations & re-enable PostProcess
+            Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), false, false);
+            struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
+            Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
+
+            // H. Reset PalFacialComponent
+            UObject* FacialComp = nullptr;
+            Utils::GetPropertyValue<UObject*>(TargetPalObj, STR("PalFacial"), FacialComp);
+            if (!FacialComp || !Utils::IsObjectValid(FacialComp)) {
+                UClass* FacialClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Pal.PalFacialComponent"));
+                if (FacialClass && Utils::IsObjectValid(FacialClass)) {
+                    struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{FacialClass, nullptr};
+                    Utils::CallFunction(TargetPalObj, STR("GetComponentByClass"), &GetCompParams);
+                    FacialComp = GetCompParams.ReturnValue;
+                }
+            }
+            if (FacialComp && Utils::IsObjectValid(FacialComp)) {
+                UObject* MainModule = nullptr;
+                if (Utils::GetPropertyValue<UObject*>(FacialComp, STR("MainModule"), MainModule) && MainModule && Utils::IsObjectValid(MainModule)) {
+                    struct { UObject* SkeletalMeshComponent; } SetupParams{ MeshComp };
+                    UFunction* SetupFunc = MainModule->GetFunctionByNameInChain(STR("Setup_FacialModule"));
+                    if (SetupFunc) {
+                        Utils::SafeProcessEvent(MainModule, SetupFunc, &SetupParams);
+                    }
+                }
+            }
+        }
+
+        VFXManager::Get().PlaySwapEffect(Character, L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
+        DP_LOG(Default, "[PalProcessor] Successfully reset Pal '{}' (ID: '{}') to Vanilla and locked.", Character->GetName(), InstanceID);
+    }
+
 }
 // --- END OF FILE src/PalProcessor.cpp ---
