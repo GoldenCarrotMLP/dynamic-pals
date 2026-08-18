@@ -42,6 +42,58 @@ static SafetyHookInline Hook_OnUpdateCharacterRank;
 
 static SafetyHookInline Hook_AddFriendship;
 
+static void CheckAndWarnConflictingMods() {
+    try {
+        wchar_t exePath[MAX_PATH];
+        GetModuleFileNameW(NULL, exePath, MAX_PATH);
+        std::filesystem::path palDir = std::filesystem::path(exePath).parent_path().parent_path().parent_path();
+        std::filesystem::path logicModsDir = palDir / "Content" / "Paks" / "LogicMods";
+
+        if (!std::filesystem::exists(logicModsDir)) return;
+
+        std::vector<std::wstring> detectedConflicts;
+
+        for (const auto& entry : std::filesystem::directory_iterator(logicModsDir)) {
+            if (entry.is_regular_file()) {
+                std::wstring filename = entry.path().filename().wstring();
+                std::wstring lower = filename;
+                std::transform(lower.begin(), lower.end(), lower.begin(), ::towlower);
+
+                if (lower.find(L"palmagic") != std::wstring::npos || lower.find(L"altermatic") != std::wstring::npos) {
+                    detectedConflicts.push_back(filename);
+                }
+            }
+        }
+
+        if (!detectedConflicts.empty()) {
+            std::wstring conflictListStr = L"";
+            for (size_t i = 0; i < detectedConflicts.size(); ++i) {
+                conflictListStr += L"• " + detectedConflicts[i];
+                if (i + 1 < detectedConflicts.size()) conflictListStr += L"\n";
+            }
+
+            std::wstring dialogMsg = 
+                L"DUPLICATE / CONFLICTING MOD DETECTED:\n\n"
+                + conflictListStr + L"\n\n"
+                L"Please disable or remove either DynamicPals or the conflicting mod(s) to avoid errors and crashes.";
+
+            DP_LOG(Error, "[Conflict Checker] Duplicate mod(s) found in LogicMods:\n{}", conflictListStr);
+
+            NotificationManager::Get().ShowTwoButtonModal(
+                dialogMsg,
+                L"Open Folder", []() {
+                    wchar_t exePath[MAX_PATH];
+                    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+                    std::filesystem::path palDir = std::filesystem::path(exePath).parent_path().parent_path().parent_path();
+                    std::wstring modsPath = (palDir / L"Content" / L"Paks" / L"LogicMods").wstring();
+                    ShellExecuteW(NULL, L"open", modsPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
+                },
+                L"Dismiss", []() {}
+            );
+        }
+    } catch (...) {}
+}
+
 static void* ResolveNativeFromThunk(void* ThunkAddress) {
     if (!ThunkAddress) return nullptr;
 
@@ -474,6 +526,9 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
 
             NotificationManager::Get().SetReady(true);
             NotificationManager::Get().FlushQueuedToasts();
+
+            // --- CHECK FOR DUPLICATE / CONFLICTING MODS ---
+            CheckAndWarnConflictingMods();
           });
         }).detach();
 

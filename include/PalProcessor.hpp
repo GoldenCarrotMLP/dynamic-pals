@@ -71,7 +71,8 @@ namespace DynPals {
 
         std::map<RC::Unreal::UObject*, std::wstring> SwappedInstances;
 
-        std::map<std::wstring, std::set<RC::Unreal::UObject*>> ActivePalsByInstanceID;
+        std::map<std::wstring, RC::Unreal::UObject*> ActiveMainPalsByInstanceID;
+std::map<std::wstring, RC::Unreal::UObject*> ActiveFunnelsByInstanceID;
         std::map<std::wstring, PalRuntimeStats> RuntimeStatsCache;
 
         std::set<RC::Unreal::UObject*> ProcessedPals; 

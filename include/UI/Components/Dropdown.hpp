@@ -9,6 +9,7 @@
 #include "UI/IconLibrary.hpp"   
 #include "UI/Components/Button.hpp"
 #include "Utils.hpp"
+#include "DataTypes.hpp"
 
 namespace DynPals::UI {
 
@@ -54,6 +55,7 @@ namespace DynPals::UI {
         }
 
         void PreloadPool(RC::Unreal::UObject* Outer, int btnCount, int headerCount = 10) {
+            auto start = std::chrono::high_resolution_clock::now();
             OuterContext = Outer;
             
             RC::Unreal::UObject* PalFont = Utils::LoadAssetSafely(DynPals::UI::Assets::Fonts::PalDefault);
@@ -89,6 +91,11 @@ namespace DynPals::UI {
                 
                 ButtonPool.push_back(PooledButton{RootObj, TextObj, RawCtrl});
             }
+
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+            DP_LOG(Default, "[Profile] [Dropdown::PreloadPool] Preloaded {} buttons and {} headers in {:.3f} ms ({} us)", 
+                   btnCount, headerCount, duration / 1000.0f, duration);
         }
 
         RC::Unreal::UObject* Build(RC::Unreal::UObject* Outer, RC::Unreal::UObject* PC) {
@@ -120,7 +127,7 @@ namespace DynPals::UI {
 
             if (bIsPopupOpen) {
                 if (m_bIsBuildingListAsync) {
-                    ProcessSingleBuildStep();
+                    ProcessBuildSteps(); // Throttled async rendering loop
                 }
 
                 for (auto& btnCtrl : AllButtonCtrls) {
@@ -137,7 +144,7 @@ namespace DynPals::UI {
                 
                 if (m_bIsBuildingListAsync) {
                     m_bIsBuildingListAsync = false;
-                    CleanupUnusedPoolWidgets(); // Safely stash unused widgets to trash bin if closed early
+                    CleanupUnusedPoolWidgets();
                 }
             }
         }
@@ -153,6 +160,14 @@ namespace DynPals::UI {
         const std::vector<PooledButton>& GetButtonPool() const { return ButtonPool; }
 
     private:
+        // =========================================================================
+        // EDITABLE DELAY (in milliseconds)
+        // Adjust this to control how long it waits before spawning a new widget.
+        // Higher = smoother game FPS, but slower list generation.
+        // Lower = faster list generation, but game might stutter.
+        // =========================================================================
+        int AllocDelayMs = 10; 
+        
         std::vector<std::wstring> Options;
         int SelectedIndex = 0;
         float MaxWidth = 400.0f;
@@ -160,11 +175,14 @@ namespace DynPals::UI {
         bool bIsPopupOpen = false; 
         std::function<void(int, std::wstring)> OnSelectionChanged;
 
-        // Async Time-slicing state
+        // Async Time-slicing state & Profiling
         bool m_bIsBuildingListAsync = false;
+        bool m_bWaitingForCooldown = false;
         size_t m_BuildIndex = 0;
         int m_HeaderUsedIndex = 0;
         int m_ButtonUsedIndex = 0;
+        std::chrono::steady_clock::time_point m_RebuildStartTime;
+        std::chrono::steady_clock::time_point m_LastAllocTime;
 
         RC::Unreal::UObject* OuterContext = nullptr;
         RC::Unreal::UObject* PlayerController = nullptr;
@@ -205,15 +223,73 @@ namespace DynPals::UI {
             TargetWidget = nullptr;
             
             m_bIsBuildingListAsync = true;
-            // NOTE: bNeedsListRebuild is NOT set to false here anymore!
-            // It will be cleared in ProcessSingleBuildStep() ONLY when construction finishes.
+            m_bWaitingForCooldown = false;
+            m_RebuildStartTime = std::chrono::steady_clock::now();
         }
 
-        void ProcessSingleBuildStep() {
-            if (!ScrollBoxList || m_BuildIndex >= Options.size()) {
-                m_bIsBuildingListAsync = false; // Building finished!
-                bNeedsListRebuild = false;      // Mark rebuild complete
+        void ProcessBuildSteps() {
+            if (!ScrollBoxList) return;
+
+            auto now = std::chrono::steady_clock::now();
+
+            // 1. Throttling Check
+            if (m_bWaitingForCooldown) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_LastAllocTime).count();
+                if (elapsed < AllocDelayMs) {
+                    return; // Yield to game thread until cooldown expires
+                }
+                m_bWaitingForCooldown = false; // Cooldown finished!
+            }
+
+            // 2. Batch Processing Loop
+            int itemsProcessedThisFrame = 0;
+            const int MaxPooledPerFrame = 50; // Process up to 50 RAM-cached items per frame instantly
+
+            while (m_BuildIndex < Options.size()) {
+                const auto& opt = Options[m_BuildIndex];
+                bool isHeader = (opt.rfind(L"[", 0) == 0);
+                
+                bool bNeedsNewAlloc = false;
+                if (isHeader) {
+                    bNeedsNewAlloc = (m_HeaderUsedIndex >= static_cast<int>(HeaderPool.size())) || 
+                                     !Utils::IsObjectValid(HeaderPool[m_HeaderUsedIndex].RootWidget);
+                } else {
+                    bNeedsNewAlloc = (m_ButtonUsedIndex >= static_cast<int>(ButtonPool.size())) || 
+                                     !Utils::IsObjectValid(ButtonPool[m_ButtonUsedIndex].RootWidget);
+                }
+
+                if (bNeedsNewAlloc) {
+                    // This creates the widget and automatically adds it to the RAM pool array!
+                    ProcessSingleItem(opt, isHeader, true);
+                    
+                    // Activate cooldown block and yield execution
+                    m_LastAllocTime = std::chrono::steady_clock::now();
+                    m_bWaitingForCooldown = true;
+                    m_BuildIndex++;
+                    break; 
+                } else {
+                    // Reuse RAM cached widget instantly
+                    ProcessSingleItem(opt, isHeader, false);
+                    m_BuildIndex++;
+                    itemsProcessedThisFrame++;
+
+                    // Limit batch size so we never lag the game even when reading from RAM
+                    if (itemsProcessedThisFrame >= MaxPooledPerFrame) {
+                        break; 
+                    }
+                }
+            }
+
+            // 3. Completion Check
+            if (m_BuildIndex >= Options.size()) {
+                m_bIsBuildingListAsync = false;
+                bNeedsListRebuild = false;
                 CleanupUnusedPoolWidgets();
+
+                auto total_end = std::chrono::steady_clock::now();
+                auto total_us = std::chrono::duration_cast<std::chrono::microseconds>(total_end - m_RebuildStartTime).count();
+                DP_LOG(Default, "[Profile] [Dropdown] === Rebuild Complete === Total list ({} items) generated in {:.3f} ms ({} us)", 
+                       Options.size(), total_us / 1000.0f, total_us);
 
                 if (TargetWidget) {
                     struct {
@@ -224,15 +300,15 @@ namespace DynPals::UI {
                     } ScrollParams{TargetWidget, false, 2, 0.0f};
                     Utils::CallFunction(ScrollBoxList, STR("ScrollWidgetIntoView"), &ScrollParams);
                 }
-                return;
             }
+        }
+
+        void ProcessSingleItem(const std::wstring& opt, bool isHeader, bool bWasNewlyAllocated) {
+            auto item_start = std::chrono::steady_clock::now();
 
             RC::Unreal::UObject* PalFont = Utils::LoadAssetSafely(DynPals::UI::Assets::Fonts::PalDefault);
             RC::Unreal::UObject* KTL = DynPals::Utils::GetKTL();
             RC::Unreal::UFunction* ConvFunc = DynPals::Utils::GetKTLFunction(STR("Conv_StringToText"));
-
-            const auto& opt = Options[m_BuildIndex];
-            bool isHeader = (opt.rfind(L"[", 0) == 0); 
             
             if (isHeader) {
                 std::wstring cleanHeader = opt;
@@ -240,11 +316,7 @@ namespace DynPals::UI {
                     cleanHeader = cleanHeader.substr(2, cleanHeader.length() - 4);
                 }
 
-                // VALIDITY CHECK: Ensure pooled widget hasn't been GC'd
-                bool bNeedsNewHeader = (m_HeaderUsedIndex >= static_cast<int>(HeaderPool.size())) || 
-                                       !Utils::IsObjectValid(HeaderPool[m_HeaderUsedIndex].RootWidget);
-
-                if (bNeedsNewHeader) {
+                if (bWasNewlyAllocated) {
                     auto TitleTxt = DynPals::UI::Text(OuterContext).Text(cleanHeader).Font(PalFont, L"Bold", 16).TextColor({0.063f, 0.725f, 0.506f, 1.0f}); 
                     RC::Unreal::UObject* TextObj = TitleTxt.Build();
 
@@ -258,6 +330,7 @@ namespace DynPals::UI {
 
                     RC::Unreal::UObject* RootObj = HeaderVBox.Build();
                     
+                    // Pushes new asset directly into RAM pool for future reuse
                     if (m_HeaderUsedIndex < static_cast<int>(HeaderPool.size())) {
                         HeaderPool[m_HeaderUsedIndex] = PooledHeader{RootObj, TextObj};
                     } else {
@@ -278,11 +351,7 @@ namespace DynPals::UI {
                 Utils::CallFunction(ScrollBoxList, STR("AddChild"), &AddParams);
 
             } else {
-                // VALIDITY CHECK: Ensure pooled button hasn't been GC'd
-                bool bNeedsNewButton = (m_ButtonUsedIndex >= static_cast<int>(ButtonPool.size())) || 
-                                       !Utils::IsObjectValid(ButtonPool[m_ButtonUsedIndex].RootWidget);
-
-                if (bNeedsNewButton) {
+                if (bWasNewlyAllocated) {
                     DynPals::WidgetBuilder Item(DynPals::UI::Assets::Blueprints::CommonButton, OuterContext);
                     Item.DesiredSizeOverride(MaxWidth - 40.0f, 45.0f);
                     Item.UnlockButtonSize(MaxWidth - 60.0f); 
@@ -296,6 +365,7 @@ namespace DynPals::UI {
                         class DynPals::UI::Button* RawCtrl = Ctrl.get();
                         AllButtonCtrls.push_back(std::move(Ctrl));
                         
+                        // Pushes new asset directly into RAM pool for future reuse
                         if (m_ButtonUsedIndex < static_cast<int>(ButtonPool.size())) {
                             ButtonPool[m_ButtonUsedIndex] = PooledButton{RootObj, TextObj, RawCtrl};
                         } else {
@@ -364,7 +434,17 @@ namespace DynPals::UI {
                 }
             }
 
-            m_BuildIndex++;
+            auto item_end = std::chrono::steady_clock::now();
+            auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(item_end - item_start).count();
+            
+            DP_LOG(Default, "[Profile] [Dropdown Item {:02d}/{:02d}] [{:<6}] [{:<10}] rendered in {:.3f} ms ({} us) | Text: '{}'",
+                   m_BuildIndex + 1, 
+                   Options.size(),
+                   isHeader ? L"HEADER" : L"BUTTON",
+                   bWasNewlyAllocated ? L"NEW ALLOC" : L"POOLED",
+                   duration_us / 1000.0f, 
+                   duration_us,
+                   opt);
         }
 
         void CleanupUnusedPoolWidgets() {
@@ -385,6 +465,8 @@ namespace DynPals::UI {
         }
 
         void OpenPopup() {
+            auto popup_start = std::chrono::steady_clock::now();
+
             if (!PopupOverlay) {
                 float ComputedHeight = 450.0f;
                 
@@ -453,6 +535,11 @@ namespace DynPals::UI {
             struct { uint8_t InVisibility; } VisParams{ 0 }; // 0 = Visible
             Utils::CallFunction(PopupOverlay, STR("SetVisibility"), &VisParams);
             bIsPopupOpen = true;
+
+            auto popup_end = std::chrono::steady_clock::now();
+            auto popup_us = std::chrono::duration_cast<std::chrono::microseconds>(popup_end - popup_start).count();
+            DP_LOG(Default, "[Profile] [Dropdown::OpenPopup] Popup frame opened in {:.3f} ms ({} us)", 
+                   popup_us / 1000.0f, popup_us);
         }
     };
 }
