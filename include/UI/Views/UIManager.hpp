@@ -64,6 +64,7 @@ namespace DynPals {
         std::unique_ptr<class DynPals::UI::Dropdown> SkinDropdown;
         std::unique_ptr<class DynPals::UI::Switch> HideInvalidSwitch;
         std::unique_ptr<class DynPals::UI::Button> RerollButton;
+        std::unique_ptr<class DynPals::UI::Button> ResetButton; // NEW: Added Reset Button
         std::vector<std::unique_ptr<class DynPals::UI::Slider>> MorphSliderPool;
         int ActiveMorphSlidersCount = 0;
         

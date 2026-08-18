@@ -50,6 +50,9 @@ namespace DynPals {
         void ProcessPlayerParty(RC::Unreal::UObject* WorldContext);
         void Tick();
 
+        // Active Live Reversion to Vanilla / Default
+        void ResetPal(RC::Unreal::UObject* Character);
+
         void ClearAllSwappedStatus();
         void ClearSwappedStatus(const std::wstring& InstanceID, RC::Unreal::UObject* Character);
 
@@ -76,4 +79,3 @@ namespace DynPals {
         std::mutex QueueMutex;
     };
 }
-// --- END OF FILE include/PalProcessor.hpp ---

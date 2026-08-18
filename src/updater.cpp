@@ -299,24 +299,10 @@ namespace DynPals {
                                         DP_LOG(Normal, "DynPals has been auto-updated to version: {} \nPlease restart Palworld to apply the new update", Utils::StringToWString(remoteVersion));
                                         DP_LOG(Default, "=========================================================");
                                         
-                                        std::wstring instructions = 
-    L"UPDATE PENDING: DynamicPals.pak is locked by Palworld.\n\n"
-    L"Click 'Open Folder' to replace the file, or 'Open GitHub' to view releases.";
 
-NotificationManager::Get().ShowTwoButtonModal(
-    instructions,
-    L"Open Folder", []() {
-        wchar_t exePath[MAX_PATH];
-        GetModuleFileNameW(NULL, exePath, MAX_PATH);
-        std::filesystem::path palDir = std::filesystem::path(exePath).parent_path().parent_path().parent_path();
-        std::wstring modsPath = (palDir / L"Content" / L"Paks" / L"LogicMods").wstring();
-        ShellExecuteW(NULL, L"open", modsPath.c_str(), NULL, NULL, SW_SHOWNORMAL);
-    },
-    L"Open GitHub", []() {
-        ShellExecuteW(NULL, L"open", L"https://github.com/GoldenCarrotMLP/dynamic-pals/releases", NULL, NULL, SW_SHOWNORMAL);
-    }
+NotificationManager::Get().ShowModalDialog(
+    fmt::format(STR("DynPals has been auto-updated to version: {}\nPlease restart Palworld to apply the new update"), Utils::StringToWString(remoteVersion))
 );
-                                    
                                     
                                     } else {
                                         MoveFileExW(oldDllPath.c_str(), currentDllPath.c_str(), MOVEFILE_REPLACE_EXISTING);

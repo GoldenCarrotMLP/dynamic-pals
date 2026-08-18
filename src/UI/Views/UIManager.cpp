@@ -280,6 +280,7 @@ namespace DynPals {
         }
         HideInvalidSwitch = nullptr;
         RerollButton = nullptr;
+        ResetButton = nullptr;
         MorphSliderPool.clear(); 
         ActiveMorphSlidersCount = 0;
         FocusPalSwitch = nullptr;
@@ -486,6 +487,29 @@ namespace DynPals {
             bNeedsRefresh = true; 
         });
 
+        // --- Reset Button ---
+        auto ResetBtnBuilder = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget)
+            .Text(L"      Reset Pal      ")
+            .BackgroundColor(FLinearColor_UE5{0.85f, 0.25f, 0.25f, 1.0f})
+            .DesiredSizeOverride(300.0f, 45.0f)
+            .UnlockButtonSize(300.0f);
+
+        UObject* ResetBtnObj = ResetBtnBuilder.Build();
+        ResetButton = std::make_unique<UI::Button>(ResetBtnObj);
+        ResetButton->OnClicked([this]() {
+            if (TargetPal && Utils::IsObjectValid(TargetPal)) {
+                // Live-revert visual meshes, materials, animations, and lock Pal
+                PalProcessor::Get().ResetPal(TargetPal);
+                
+                if (MainScrollBoxObj && GetScrollOffsetFunc) {
+                    struct { float Offset; } Params{ 0.0f };
+                    MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
+                    LastScrollOffset = Params.Offset;
+                }
+                bNeedsRefresh = true; 
+            }
+        });
+
 
         auto InnerContentBox = UI::VerticalBox(MyWidget);
 
@@ -503,6 +527,14 @@ namespace DynPals {
 
         InnerContentBox.AddToVerticalBox(
             WidgetBuilder(RerollBtnObj),
+            [](DynPals::BoxSlotBuilder& Slot) { 
+                Slot.Padding(20.0f, 0.0f, 20.0f, 10.0f) // Adjusted to group tightly with Reset
+                    .HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); 
+            } 
+        );
+
+        InnerContentBox.AddToVerticalBox(
+            WidgetBuilder(ResetBtnObj),
             [](DynPals::BoxSlotBuilder& Slot) { 
                 Slot.Padding(20.0f, 0.0f, 20.0f, 15.0f)
                     .HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); 
@@ -1165,6 +1197,7 @@ RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
         if (SkinDropdown)         SkinDropdown->Tick();
         if (HideInvalidSwitch)    HideInvalidSwitch->Tick();
         if (RerollButton)         RerollButton->Tick();
+        if (ResetButton)          ResetButton->Tick();
         if (FocusPalSwitch)       FocusPalSwitch->Tick();
         if (CameraRotationSlider) CameraRotationSlider->Tick();
 

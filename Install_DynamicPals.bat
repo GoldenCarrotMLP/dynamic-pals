@@ -97,12 +97,11 @@ function Install-DynamicPals($PalworldPath, $Win64Dir, $ModDir, $RemoteVersion) 
 
         Set-Content -Path (Join-Path $DllDir "version.txt") -Value $RemoteVersion
 
-        # Clean old LogicMod Paks
+        # Clean old LogicMod Paks (including versioned ones from previous installer builds)
         Get-ChildItem -Path $LogicModsDir -Filter "DynamicPals*.pak" | Remove-Item -Force
 
-        # Format Pak name to zero-padded number for UE alphabetical priority (e.g. DynamicPals_V0106.pak)
-        $FormattedVersion = "{0:D4}" -f $RemoteVersion
-        $FinalPakPath = Join-Path $LogicModsDir "DynamicPals_V$FormattedVersion.pak"
+        # Move PAK cleanly to LogicMods strictly as DynamicPals.pak
+        $FinalPakPath = Join-Path $LogicModsDir "DynamicPals.pak"
         Move-Item -Path $PakTemp -Destination $FinalPakPath -Force
 
         # Ensure DynamicPals is enabled in mods.txt
