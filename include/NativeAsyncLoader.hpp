@@ -8,6 +8,12 @@ namespace DynPals {
     public:
         static void Initialize();
         static void Tick(); 
+
+        // Verifies whether DynamicPals.pak physically exists on disk or in the engine
+        static bool IsPakInstalled();
+        
+        // Checks if the physical DynamicPals.pak file exists on disk
+        static bool IsPakOnDisk();
         
         // Parallel Batch Loader
         static bool RequestBatchAsyncLoad(const std::vector<std::wstring>& AssetPaths, RC::Unreal::UObject* Requester, int ExplicitSwapIndex = -1, bool ForceReroll = false, bool IsCompanionSync = false, bool IsEvolutionEnd = false);

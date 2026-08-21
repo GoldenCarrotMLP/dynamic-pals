@@ -486,74 +486,55 @@ static bool IsValidPalActor(UObject* Obj) {
     // =========================================================================
     // BIDIRECTIONAL LINKED PAL FINDER (FUNNEL <-> OWNER PAL)
     // =========================================================================
-    std::set<UObject*> PalProcessor::FindLinkedPals(UObject* Character, const std::wstring& InstanceID, const FPalInstanceID& InstanceIDStruct) {
-        std::set<UObject*> result;
-        
-        DP_LOG(Default, "[FindLinkedPals] Trace 0: Enter for Actor {} (ID: '{}')", (void*)Character, InstanceID);
+    std::vector<UObject*> PalProcessor::GetLinkedPals(UObject* Character) {
+        std::vector<UObject*> result;
+        if (!Character || !Utils::IsObjectValid(Character)) return result;
 
-        if (!IsValidPalActor(Character)) {
-            DP_LOG(Default, "[FindLinkedPals] Trace 1: Target Character is NOT a valid Pal Actor. Aborting.");
-            return result;
-        }
-
-        result.insert(Character);
+        result.push_back(Character);
 
         UClass* FunnelClass = Utils::GetClassCached(STR("/Script/Pal.PalFunnelCharacter"));
-        if (!FunnelClass) FunnelClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Pal.PalFunnelCharacter"));
-        
         bool bIsFunnel = FunnelClass && Character->GetClassPrivate()->IsChildOf(FunnelClass);
-        DP_LOG(Default, "[FindLinkedPals] Trace 2: Character is {} (Class: '{}')", bIsFunnel ? L"FUNNEL" : L"MAIN PAL", Character->GetClassPrivate()->GetName());
 
         if (bIsFunnel) {
-            DP_LOG(Default, "[FindLinkedPals] Trace 3: Registering Funnel in ActiveFunnelsByInstanceID");
-            ActiveFunnelsByInstanceID[InstanceID] = Character;
-
-            UObject* MainPal = nullptr;
+            // Funnel -> Main Pal (Safely ask the Funnel who its owner is)
             UFunction* GetOwnerFunc = Character->GetFunctionByNameInChain(STR("GetOwnerPal"));
             if (GetOwnerFunc) {
-                DP_LOG(Default, "[FindLinkedPals] Trace 4: Invoking GetOwnerPal() on Funnel");
                 struct { UObject* RetVal; } Params{ nullptr };
                 Utils::SafeProcessEvent(Character, GetOwnerFunc, &Params);
-                if (IsValidPalActor(Params.RetVal)) {
-                    DP_LOG(Default, "[FindLinkedPals] Trace 5: GetOwnerPal() returned valid Owner Pal '{}' (Actor: {})", Params.RetVal->GetName(), (void*)Params.RetVal);
-                    MainPal = Params.RetVal;
-                } else {
-                    DP_LOG(Default, "[FindLinkedPals] Trace 5: GetOwnerPal() returned null or invalid actor ({})", (void*)Params.RetVal);
+                if (Params.RetVal && Utils::IsObjectValid(Params.RetVal)) {
+                    result.push_back(Params.RetVal);
                 }
-            }
-
-            if (!MainPal) {
-                DP_LOG(Default, "[FindLinkedPals] Trace 6: Fallback lookup in ActiveMainPalsByInstanceID");
-                auto it = ActiveMainPalsByInstanceID.find(InstanceID);
-                if (it != ActiveMainPalsByInstanceID.end() && IsValidPalActor(it->second)) {
-                    MainPal = it->second;
-                    DP_LOG(Default, "[FindLinkedPals] Trace 7: Found cached Main Pal in RAM: '{}'", MainPal->GetName());
-                }
-            }
-
-            if (MainPal && IsValidPalActor(MainPal)) {
-                ActiveMainPalsByInstanceID[InstanceID] = MainPal;
-                result.insert(MainPal);
             }
         } 
         else {
-            DP_LOG(Default, "[FindLinkedPals] Trace 3: Registering Main Pal in ActiveMainPalsByInstanceID");
-            ActiveMainPalsByInstanceID[InstanceID] = Character;
-
-            DP_LOG(Default, "[FindLinkedPals] Trace 4: Checking ActiveFunnelsByInstanceID for companion Funnel");
-            auto it = ActiveFunnelsByInstanceID.find(InstanceID);
-            if (it != ActiveFunnelsByInstanceID.end() && IsValidPalActor(it->second)) {
-                DP_LOG(Default, "[FindLinkedPals] Trace 5: Found active registered Funnel in RAM: '{}' (Actor: {})", it->second->GetName(), (void*)it->second);
-                result.insert(it->second);
-            } else {
-                DP_LOG(Default, "[FindLinkedPals] Trace 5: No active Funnel companion registered for this Pal in RAM");
+            // Main Pal -> Funnel
+            UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+            if (PalUtil && Utils::IsObjectValid(PalUtil)) {
+                // Ensure this is actually an Otomo (player party Pal) before asking for a Funnel
+                UFunction* IsOtomoFunc = PalUtil->GetFunctionByNameInChain(STR("IsPlayersOtomo"));
+                if (IsOtomoFunc) {
+                    struct { UObject* Actor; bool RetVal; } OtomoParams{ Character, false };
+                    Utils::SafeProcessEvent(PalUtil, IsOtomoFunc, &OtomoParams);
+                    
+                    if (OtomoParams.RetVal) {
+                        struct { UObject* WorldContext; UObject* RetVal; } FMgrParams{ Character, nullptr };
+                        Utils::CallFunction(PalUtil, STR("GetFunnelCharacterManager"), &FMgrParams);
+                        
+                        if (FMgrParams.RetVal && Utils::IsObjectValid(FMgrParams.RetVal)) {
+                            struct { UObject* Owner; UObject* RetVal; } FunnelParams{ Character, nullptr };
+                            Utils::SafeProcessEvent(FMgrParams.RetVal, FMgrParams.RetVal->GetFunctionByNameInChain(STR("GetFunnelCharacterByOwner")), &FunnelParams);
+                            if (FunnelParams.RetVal && Utils::IsObjectValid(FunnelParams.RetVal)) {
+                                result.push_back(FunnelParams.RetVal);
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        DP_LOG(Default, "[FindLinkedPals] Trace 8: Done! Total linked actors to sync: {}", result.size());
         return result;
-
     }
+    
     void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
         if (!Character || !Utils::IsObjectValid(Character)) return;
         
@@ -617,7 +598,7 @@ static bool IsValidPalActor(UObject* Obj) {
         }
 
         // Link up companions immediately
-        FindLinkedPals(Character, id.InstanceID, id.InstanceIDStruct);
+        GetLinkedPals(Character);
 
         std::thread([Character, SwapIndex, DelayMs]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
@@ -692,8 +673,6 @@ static bool IsValidPalActor(UObject* Obj) {
         std::lock_guard<std::mutex> lock(QueueMutex);
         SwapQueue.clear();
         SwappedInstances.clear();
-        ActiveMainPalsByInstanceID.clear();
-        ActiveFunnelsByInstanceID.clear();
         RuntimeStatsCache.clear();
         ProcessedPals.clear();
         ProcessingQueue.clear();
@@ -703,8 +682,6 @@ static bool IsValidPalActor(UObject* Obj) {
         if (Character) {
             SwappedInstances.erase(Character);
         }
-        ActiveMainPalsByInstanceID.erase(InstanceID);
-        ActiveFunnelsByInstanceID.erase(InstanceID);
         RuntimeStatsCache.erase(InstanceID);
     }
 
@@ -734,35 +711,7 @@ static bool IsValidPalActor(UObject* Obj) {
                 NativeAsyncLoader::SetActiveRequester(nullptr);
             }
         }
-
-        static int pruneCounter = 0;
-        pruneCounter++;
-        if (pruneCounter > 60) {
-            pruneCounter = 0;
-            DP_LOG(Verbose, "[Tick] Trace: Starting GC Prune Sweep");
-            for (auto it = SwappedInstances.begin(); it != SwappedInstances.end(); ) {
-                if (!IsValidPalActor(it->first)) {
-                    it = SwappedInstances.erase(it);
-                } else {
-                    ++it;
-                }
-            }
-            for (auto it = ActiveMainPalsByInstanceID.begin(); it != ActiveMainPalsByInstanceID.end(); ) {
-                if (!IsValidPalActor(it->second)) {
-                    it = ActiveMainPalsByInstanceID.erase(it);
-                } else {
-                    ++it;
-                }
-            }
-            for (auto it = ActiveFunnelsByInstanceID.begin(); it != ActiveFunnelsByInstanceID.end(); ) {
-                if (!IsValidPalActor(it->second)) {
-                    it = ActiveFunnelsByInstanceID.erase(it);
-                } else {
-                    ++it;
-                }
-            }
-            DP_LOG(Verbose, "[Tick] Trace: Finished GC Prune Sweep");
-        }
+        // GC Map pruning removed to prevent UAF crashes
     }
     
     bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int ExplicitSwapIndex, bool IsCompanionSync, bool IsEvolutionEnd) {
@@ -771,7 +720,7 @@ static bool IsValidPalActor(UObject* Obj) {
         FPalIdentity id = ResolvePalIdentity(Character);
         if (!id.bIsValid) return false;
 
-        std::set<UObject*> palSet = FindLinkedPals(Character, id.InstanceID, id.InstanceIDStruct);
+        std::vector<UObject*> palSet = GetLinkedPals(Character);
 
         std::wstring BlueprintName = L"";
         if (!IsPalBlueprintValid(Character, BlueprintName)) return false;
@@ -1031,6 +980,7 @@ static bool IsValidPalActor(UObject* Obj) {
                     return false;
                 }
 
+                // Trigger Parallel Async Load for all missing assets
                 if (!assetsToLoad.empty()) {
                     NativeAsyncLoader::RegisterPendingRequests(Character, static_cast<int>(assetsToLoad.size()));
                     
@@ -1044,12 +994,6 @@ static bool IsValidPalActor(UObject* Obj) {
 
                     if (NativeAsyncLoader::RequestBatchAsyncLoad(assetsToLoad, Character, ExplicitSwapIndex, ForceReroll, IsCompanionSync, IsEvolutionEnd)) {
                         return true; 
-                    } else {
-                        static bool bWarned = false;
-                        if (!bWarned) {
-                            DP_LOG(Warning, "DynamicPals.pak not found! Please restart game.");
-                            bWarned = true;
-                        }
                     }
                 } else if (NativeAsyncLoader::GetPendingCount(Character) > 0) {
                     return true;
@@ -1164,9 +1108,9 @@ static bool IsValidPalActor(UObject* Obj) {
 
                 // --- BIDIRECTIONAL COMPANION SYNC DISPATCH ---
                 if (!IsCompanionSync) {
-                    std::set<UObject*> linkedCompanions = FindLinkedPals(Character, id.InstanceID, id.InstanceIDStruct);
+                    std::vector<UObject*> linkedCompanions = GetLinkedPals(Character);
                     for (UObject* Companion : linkedCompanions) {
-                        if (IsValidPalActor(Companion) && Companion != Character) {
+                        if (Utils::IsObjectValid(Companion) && Companion != Character) {
                             DP_LOG(Default, "[PalProcessor] Bidirectionally syncing partner actor: '{}' (Actor: {})", Companion->GetName(), (void*)Companion);
                             ProcessPal(Companion, false, finalSwap, true);
                         }
@@ -1583,7 +1527,7 @@ static bool IsValidPalActor(UObject* Obj) {
         SwappedInstances.erase(Character);
 
         // 4. Find all partners (both Funnel and Owner) and reset all of them
-        std::set<UObject*> palSet = FindLinkedPals(Character, id.InstanceID, id.InstanceIDStruct);
+        std::vector<UObject*> palSet = GetLinkedPals(Character);
 
         for (UObject* TargetPalObj : palSet) {
             if (!TargetPalObj || !Utils::IsObjectValid(TargetPalObj)) continue;

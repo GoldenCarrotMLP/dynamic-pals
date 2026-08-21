@@ -56,8 +56,8 @@ namespace DynPals {
         void ClearAllSwappedStatus();
         void ClearSwappedStatus(const std::wstring& InstanceID, RC::Unreal::UObject* Character);
 
-        // Helper to locate all linked actors (Funnels, Owners, Party members)
-        std::set<RC::Unreal::UObject*> FindLinkedPals(RC::Unreal::UObject* Character, const std::wstring& InstanceID, const FPalInstanceID& InstanceIDStruct);
+        // Helper to locate natively linked actors (Funnels, Owners, Party members)
+        std::vector<RC::Unreal::UObject*> GetLinkedPals(RC::Unreal::UObject* Character);
 
     private:
         PalProcessor() = default;
@@ -70,9 +70,6 @@ namespace DynPals {
         bool ExecuteSwap(RC::Unreal::UObject* Character, bool ForceReroll, int ExplicitSwapIndex = -1, bool IsCompanionSync = false, bool IsEvolutionEnd = false);
 
         std::map<RC::Unreal::UObject*, std::wstring> SwappedInstances;
-
-        std::map<std::wstring, RC::Unreal::UObject*> ActiveMainPalsByInstanceID;
-std::map<std::wstring, RC::Unreal::UObject*> ActiveFunnelsByInstanceID;
         std::map<std::wstring, PalRuntimeStats> RuntimeStatsCache;
 
         std::set<RC::Unreal::UObject*> ProcessedPals; 

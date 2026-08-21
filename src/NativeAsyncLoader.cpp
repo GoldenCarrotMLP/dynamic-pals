@@ -8,6 +8,8 @@
 #include <deque>
 #include <chrono>
 #include <algorithm>
+#include <filesystem>
+#include <Windows.h>
 
 using namespace RC::Unreal;
 
@@ -55,6 +57,45 @@ namespace DynPals {
     bool NativeAsyncLoader::IsPending(const std::wstring& AssetPath) { 
         return GPendingAssets.find(AssetPath) != GPendingAssets.end(); 
     }
+
+    bool NativeAsyncLoader::IsPakOnDisk() {
+        try {
+            wchar_t exePath[MAX_PATH];
+            GetModuleFileNameW(NULL, exePath, MAX_PATH);
+            std::filesystem::path palDir = std::filesystem::path(exePath).parent_path().parent_path().parent_path();
+            std::filesystem::path pakPath = palDir / "Content" / "Paks" / "LogicMods" / "DynamicPals.pak";
+            return std::filesystem::exists(pakPath);
+        } catch (...) {
+            return false;
+        }
+    }
+
+
+    bool NativeAsyncLoader::IsPakInstalled() {
+        // 1. Check if Unreal Engine has mounted and resolved the ModActor class from the pak
+        if (LoaderClass && Utils::IsObjectValid(LoaderClass)) return true;
+        
+        UClass* Cls = Utils::GetClassCached(STR("/Game/Mods/DynamicPals/ModActor.ModActor_C"), true);
+        if (Cls && Utils::IsObjectValid(Cls)) {
+            LoaderClass = Cls;
+            return true;
+        }
+
+        // 2. Check if the physical file exists in Pal/Content/Paks/LogicMods/
+        try {
+            wchar_t exePath[MAX_PATH];
+            GetModuleFileNameW(NULL, exePath, MAX_PATH);
+            std::filesystem::path palDir = std::filesystem::path(exePath).parent_path().parent_path().parent_path();
+            std::filesystem::path pakPath = palDir / "Content" / "Paks" / "LogicMods" / "DynamicPals.pak";
+            
+            if (std::filesystem::exists(pakPath)) {
+                return true;
+            }
+        } catch (...) {}
+
+        return false;
+    }
+
 
     bool NativeAsyncLoader::IsFailed(const std::wstring& AssetPath) { 
         return GFailedAssets.find(AssetPath) != GFailedAssets.end(); 
@@ -195,22 +236,82 @@ namespace DynPals {
     bool NativeAsyncLoader::RequestBatchAsyncLoad(const std::vector<std::wstring>& AssetPaths, UObject* Requester, int ExplicitSwapIndex, bool ForceReroll, bool IsCompanionSync, bool IsEvolutionEnd) {
         if (!Requester || !Utils::IsObjectValid(Requester)) return false;
 
+        bool bPakOnDisk = IsPakOnDisk();
+
+        // 1. Resolve ModActor Blueprint class
         if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) {
             LoaderClass = Utils::GetClassCached(STR("/Game/Mods/DynamicPals/ModActor.ModActor_C"), true);
-            if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) return false;
+            if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) {
+                LoaderClass = static_cast<UClass*>(Utils::LoadAssetSafely(STR("/Game/Mods/DynamicPals/ModActor.ModActor_C")));
+            }
         }
 
+        // 2. If the class cannot be resolved, diagnose why and warn once
+        if (!LoaderClass || !Utils::IsObjectValid(LoaderClass)) {
+            static bool bWarnedUnmounted = false;
+            static bool bWarnedMissing = false;
+
+            if (bPakOnDisk && !bWarnedUnmounted) {
+                DP_LOG(Warning, "DynamicPals.pak detected on disk but is UNMOUNTED. Added while game was running? Please restart Palworld.");
+                bWarnedUnmounted = true;
+            } else if (!bPakOnDisk && !bWarnedMissing) {
+                DP_LOG(Warning, "DynamicPals.pak not found in LogicMods! Please install the mod and restart game.");
+                bWarnedMissing = true;
+            }
+            return false;
+        }
+
+        // 3. Look for an existing ModActor instance in the active world
         if (!GAssetLoaderActor || !Utils::IsObjectValid(GAssetLoaderActor)) {
             std::vector<UObject*> modActors;
             UObjectGlobals::FindAllOf(STR("ModActor_C"), modActors);
             for (UObject* actor : modActors) {
-                if (actor && actor->GetFunctionByNameInChain(STR("RequestBatchAsyncLoad"))) {
+                if (actor && Utils::IsObjectValid(actor) && actor->GetFunctionByNameInChain(STR("RequestBatchAsyncLoad"))) {
                     GAssetLoaderActor = actor;
                     break;
                 }
             }
         }
 
+        // 4. If class is valid but actor is unspawned, dynamically spawn ModActor_C into the active World
+        if (!GAssetLoaderActor || !Utils::IsObjectValid(GAssetLoaderActor)) {
+            UObject* Level = Requester->GetOuterPrivate();
+            UObject* World = (Level && Utils::IsObjectValid(Level)) ? Level->GetOuterPrivate() : nullptr;
+
+            UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+            if (GameplayStatics && World && Utils::IsObjectValid(World)) {
+                struct FTransform_UE5 {
+                    struct { double X, Y, Z, W; } Rotation{0, 0, 0, 1};
+                    struct { double X, Y, Z; } Translation{0, 0, 0};
+                    struct { double X, Y, Z; } Scale3D{1, 1, 1};
+                } SpawnTransform;
+
+                struct {
+                    UObject* WorldContextObject;
+                    UClass* Class;
+                    FTransform_UE5 SpawnTransform;
+                    uint8_t CollisionHandlingOverride;
+                    UObject* Owner;
+                    UObject* ReturnValue;
+                } SpawnParams{ World, LoaderClass, SpawnTransform, 1, nullptr, nullptr };
+
+                UFunction* SpawnFunc = GameplayStatics->GetFunctionByNameInChain(STR("BeginDeferredActorSpawnFromClass"));
+                if (SpawnFunc) {
+                    Utils::SafeProcessEvent(GameplayStatics, SpawnFunc, &SpawnParams);
+                    if (SpawnParams.ReturnValue) {
+                        UFunction* FinishFunc = GameplayStatics->GetFunctionByNameInChain(STR("FinishSpawningActor"));
+                        if (FinishFunc) {
+                            struct { UObject* Actor; FTransform_UE5 SpawnTransform; UObject* ReturnValue; } FinishParams{ SpawnParams.ReturnValue, SpawnTransform, nullptr };
+                            Utils::SafeProcessEvent(GameplayStatics, FinishFunc, &FinishParams);
+                            GAssetLoaderActor = FinishParams.ReturnValue ? FinishParams.ReturnValue : SpawnParams.ReturnValue;
+                            DP_LOG(Default, "[NativeAsync] ModActor_C was unspawned; successfully instantiated into World dynamically.");
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Dispatch async batch request to ModActor
         if (GAssetLoaderActor && Utils::IsObjectValid(GAssetLoaderActor)) {
             UFunction* Func = GAssetLoaderActor->GetFunctionByNameInChain(STR("RequestBatchAsyncLoad"));
             if (Func) {
@@ -260,6 +361,7 @@ namespace DynPals {
             }
         }
 
+        // Fallback cleanup if dispatch failed
         for (const auto& path : AssetPaths) {
             GPendingAssets.erase(path);
             GFailedAssets.insert(path);
@@ -267,6 +369,7 @@ namespace DynPals {
         GPendingCount[Requester] = 0;
         return false;
     }
+
 
     void NativeAsyncLoader::OnAsyncLoadComplete(UObject* ModActor, UObject* Requester) {
         if (!ModActor || !Requester) return;
