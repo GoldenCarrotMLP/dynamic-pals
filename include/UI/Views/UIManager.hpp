@@ -64,13 +64,14 @@ namespace DynPals {
         std::unique_ptr<class DynPals::UI::Dropdown> SkinDropdown;
         std::unique_ptr<class DynPals::UI::Switch> HideInvalidSwitch;
         std::unique_ptr<class DynPals::UI::Button> RerollButton;
-        std::unique_ptr<class DynPals::UI::Button> ResetButton; // NEW: Added Reset Button
+        std::unique_ptr<class DynPals::UI::Button> ResetButton;
         std::vector<std::unique_ptr<class DynPals::UI::Slider>> MorphSliderPool;
         int ActiveMorphSlidersCount = 0;
         
         // UI Elements
         std::unique_ptr<class DynPals::UI::Switch> FocusPalSwitch;
         std::unique_ptr<class DynPals::UI::Slider> CameraRotationSlider;
+        std::unique_ptr<class DynPals::UI::Slider> SizeSlider; // <--- Size Slider Controller
 
         // Native Widget Persistent Containers
         RC::Unreal::UObject* MainScrollBoxObj = nullptr;
@@ -79,11 +80,16 @@ namespace DynPals {
         RC::Unreal::UObject* DynamicMorphBox = nullptr;
         RC::Unreal::UObject* DynamicLogBox = nullptr;
         RC::Unreal::UObject* CameraRotationContainer = nullptr;
+        RC::Unreal::UObject* SizeSliderContainer = nullptr;     // <--- Size Slider Container
         RC::Unreal::UObject* PalFontCache = nullptr;
         
         RC::Unreal::UObject* HeaderTextObj = nullptr;
-        
-        RC::Unreal::UObject* WidgetTrashBin = nullptr; // Hidden container to prevent GC
+        RC::Unreal::UObject* WidgetTrashBin = nullptr;
+
+        // Auto-refresh state trackers
+        double LastObservedSize = -999.0;                      // <--- Size Tracker
+        std::wstring LastObservedLabel = L"";                  // <--- Swap Tracker
+
         // Data Models
         std::vector<std::wstring> DropdownOptions;
         std::vector<int> DropdownConfigIndices;

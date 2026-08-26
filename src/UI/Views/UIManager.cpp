@@ -268,39 +268,46 @@ namespace DynPals {
 
         return true;
     }
+
     void UIManager::OnInvalidate() {
-        TargetPal = nullptr;
-        TargetInstanceID = L"";
-        TargetCharID = L"";
-        SkinDropdown = nullptr;
-        
-        if (PreloadContainer) {
-            Utils::CallFunction(PreloadContainer, STR("RemoveFromParent"));
-            PreloadContainer = nullptr;
-        }
-        HideInvalidSwitch = nullptr;
-        RerollButton = nullptr;
-        ResetButton = nullptr;
-        MorphSliderPool.clear(); 
-        ActiveMorphSlidersCount = 0;
-        FocusPalSwitch = nullptr;
-        CameraRotationSlider = nullptr;
-        MainScrollBoxObj = nullptr;
-        GetScrollOffsetFunc = nullptr;
-        
-        DynamicMorphBox = nullptr;
-        DynamicLogBox = nullptr;
-        CameraRotationContainer = nullptr;
-        HeaderTextObj = nullptr;
-        WidgetTrashBin = nullptr;
-
-        LogTextPool.clear();
-        DropdownOptions.clear();
-        DropdownConfigIndices.clear();
-
-        OriginalViewTarget = nullptr;
-        bIsPalCameraActive = false;
+    TargetPal = nullptr;
+    TargetInstanceID = L"";
+    TargetCharID = L"";
+    SkinDropdown = nullptr;
+    
+    if (PreloadContainer) {
+        Utils::CallFunction(PreloadContainer, STR("RemoveFromParent"));
+        PreloadContainer = nullptr;
     }
+    HideInvalidSwitch = nullptr;
+    RerollButton = nullptr;
+    ResetButton = nullptr;
+    MorphSliderPool.clear(); 
+    ActiveMorphSlidersCount = 0;
+    FocusPalSwitch = nullptr;
+    CameraRotationSlider = nullptr;
+    SizeSlider = nullptr;                 // <--- ADD THIS
+    MainScrollBoxObj = nullptr;
+    GetScrollOffsetFunc = nullptr;
+    
+    DynamicMorphBox = nullptr;
+    DynamicLogBox = nullptr;
+    CameraRotationContainer = nullptr;
+    SizeSliderContainer = nullptr;         // <--- ADD THIS
+    HeaderTextObj = nullptr;
+    WidgetTrashBin = nullptr;
+
+    LastObservedSize = -999.0;            // <--- ADD THIS
+    LastObservedLabel = L"";               // <--- ADD THIS
+
+    LogTextPool.clear();
+    DropdownOptions.clear();
+    DropdownConfigIndices.clear();
+
+    OriginalViewTarget = nullptr;
+    bIsPalCameraActive = false;
+}
+
     void UIManager::OnOpen() {
         // Trigger data population and dynamic UI layout immediately upon showing the UI
         RefreshUI();
@@ -310,6 +317,10 @@ namespace DynPals {
         TargetPal = nullptr;
         TargetInstanceID = L"";
         TargetCharID = L"";
+
+        // Reset tracking state
+        LastScrollOffset = 0.0f;
+        bNeedsRefresh = false;
 
         DisablePalCamera();
         OriginalViewTarget = nullptr;
@@ -412,6 +423,7 @@ namespace DynPals {
         DynamicMorphBox = UI::VerticalBox(MyWidget).Build();
         DynamicLogBox = UI::VerticalBox(MyWidget).Build();
         CameraRotationContainer = UI::VerticalBox(MyWidget).Build();
+        SizeSliderContainer = UI::VerticalBox(MyWidget).Build();
 
         // Create Trash Bin to hold unused pooled widgets and prevent garbage collection
         WidgetTrashBin = UI::VerticalBox(MyWidget).Build();
@@ -555,6 +567,7 @@ namespace DynPals {
 
         // Add pre-constructed empty containers
         InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(CameraRotationContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,10); });
+        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(SizeSliderContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,10); });
         InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(DynamicMorphBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,10); });
         InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(DynamicLogBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,10,0,10); });
         InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(WidgetTrashBin)); // Must be added to hierarchy
@@ -597,13 +610,13 @@ namespace DynPals {
                duration, duration / 1000.0f);
 
     }
-    // In UIManager.cpp:
-RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
-    if (RerollButton && RerollButton->GetWidget()) {
-        return RerollButton->GetWidget();
+
+    RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
+        if (RerollButton && RerollButton->GetWidget()) {
+            return RerollButton->GetWidget();
+        }
+        return MyWidget;
     }
-    return MyWidget;
-}
 
     void UIManager::RefreshUI() {
         if (!TargetPal || !DynamicLogBox || !DynamicMorphBox || !CameraRotationContainer) return;
@@ -1020,6 +1033,79 @@ RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
             CameraRotationSlider = nullptr;
         }
 
+        // 5.5. Dynamic Size Slider (Only displays if Min < Max in the JSON)
+Utils::CallFunction(SizeSliderContainer, STR("ClearChildren"));
+SizeSlider = nullptr;
+
+if (currentPersist && persistConfigIndex != -1) {
+    auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
+    
+    if (activeCfg.MinSizeMultiplier < activeCfg.MaxSizeMultiplier) {
+        double currentVal = currentPersist->SizeMultiplier > 0.0 ? currentPersist->SizeMultiplier : 1.0;
+        if (currentVal < activeCfg.MinSizeMultiplier) currentVal = activeCfg.MinSizeMultiplier;
+        if (currentVal > activeCfg.MaxSizeMultiplier) currentVal = activeCfg.MaxSizeMultiplier;
+
+        SizeSlider = std::make_unique<UI::Slider>(MyWidget, activeCfg.MinSizeMultiplier, activeCfg.MaxSizeMultiplier, currentVal);
+        SizeSlider->OnChanged([this](double NewValue) {
+            LastObservedSize = NewValue; // Prevents UI refresh loop while dragging
+
+            PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
+            if (p) {
+                p->SizeMultiplier = NewValue;
+                SaveManager::Get().SetPersistData(TargetInstanceID, *p, true);
+
+                if (TargetPal && Utils::IsObjectValid(TargetPal)) {
+                    UObject* MeshComp = nullptr;
+                    Utils::CallFunction(TargetPal, STR("GetMainMesh"), &MeshComp);
+                    if (MeshComp && Utils::IsObjectValid(MeshComp)) {
+                        UClass* CharClass = TargetPal->GetClassPrivate();
+                        if (CharClass) {
+                            UObject* CDO = CharClass->GetClassDefaultObject();
+                            UObject* VanillaMesh = nullptr;
+                            if (CDO) Utils::GetPropertyValue<UObject*>(CDO, STR("Mesh"), VanillaMesh);
+                            
+                            // Read RelativeScale3D directly from the CDO (contains the 1.45 base scale)
+                            FVector_UE5 BaseScale{ 1.0, 1.0, 1.0 };
+                            if (VanillaMesh) {
+                                FVector_UE5 CDOScale{ 1.0, 1.0, 1.0 };
+                                if (Utils::GetPropertyValue<FVector_UE5>(VanillaMesh, STR("RelativeScale3D"), CDOScale)) {
+                                    if (CDOScale.X > 0.001 && CDOScale.Y > 0.001 && CDOScale.Z > 0.001) {
+                                        BaseScale = CDOScale;
+                                    }
+                                }
+                            }
+
+                            if (NewValue <= 0.001) NewValue = 1.0;
+
+                            FVector_UE5 FinalMeshScale = {
+                                BaseScale.X * NewValue,
+                                BaseScale.Y * NewValue,
+                                BaseScale.Z * NewValue
+                            };
+
+                            // Apply final scale to both active relative and default properties
+                            Utils::SetPropertyValue<FVector_UE5>(MeshComp, STR("DefaultScale3D"), FinalMeshScale);
+                            struct { FVector_UE5 NewScale3D; } ScaleParams{ FinalMeshScale };
+                            Utils::CallFunction(MeshComp, STR("SetRelativeScale3D"), &ScaleParams);
+                        }
+                    }
+                }
+            }
+        });
+
+        RC::Unreal::UObject* TitleObj = GetPooledText(L"Size Adjustment", Emerald, 18, L"Bold");
+        struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddT{TitleObj, nullptr};
+        Utils::CallFunction(SizeSliderContainer, STR("AddChildToVerticalBox"), &AddT);
+
+        struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddS{SizeSlider->GetWidget(), nullptr};
+        Utils::CallFunction(SizeSliderContainer, STR("AddChildToVerticalBox"), &AddS);
+        if (AddS.ReturnValue) {
+            DynPals::BoxSlotBuilder SlotBuilder(AddS.ReturnValue);
+            SlotBuilder.Padding(0.0f, 5.0f, 0.0f, 15.0f);
+        }
+    }
+}
+
         // 6. Slider Pooling & Shape Keys
         Utils::CallFunction(DynamicMorphBox, STR("ClearChildren"));
         ActiveMorphSlidersCount = 0;
@@ -1092,8 +1178,21 @@ RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
             }
         }
 
-        // 7. Dynamic Log Output
+        // 7. Dynamic Log Output & Scale Multiplier Indicator
         Utils::CallFunction(DynamicLogBox, STR("ClearChildren"));
+
+        // --- SIZE MODIFIER DISPLAY (Only appears if size != 1.0) ---
+        if (currentPersist && currentPersist->SizeMultiplier > 0.0 && std::abs(currentPersist->SizeMultiplier - 1.0) > 0.005) {
+            wchar_t sizeBuf[32];
+            swprintf(sizeBuf, 32, L"Size Modifier: %.2fx", currentPersist->SizeMultiplier);
+            RC::Unreal::UObject* SizeTxtObj = GetPooledText(sizeBuf, PalBlue, 18, L"Bold");
+            struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddSize{SizeTxtObj, nullptr};
+            Utils::CallFunction(DynamicLogBox, STR("AddChildToVerticalBox"), &AddSize);
+            if (AddSize.ReturnValue) {
+                DynPals::BoxSlotBuilder SlotBuilder(AddSize.ReturnValue);
+                SlotBuilder.Padding(0.0f, 0.0f, 0.0f, 10.0f);
+            }
+        }
         
         RC::Unreal::UObject* LogTitleObj = GetPooledText(L"Matchmaker Log", Emerald, 20, L"Bold");
         struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddLogT{LogTitleObj, nullptr};
@@ -1180,34 +1279,45 @@ RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
     }
 
     void UIManager::OnTickUI() {
-        if (TargetPal && !Utils::IsObjectValid(TargetPal)) {
-            TargetPal = nullptr;
-            RequestToggle(); 
-            return;
-        }
+    if (TargetPal && !Utils::IsObjectValid(TargetPal)) {
+        TargetPal = nullptr;
+        RequestToggle(); 
+        return;
+    }
 
-        if (bNeedsRefresh) {
-            bNeedsRefresh = false;
-            RefreshUI();
-        }
-
-        if (SkinDropdown)         SkinDropdown->Tick();
-        if (HideInvalidSwitch)    HideInvalidSwitch->Tick();
-        if (RerollButton)         RerollButton->Tick();
-        if (ResetButton)          ResetButton->Tick(); // NEW: Tick reset button
-        if (FocusPalSwitch)       FocusPalSwitch->Tick();
-        if (CameraRotationSlider) CameraRotationSlider->Tick();
-
-        for (int i = 0; i < ActiveMorphSlidersCount; ++i) {
-            if (i < static_cast<int>(MorphSliderPool.size())) {
-                MorphSliderPool[i]->Tick();
-            }
-        }
-        
-        if (MainScrollBoxObj && GetScrollOffsetFunc) {
-            struct { float Offset; } Params{ 0.0f };
-            MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
-            LastScrollOffset = Params.Offset;
+    // --- AUTO-DETECT BACKGROUND SWAP & SIZE UPDATES ---
+    PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
+    if (p) {
+        if (p->SizeMultiplier != LastObservedSize || p->SwapLabel != LastObservedLabel) {
+            LastObservedSize = p->SizeMultiplier;
+            LastObservedLabel = p->SwapLabel;
+            bNeedsRefresh = true;
         }
     }
+
+    if (bNeedsRefresh) {
+        bNeedsRefresh = false;
+        RefreshUI();
+    }
+
+    if (SkinDropdown)         SkinDropdown->Tick();
+    if (HideInvalidSwitch)    HideInvalidSwitch->Tick();
+    if (RerollButton)         RerollButton->Tick();
+    if (ResetButton)          ResetButton->Tick();
+    if (FocusPalSwitch)       FocusPalSwitch->Tick();
+    if (CameraRotationSlider) CameraRotationSlider->Tick();
+    if (SizeSlider)           SizeSlider->Tick();            // <--- ADD THIS
+
+    for (int i = 0; i < ActiveMorphSlidersCount; ++i) {
+        if (i < static_cast<int>(MorphSliderPool.size())) {
+            MorphSliderPool[i]->Tick();
+        }
+    }
+    
+    if (MainScrollBoxObj && GetScrollOffsetFunc) {
+        struct { float Offset; } Params{ 0.0f };
+        MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
+        LastScrollOffset = Params.Offset;
+    }
+}
 }

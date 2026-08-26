@@ -17,6 +17,8 @@
         "SpawnWeight": 1,
         "LuckyStarReq": false,
         "IsWildPal": false,
+        "MinSizeMultiplier": 1,
+        "MaxSizeMultiplier": 1,
         "ReqSwap": [
           "TraitExample"
         ],

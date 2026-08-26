@@ -7,6 +7,7 @@ Unlike traditional `.pak` replacements which statically overwrite game-wide asse
 ---
 
 ## Features
+* **Ingame UI:** When pressing ALT+N ingame, selects the closest pal to your crosshair and brings up a menu which allows you to chose specific swaps and tweak the blendshapes or even reset the pal to default model. 
 * **Evolution Engine:** Allows you to set up evolution lines or branches to transition to them by leveling up any attribute specifed on the JSON.
 * **Native Execution:** Written completely in C++ for maximum performance and minimal frame-time overhead.
 * **Two JSON Formats Supported:** Seamlessly parses both Version 1 (Altermatic) and Version 2 (PalMagic) configuration schemas.
@@ -15,6 +16,7 @@ Unlike traditional `.pak` replacements which statically overwrite game-wide asse
 * **Dynamic Morph Target Engine:** Randomized or absolute morph targets (blendshapes) applied cleanly per-instance.
 * **Advanced Material Instancing:** Swap textures and materials dynamically per-slot without duplicating mesh files. Now features wildcard targeting (`/*`) for rapid material folder overrides! (thanks to Raeil for the idea)
 * **Dynamic Hue Shifting:** Generate vibrant, randomized HSV colors at runtime per material slot using `"RandomHue": true`. The mod automatically handles creating Dynamic Material Instances (MIDs) on-the-fly and applies a unique, persisted color to the `"Hue"` vector parameter (safely ignored by materials that do not support it).
+* * **Dynamic scale:** With MinSizeMultiplier and MaxSizeMultiplier properties on the json you can have native size variations on your pals.
 * **Overworld Settle Quarantine:** Pauses swaps for 5 seconds during initial level loads to prevent spawning performance spikes.
 * **Custon Names:** Depending on how you set your JSON, the pal can appear ingame with a custom name of your choosing.
 

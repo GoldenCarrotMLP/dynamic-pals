@@ -484,7 +484,7 @@ namespace DynPals {
                 auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - frontReq.StartTime).count();
                 
                 if (elapsedMs > 20000) { 
-                    DP_LOG(Error, "[NativeAsync] TIMEOUT! Background batch load hung for >20s for Pal: {}", (void*)frontReq.Requester);
+                    DP_LOG(Default, "[NativeAsync] TIMEOUT! Background batch load hung for >20s for Pal: {}", (void*)frontReq.Requester);
                     
                     for (const auto& path : frontReq.AssetPaths) {
                         GPendingAssets.erase(path);

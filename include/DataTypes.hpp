@@ -82,6 +82,8 @@ struct SwapConfig {
     double SpawnWeight = 1;          
     std::optional<bool> IsRarePal; 
     std::optional<bool> IsWildPal; 
+    double MinSizeMultiplier = 1.0;  // Added min scale range
+    double MaxSizeMultiplier = 1.0;  // Added max scale range
     std::vector<std::wstring> ReqSwap;
     std::vector<std::wstring> ReqTrait;
     std::vector<std::wstring> PrefTrait;
@@ -113,6 +115,7 @@ struct PalPersistData {
     std::map<std::string, std::wstring> MatSet;
     std::map<std::string, FLinearColor_UE5> MatColorSet;
     bool bIsManuallyLocked = false;
+    double SizeMultiplier = -1.0; // Added persistent size tracking
     
     bool HasSavedSwap() const {
         return !SkelMeshPath.empty() || !SkinName.empty();

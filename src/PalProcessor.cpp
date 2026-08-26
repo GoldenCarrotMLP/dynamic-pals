@@ -144,35 +144,47 @@ namespace DynPals {
         UObject* Skeleton = nullptr;
         UObject* SkelMesh = nullptr;
         UObject* StaticParam = nullptr;
+        FVector_UE5 MeshScale = { 1.0, 1.0, 1.0 };
+        float CapsuleHalfHeight = 0.0f;
+        float CapsuleRadius = 0.0f;
     };
 
     static FVanillaDefaults ExtractVanillaDefaults(UObject* Character) {
-        FVanillaDefaults defs;
-        if (!Character || !Utils::IsObjectValid(Character)) return defs;
+    FVanillaDefaults defs;
+    if (!Character || !Utils::IsObjectValid(Character)) return defs;
 
-        UClass* CharClass = Character->GetClassPrivate();
-        if (!CharClass || !Utils::IsObjectValid(CharClass)) return defs;
+    UClass* CharClass = Character->GetClassPrivate();
+    if (!CharClass || !Utils::IsObjectValid(CharClass)) return defs;
 
-        UObject* VanillaCDO = CharClass->GetClassDefaultObject();
-        if (!VanillaCDO || !Utils::IsObjectValid(VanillaCDO)) return defs;
+    UObject* VanillaCDO = CharClass->GetClassDefaultObject();
+    if (!VanillaCDO || !Utils::IsObjectValid(VanillaCDO)) return defs;
 
-        UObject* VanillaMesh = nullptr;
-        Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("Mesh"), VanillaMesh);
-        if (VanillaMesh && Utils::IsObjectValid(VanillaMesh)) {
-            Utils::GetPropertyValue<UClass*>(VanillaMesh, STR("AnimClass"), defs.AnimClass);
-            if (defs.AnimClass && Utils::IsObjectValid(defs.AnimClass)) {
-                Utils::GetPropertyValue<UObject*>(defs.AnimClass, STR("TargetSkeleton"), defs.Skeleton);
-            }
-            if (!Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkeletalMesh"), defs.SkelMesh)) {
-                Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkinnedAsset"), defs.SkelMesh);
-            }
-            if (defs.SkelMesh && Utils::IsObjectValid(defs.SkelMesh) && !defs.Skeleton) {
-                Utils::GetPropertyValue<UObject*>(defs.SkelMesh, STR("Skeleton"), defs.Skeleton);
+    UObject* VanillaMesh = nullptr;
+    Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("Mesh"), VanillaMesh);
+    if (VanillaMesh && Utils::IsObjectValid(VanillaMesh)) {
+        Utils::GetPropertyValue<UClass*>(VanillaMesh, STR("AnimClass"), defs.AnimClass);
+        if (defs.AnimClass && Utils::IsObjectValid(defs.AnimClass)) {
+            Utils::GetPropertyValue<UObject*>(defs.AnimClass, STR("TargetSkeleton"), defs.Skeleton);
+        }
+        if (!Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkeletalMesh"), defs.SkelMesh)) {
+            Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkinnedAsset"), defs.SkelMesh);
+        }
+        if (defs.SkelMesh && Utils::IsObjectValid(defs.SkelMesh) && !defs.Skeleton) {
+            Utils::GetPropertyValue<UObject*>(defs.SkelMesh, STR("Skeleton"), defs.Skeleton);
+        }
+
+        // Read RelativeScale3D directly (contains the 1.45 for Bosses)
+        FVector_UE5 DefaultMeshScale{ 1.0, 1.0, 1.0 };
+        if (Utils::GetPropertyValue<FVector_UE5>(VanillaMesh, STR("RelativeScale3D"), DefaultMeshScale)) {
+            if (DefaultMeshScale.X > 0.001 && DefaultMeshScale.Y > 0.001 && DefaultMeshScale.Z > 0.001) {
+                defs.MeshScale = DefaultMeshScale;
             }
         }
-        Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("StaticCharacterParameterComponent"), defs.StaticParam);
-        return defs;
     }
+    
+    Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("StaticCharacterParameterComponent"), defs.StaticParam);
+    return defs;
+}
 
     static void SyncStaticCharacterParams(UObject* SrcStaticParam, UObject* DestCharacter) {
         if (!SrcStaticParam || !DestCharacter || !Utils::IsObjectValid(SrcStaticParam) || !Utils::IsObjectValid(DestCharacter)) return;
@@ -322,7 +334,8 @@ namespace DynPals {
             }
         }
     }
-static bool IsValidPalActor(UObject* Obj) {
+
+    static bool IsValidPalActor(UObject* Obj) {
         if (!Obj) return false;
         if (!Utils::IsMemoryReadable(Obj, sizeof(void*))) return false;
         if (!Utils::IsObjectValid(Obj)) return false;
@@ -435,7 +448,6 @@ static bool IsValidPalActor(UObject* Obj) {
     }
 
     static bool IsPalBlueprintValid(UObject* Pal, std::wstring& OutBlueprintName) {
-        DP_LOG(Verbose, "[BPValid] Trace A: Enter");
         if (!Utils::IsObjectValid(Pal)) return false;
 
         UClass* PalClass = Pal->GetClassPrivate();
@@ -443,7 +455,6 @@ static bool IsValidPalActor(UObject* Obj) {
             DP_LOG(Warning, "WARNING: Spawned Actor has NO VALID BLUEPRINT CLASS! Aborting.");
             return false;
         }
-        DP_LOG(Verbose, "[BPValid] Trace B: Valid Class");
         
         OutBlueprintName = PalClass->GetName();
         if (OutBlueprintName.empty() || OutBlueprintName.find(L"Default__") != std::wstring::npos) return false;
@@ -458,7 +469,6 @@ static bool IsValidPalActor(UObject* Obj) {
             if (OutBlueprintName.find(L"FunnelCharacter") != std::wstring::npos) return false;
         }
 
-        DP_LOG(Verbose, "[BPValid] Trace C: Passed Blueprint Checks");
         return true;
     }
 
@@ -496,7 +506,6 @@ static bool IsValidPalActor(UObject* Obj) {
         bool bIsFunnel = FunnelClass && Character->GetClassPrivate()->IsChildOf(FunnelClass);
 
         if (bIsFunnel) {
-            // Funnel -> Main Pal (Safely ask the Funnel who its owner is)
             UFunction* GetOwnerFunc = Character->GetFunctionByNameInChain(STR("GetOwnerPal"));
             if (GetOwnerFunc) {
                 struct { UObject* RetVal; } Params{ nullptr };
@@ -507,10 +516,8 @@ static bool IsValidPalActor(UObject* Obj) {
             }
         } 
         else {
-            // Main Pal -> Funnel
             UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
             if (PalUtil && Utils::IsObjectValid(PalUtil)) {
-                // Ensure this is actually an Otomo (player party Pal) before asking for a Funnel
                 UFunction* IsOtomoFunc = PalUtil->GetFunctionByNameInChain(STR("IsPlayersOtomo"));
                 if (IsOtomoFunc) {
                     struct { UObject* Actor; bool RetVal; } OtomoParams{ Character, false };
@@ -583,6 +590,7 @@ static bool IsValidPalActor(UObject* Obj) {
             newData.SkinName = config.SkinName;
             newData.SwapLabel = config.SwapLabel; 
             newData.SkelMeshPath = config.SkelMeshPath;
+            newData.SizeMultiplier = -1.0; // Reset size on new explicit swap
             SaveManager::Get().SetPersistData(id.InstanceID, newData, true); 
         } else {
             ExistingData->PackName = config.PackName;
@@ -593,6 +601,7 @@ static bool IsValidPalActor(UObject* Obj) {
             ExistingData->MorphSet.clear();
             ExistingData->MatSet.clear();
             ExistingData->MatColorSet.clear();
+            ExistingData->SizeMultiplier = -1.0; // Reset size on new explicit swap
             
             SaveManager::Get().SetPersistData(id.InstanceID, *ExistingData, true); 
         }
@@ -657,7 +666,6 @@ static bool IsValidPalActor(UObject* Obj) {
                 if (IsValidPalActor(OtomoChar)) {
                     ProcessPal(OtomoChar, false);
 
-                    // Safely query the FunnelManager directly for this Otomo's funnel
                     if (FunnelManager && Utils::IsObjectValid(FunnelManager)) {
                         struct { UObject* Owner; UObject* ReturnValue; } FunnelParams{ OtomoChar, nullptr };
                         Utils::SafeProcessEvent(FunnelManager, FunnelManager->GetFunctionByNameInChain(STR("GetFunnelCharacterByOwner")), &FunnelParams);
@@ -669,6 +677,7 @@ static bool IsValidPalActor(UObject* Obj) {
             }
         }
     }
+
     void PalProcessor::ClearAllSwappedStatus() {
         std::lock_guard<std::mutex> lock(QueueMutex);
         SwapQueue.clear();
@@ -711,7 +720,6 @@ static bool IsValidPalActor(UObject* Obj) {
                 NativeAsyncLoader::SetActiveRequester(nullptr);
             }
         }
-        // GC Map pruning removed to prevent UAF crashes
     }
     
     bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int ExplicitSwapIndex, bool IsCompanionSync, bool IsEvolutionEnd) {
@@ -980,7 +988,6 @@ static bool IsValidPalActor(UObject* Obj) {
                     return false;
                 }
 
-                // Trigger Parallel Async Load for all missing assets
                 if (!assetsToLoad.empty()) {
                     NativeAsyncLoader::RegisterPendingRequests(Character, static_cast<int>(assetsToLoad.size()));
                     
@@ -1013,10 +1020,12 @@ static bool IsValidPalActor(UObject* Obj) {
                 newData.SwapLabel = finalConfig.SwapLabel;
                 newData.SkelMeshPath = finalConfig.SkelMeshPath;
 
+                // Reset size and randomizations on skin change, manual pick, or reroll
                 if (ForceReroll || ExplicitSwapIndex != -1 || finalSwap != currentSwap) {
                     newData.MorphSet.clear();
                     newData.MatSet.clear();
                     newData.MatColorSet.clear(); 
+                    newData.SizeMultiplier = -1.0; 
                 }
 
                 if (!finalConfig.SetNickname.empty()) {
@@ -1167,6 +1176,8 @@ static bool IsValidPalActor(UObject* Obj) {
         bool bNeedsExternalAnimLoad = !ResolvedAnimPath.empty();
         ProfileStep(L"Trace 4: Resolving Anim Path (CharID & Utils)");
 
+        FVanillaDefaults vanillaDefs = ExtractVanillaDefaults(Character);
+
         if (bNeedsExternalAnimLoad) {
             UClass* TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(ResolvedAnimPath));
             
@@ -1199,10 +1210,9 @@ static bool IsValidPalActor(UObject* Obj) {
                 }
             }
         } else {
-            FVanillaDefaults defs = ExtractVanillaDefaults(Character);
-            TargetAnimClass = defs.AnimClass;
-            TargetSkeleton = defs.Skeleton;
-            TargetStaticParam = defs.StaticParam;
+            TargetAnimClass = vanillaDefs.AnimClass;
+            TargetSkeleton = vanillaDefs.Skeleton;
+            TargetStaticParam = vanillaDefs.StaticParam;
 
             if (!TargetAnimClass || !Utils::IsObjectValid(TargetAnimClass)) {
                 TargetAnimClass = CurrentAnimClass;
@@ -1482,13 +1492,57 @@ static bool IsValidPalActor(UObject* Obj) {
         RefreshFacialModule(Character, MeshComp);
         ProfileStep(L"Trace 11: PalFacialComponent Setup");
 
+        // =========================================================================
+        // SIZE MULTIPLIER (Calculated against baked-in CDO Base Scale)
+        // =========================================================================
+        double currentSizeMult = persist.SizeMultiplier;
+        if (currentSizeMult <= 0.0) {
+            if (swap.MinSizeMultiplier < swap.MaxSizeMultiplier) {
+                static std::random_device rd;
+                static std::mt19937 gen(rd());
+                std::uniform_real_distribution<> dis(swap.MinSizeMultiplier, swap.MaxSizeMultiplier);
+                currentSizeMult = dis(gen);
+            } else {
+                currentSizeMult = swap.MinSizeMultiplier; // Defaults cleanly to 1.0 for skins without size specs
+            }
+            persist.SizeMultiplier = currentSizeMult;
+        }
+
+        // Multiplies the Pal's native CDO mesh scale (e.g. 1.45 for Bosses, 1.0 for regular Pals)
+        FVector_UE5 FinalMeshScale = {
+            vanillaDefs.MeshScale.X * currentSizeMult,
+            vanillaDefs.MeshScale.Y * currentSizeMult,
+            vanillaDefs.MeshScale.Z * currentSizeMult
+        };
+
+        // We explicitly set DefaultScale3D so that when Palworld stows/unstows it, it doesn't overwrite our scale!
+        Utils::SetPropertyValue<FVector_UE5>(MeshComp, STR("DefaultScale3D"), FinalMeshScale);
+        struct { FVector_UE5 NewScale3D; } ScaleParams{ FinalMeshScale };
+        Utils::CallFunction(MeshComp, STR("SetRelativeScale3D"), &ScaleParams);
+
+        // Also scale the capsule collision directly in the StaticCharacterParameterComponent, disabled to prevent multiplayer desync
+        /*
+        UObject* TargetStaticParamInst = nullptr;
+        Utils::GetPropertyValue<UObject*>(Character, STR("StaticCharacterParameterComponent"), TargetStaticParamInst);
+        if (TargetStaticParamInst && vanillaDefs.CapsuleHalfHeight > 0.0f) {
+            Utils::SetPropertyValue<float>(TargetStaticParamInst, STR("MeshCapsuleHalfHeight"), static_cast<float>(vanillaDefs.CapsuleHalfHeight * currentSizeMult));
+            Utils::SetPropertyValue<float>(TargetStaticParamInst, STR("MeshCapsuleRadius"), static_cast<float>(vanillaDefs.CapsuleRadius * currentSizeMult));
+        }
+            */
+
+        DP_LOG(Default, "[Scale] Applied Mesh Scale: {:.3f} (Multiplier: {:.3f} * CDO Base: {:.3f}). Capsule updated.", 
+            FinalMeshScale.X, currentSizeMult, vanillaDefs.MeshScale.X);
+
+        ProfileStep(L"Trace 12: Applying Size Multiplier");
+
         // Flush dynamics / KawaiiPhysics to prevent stuck/stretched physics simulation
         ResetPhysicsAndDynamics(MeshComp);
 
-        DP_LOG(Default, "Successfully applied swap '{}' from Pack '{}' to Pal '{}'!\n", swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID);
+        DP_LOG(Default, "Successfully applied swap '{}' from Pack '{}' to Pal '{}' (Scale: {:.2f}x)!\n", 
+               swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID, currentSizeMult);
 
         auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - total_start).count();
-        DP_LOG(Default, "[Profile] [ApplySwap] Trace 12: Done! Total ApplySwap execution took {:.3f} ms", total_duration / 1000.0f);
+        DP_LOG(Default, "[Profile] [ApplySwap] Trace 13: Done! Total ApplySwap execution took {:.3f} ms", total_duration / 1000.0f);
     }
 
     void PalProcessor::ResetPal(UObject* Character) {
@@ -1520,6 +1574,7 @@ static bool IsValidPalActor(UObject* Obj) {
         newData.MatSet.clear();
         newData.MatColorSet.clear();
         newData.bIsManuallyLocked = true; // Lock so the matchmaker won't auto-assign skins
+        newData.SizeMultiplier = 1.0;
 
         SaveManager::Get().SetPersistData(id.InstanceID, newData, true);
 
@@ -1560,7 +1615,7 @@ static bool IsValidPalActor(UObject* Obj) {
             SyncStaticCharacterParams(defs.StaticParam, TargetPalObj);
             ReLinkAnimLayers(MeshComp);
 
-            // C. Restore Skeletal Mesh
+            // C. Restore Skeletal Mesh & Restore Exact CDO Base Scale to DefaultScale3D and RelativeScale3D
             if (defs.SkelMesh && Utils::IsObjectValid(defs.SkelMesh)) {
                 if (defs.Skeleton && Utils::IsObjectValid(defs.Skeleton)) {
                     Utils::SetPropertyValue<UObject*>(defs.SkelMesh, STR("Skeleton"), defs.Skeleton);
@@ -1569,6 +1624,21 @@ static bool IsValidPalActor(UObject* Obj) {
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
             }
 
+            // Restore exact CDO mesh scale
+            Utils::SetPropertyValue<FVector_UE5>(MeshComp, STR("DefaultScale3D"), defs.MeshScale);
+            struct { FVector_UE5 NewScale3D; } ResetMeshScaleParams{ defs.MeshScale };
+            Utils::CallFunction(MeshComp, STR("SetRelativeScale3D"), &ResetMeshScaleParams);
+
+            // Restore exact CDO Capsule properties Disabled to prevent multiplayer desync
+            /*
+            UObject* TargetStaticParamInst = nullptr;
+            Utils::GetPropertyValue<UObject*>(TargetPalObj, STR("StaticCharacterParameterComponent"), TargetStaticParamInst);
+            if (TargetStaticParamInst && defs.CapsuleHalfHeight > 0.0f) {
+                Utils::SetPropertyValue<float>(TargetStaticParamInst, STR("MeshCapsuleHalfHeight"), defs.CapsuleHalfHeight);
+                Utils::SetPropertyValue<float>(TargetStaticParamInst, STR("MeshCapsuleRadius"), defs.CapsuleRadius);
+                
+            }
+            */
             // D. Clear Material Overrides
             ClearMaterialOverrides(MeshComp);
 

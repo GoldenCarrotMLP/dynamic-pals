@@ -23,6 +23,8 @@ Version 1 is an array-based format originally created by Michael, but now heavil
 | **`MinLevel`** / **`MaxLevel`** | Integer | No | Minimum (default 1) and Maximum (default 999) level requirements. |
 | **`MinTrust`** / **`MaxTrust`** | Integer | No | Minimum (default 0) and Maximum (default 999999) friendship/trust requirements. |
 | **`MinRank`** / **`MaxRank`** | Integer | No | Minimum (default 0) and Maximum (default 5) star-rank requirements. |
+| **`MinSizeMultiplier`** | Float | No | Minimun scale in which pals will be multiplied (default 1). |
+| **`MaxSizeMultiplier`** | Float | No | Maximun scale in which pals will be multiplied (default 1). |
 | **`SpawnWeight`** | Integer | No | Relative probability weight for weighted random selection on ties (default 1). |
 | **`IsRarePal`** | Boolean | No | `true` or `false` (Forces match only on Lucky/Rare status). |
 | **`IsWildPal`** | Boolean | No | `true` or `false` (Forces match only on wild status). |
@@ -61,6 +63,8 @@ Version 1 is an array-based format originally created by Michael, but now heavil
             "MaxTrust": 1000,
             "MinRank": 0,
             "MaxRank": 4,
+            "MinSizeMultiplier": 0.5,
+            "MaxSizeMultiplier": 2,
             "SpawnWeight": 10,
             "IsRarePal": false,
             "IsWildPal": true,

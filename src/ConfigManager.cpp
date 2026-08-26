@@ -127,6 +127,9 @@ namespace DynPals {
             sc.MaxTrust = SafeGetInt(dict, "MaxTrust", 999999);
             sc.MinRank = SafeGetInt(dict, "MinRank", 0);
             sc.MaxRank = SafeGetInt(dict, "MaxRank", 5);
+
+            sc.MinSizeMultiplier = SafeGetDouble(dict, "MinSizeMultiplier", 1.0);
+            sc.MaxSizeMultiplier = SafeGetDouble(dict, "MaxSizeMultiplier", 1.0);
             
             if (dict.contains("SpawnWeight")) {
                 double w = SafeGetDouble(dict, "SpawnWeight", 1.0);
@@ -641,7 +644,7 @@ namespace DynPals {
                             secondName = Configs[secondMaxWeightIdx].SkinName.empty() ? L"Anonymous Mesh" : Configs[secondMaxWeightIdx].SkinName;
                         }
 
-                        DP_LOG(Warning, "Skin '{}' in Pack '{}' has a highly biased spawn weight ({:.2f}) compared to '{}' with {:.2f}.", 
+                        DP_LOG(Default, "Skin '{}' in Pack '{}' has a highly biased spawn weight ({:.2f}) compared to '{}' with {:.2f}.", 
                                maxName, maxConfig.PackName, maxWeight, secondName, secondMaxWeight);
                     }
                 }

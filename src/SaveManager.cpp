@@ -89,6 +89,7 @@ namespace DynPals {
                     pd.SwapLabel = Utils::StringToWString(palNode.value("SwapLabel", palNode.value("SkinLabel", ""))); 
                     pd.SkelMeshPath = Utils::StringToWString(palNode.value("SkelMeshPath", ""));
                     pd.bIsManuallyLocked = palNode.value("IsLocked", false);
+                    pd.SizeMultiplier = palNode.value("SizeMultiplier", -1.0);
 
                     if (palNode.contains("Morphs") && palNode.at("Morphs").is_object()) {
                         for (auto& [morphName, morphVal] : palNode.at("Morphs").items()) {
@@ -149,6 +150,7 @@ namespace DynPals {
                 palNode["SwapLabel"] = Utils::WStringToString(data.SwapLabel); 
                 palNode["SkelMeshPath"] = Utils::WStringToString(data.SkelMeshPath);
                 palNode["IsLocked"] = data.bIsManuallyLocked; 
+                if (data.SizeMultiplier > 0.0) palNode["SizeMultiplier"] = data.SizeMultiplier;
                 
                 nlohmann::ordered_json morphsObj;
                 for (const auto& [mName, mVal] : data.MorphSet) {

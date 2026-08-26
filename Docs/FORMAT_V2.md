@@ -19,6 +19,8 @@ Version 2 is a grouped, map-based format created by MonoDrago. Instead of arrays
 | **`MinLevel`** / **`MaxLevel`** | Integer | No | Minimum and Maximum level requirements. |
 | **`MinTrust`** / **`MaxTrust`** | Integer | No | Minimum and Maximum friendship/trust requirements. |
 | **`MinRank`** / **`MaxRank`** | Integer | No | Minimum and Maximum star-rank requirements. |
+| **`MinSizeMultiplier`** | Float | No | Minimun scale in which pals will be multiplied (default 1). |
+| **`MaxSizeMultiplier`** | Float | No | Maximun scale in which pals will be multiplied (default 1). |
 | **`SpawnWeight`** | Integer | No | Relative probability weight for weighted random selection on ties (default 1). |
 | **`LuckyStarReq`** | String/Bool | No | `"true"` or `"false"` (replaces V1 `IsRarePal`). |
 | **`IsWildPal`** | String/Bool | No | `"true"` or `"false"`. |
@@ -59,6 +61,8 @@ Version 2 is a grouped, map-based format created by MonoDrago. Instead of arrays
                 "MaxTrust": 1000,
                 "MinRank": 0,
                 "MaxRank": 4,
+                "MinSizeMultiplier": 0.5,
+                "MaxSizeMultiplier": 2,
                 "SpawnWeight": 10,
                 "LuckyStarReq": "false",
                 "IsWildPal": "true",
