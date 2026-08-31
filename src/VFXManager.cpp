@@ -223,7 +223,26 @@ namespace DynPals {
         if (VFXList.empty()) return;
         KillCurrentPreview();
 
-        UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+        UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+        UObject* PlayerController = nullptr;
+
+        std::vector<UObject*> worlds;
+        UObjectGlobals::FindAllOf(STR("World"), worlds);
+        UObject* ActiveWorld = nullptr;
+        for (UObject* w : worlds) {
+            if (w && w->GetName().find(L"Default__") == std::wstring::npos) {
+                ActiveWorld = w;
+                break;
+            }
+        }
+
+        if (GameplayStatics && ActiveWorld) {
+            struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{ActiveWorld, 0, nullptr};
+            Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
+            PlayerController = GSParams.ReturnValue;
+        }
+        if (!PlayerController) PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+
         if (!PlayerController || !Utils::IsObjectValid(PlayerController)) return;
 
         struct FRotator_UE5 { double Pitch, Yaw, Roll; };

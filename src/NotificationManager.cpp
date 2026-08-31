@@ -179,7 +179,20 @@ namespace DynPals {
 
     void NotificationManager::ShowModalDialog(const std::wstring& Message) {
         AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Message]() {
-            UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+            UObject* LogManager = GetActiveLogManager(); 
+            UObject* WorldContext = LogManager ? LogManager->GetOuterPrivate() : nullptr;
+            UObject* PlayerController = nullptr;
+
+            if (WorldContext && Utils::IsObjectValid(WorldContext)) {
+                UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+                if (GameplayStatics) {
+                    struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{WorldContext, 0, nullptr};
+                    Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
+                    PlayerController = GSParams.ReturnValue;
+                }
+            }
+            if (!PlayerController) PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+
             if (!PlayerController || !Utils::IsObjectValid(PlayerController)) return;
 
             UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));

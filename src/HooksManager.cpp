@@ -501,19 +501,28 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context,
                    MapName);
 
 
-        std::thread([]() {
+        std::thread([CapturedWorld = LastWorld]() {
           std::this_thread::sleep_for(std::chrono::seconds(8)); 
 
-          AsyncHelper::AsyncTask(ENamedThreads::GameThread, []() {
+          AsyncHelper::AsyncTask(ENamedThreads::GameThread, [CapturedWorld]() {
             DP_LOG(Default, "Settle period complete. Safely resolving player active party...\n");
 
-            // --- INITIALIZE THE ASYNC LOADER SAFELY NOW ---
             NativeAsyncLoader::Initialize();
 
-            UObject* PlayerControllerObj = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
-            if (PlayerControllerObj) {
+            // FIX: Safely resolve the correct PlayerController using the specific World Context
+            UObject* PlayerControllerObj = nullptr;
+            if (CapturedWorld && Utils::IsObjectValid(CapturedWorld)) {
+                UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+                if (GameplayStatics) {
+                    struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{CapturedWorld, 0, nullptr};
+                    Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
+                    PlayerControllerObj = GSParams.ReturnValue;
+                }
+            }
+            if (!PlayerControllerObj) PlayerControllerObj = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+
+            if (PlayerControllerObj && Utils::IsObjectValid(PlayerControllerObj)) {
                 PalProcessor::Get().ProcessPlayerParty(PlayerControllerObj);
-                
                 UIManager::Get().PreloadUI(PlayerControllerObj);
             }
 

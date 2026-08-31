@@ -114,7 +114,18 @@ namespace DynPals {
                 RC::Unreal::UFunction* CreateFunc = DynPals::Utils::GetWBLFunction(STR("Create"));
 
                 if (WBL && CreateFunc) {
-                    RC::Unreal::UObject* PC = RC::Unreal::UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+                    // FIX: Safe resolution of Local Player Controller to fix Multiplayer Host UI crashes!
+                    RC::Unreal::UObject* PC = nullptr;
+                    if (Outer && DynPals::Utils::IsObjectValid(Outer)) {
+                        RC::Unreal::UObject* GameplayStatics = RC::Unreal::UObjectGlobals::StaticFindObject<RC::Unreal::UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+                        if (GameplayStatics) {
+                            struct { RC::Unreal::UObject* WorldContextObject; int32_t PlayerIndex; RC::Unreal::UObject* ReturnValue; } GSParams{Outer, 0, nullptr};
+                            DynPals::Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
+                            PC = GSParams.ReturnValue;
+                        }
+                    }
+                    if (!PC) PC = RC::Unreal::UObjectGlobals::FindFirstOf(STR("PalPlayerController")); // Ultimate fallback
+
                     struct { RC::Unreal::UObject* WorldContext; RC::Unreal::UClass* WidgetType; RC::Unreal::UObject* OwningPlayer; RC::Unreal::UObject* ReturnValue; } CreateParams{
                         PC, Cls, PC, nullptr
                     };
@@ -125,7 +136,6 @@ namespace DynPals {
                 RC::Unreal::FStaticConstructObjectParameters Params{Cls, Outer};
                 Params.Name = RC::Unreal::FName(); 
                 Widget = RC::Unreal::UObjectGlobals::StaticConstructObject(Params);
-
             }
         }
 

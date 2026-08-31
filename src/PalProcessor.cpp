@@ -141,6 +141,7 @@ namespace DynPals {
     // =========================================================================
     struct FVanillaDefaults {
         UClass* AnimClass = nullptr;
+        UClass* PostProcessAnimClass = nullptr; // Captured for clean resets
         UObject* Skeleton = nullptr;
         UObject* SkelMesh = nullptr;
         UObject* StaticParam = nullptr;
@@ -150,41 +151,41 @@ namespace DynPals {
     };
 
     static FVanillaDefaults ExtractVanillaDefaults(UObject* Character) {
-    FVanillaDefaults defs;
-    if (!Character || !Utils::IsObjectValid(Character)) return defs;
+        FVanillaDefaults defs;
+        if (!Character || !Utils::IsObjectValid(Character)) return defs;
 
-    UClass* CharClass = Character->GetClassPrivate();
-    if (!CharClass || !Utils::IsObjectValid(CharClass)) return defs;
+        UClass* CharClass = Character->GetClassPrivate();
+        if (!CharClass || !Utils::IsObjectValid(CharClass)) return defs;
 
-    UObject* VanillaCDO = CharClass->GetClassDefaultObject();
-    if (!VanillaCDO || !Utils::IsObjectValid(VanillaCDO)) return defs;
+        UObject* VanillaCDO = CharClass->GetClassDefaultObject();
+        if (!VanillaCDO || !Utils::IsObjectValid(VanillaCDO)) return defs;
 
-    UObject* VanillaMesh = nullptr;
-    Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("Mesh"), VanillaMesh);
-    if (VanillaMesh && Utils::IsObjectValid(VanillaMesh)) {
-        Utils::GetPropertyValue<UClass*>(VanillaMesh, STR("AnimClass"), defs.AnimClass);
-        if (defs.AnimClass && Utils::IsObjectValid(defs.AnimClass)) {
-            Utils::GetPropertyValue<UObject*>(defs.AnimClass, STR("TargetSkeleton"), defs.Skeleton);
-        }
-        if (!Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkeletalMesh"), defs.SkelMesh)) {
-            Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkinnedAsset"), defs.SkelMesh);
-        }
-        if (defs.SkelMesh && Utils::IsObjectValid(defs.SkelMesh) && !defs.Skeleton) {
-            Utils::GetPropertyValue<UObject*>(defs.SkelMesh, STR("Skeleton"), defs.Skeleton);
-        }
+        UObject* VanillaMesh = nullptr;
+        Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("Mesh"), VanillaMesh);
+        if (VanillaMesh && Utils::IsObjectValid(VanillaMesh)) {
+            Utils::GetPropertyValue<UClass*>(VanillaMesh, STR("AnimClass"), defs.AnimClass);
+            Utils::GetPropertyValue<UClass*>(VanillaMesh, STR("PostProcessAnimBlueprint"), defs.PostProcessAnimClass);
+            if (defs.AnimClass && Utils::IsObjectValid(defs.AnimClass)) {
+                Utils::GetPropertyValue<UObject*>(defs.AnimClass, STR("TargetSkeleton"), defs.Skeleton);
+            }
+            if (!Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkeletalMesh"), defs.SkelMesh)) {
+                Utils::GetPropertyValue<UObject*>(VanillaMesh, STR("SkinnedAsset"), defs.SkelMesh);
+            }
+            if (defs.SkelMesh && Utils::IsObjectValid(defs.SkelMesh) && !defs.Skeleton) {
+                Utils::GetPropertyValue<UObject*>(defs.SkelMesh, STR("Skeleton"), defs.Skeleton);
+            }
 
-        // Read RelativeScale3D directly (contains the 1.45 for Bosses)
-        FVector_UE5 DefaultMeshScale{ 1.0, 1.0, 1.0 };
-        if (Utils::GetPropertyValue<FVector_UE5>(VanillaMesh, STR("RelativeScale3D"), DefaultMeshScale)) {
-            if (DefaultMeshScale.X > 0.001 && DefaultMeshScale.Y > 0.001 && DefaultMeshScale.Z > 0.001) {
-                defs.MeshScale = DefaultMeshScale;
+            FVector_UE5 DefaultMeshScale{ 1.0, 1.0, 1.0 };
+            if (Utils::GetPropertyValue<FVector_UE5>(VanillaMesh, STR("RelativeScale3D"), DefaultMeshScale)) {
+                if (DefaultMeshScale.X > 0.001 && DefaultMeshScale.Y > 0.001 && DefaultMeshScale.Z > 0.001) {
+                    defs.MeshScale = DefaultMeshScale;
+                }
             }
         }
+        
+        Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("StaticCharacterParameterComponent"), defs.StaticParam);
+        return defs;
     }
-    
-    Utils::GetPropertyValue<UObject*>(VanillaCDO, STR("StaticCharacterParameterComponent"), defs.StaticParam);
-    return defs;
-}
 
     static void SyncStaticCharacterParams(UObject* SrcStaticParam, UObject* DestCharacter) {
         if (!SrcStaticParam || !DestCharacter || !Utils::IsObjectValid(SrcStaticParam) || !Utils::IsObjectValid(DestCharacter)) return;
@@ -232,26 +233,131 @@ namespace DynPals {
         }
     }
 
-    static void ReLinkAnimLayers(UObject* MeshComp) {
+    static void RefreshNPCShooterAnime(UObject* Character, UObject* AnimInst) {
+        if (!Character || !AnimInst || !Utils::IsObjectValid(Character) || !Utils::IsObjectValid(AnimInst)) return;
+
+        UObject* ShooterComp = nullptr;
+        Utils::GetPropertyValue<UObject*>(Character, STR("PalShooter"), ShooterComp, true);
+        if (!ShooterComp || !Utils::IsObjectValid(ShooterComp)) {
+            UClass* ShooterClass = Utils::GetClassCached(STR("/Script/Pal.PalShooterComponent"));
+            if (ShooterClass) {
+                struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{ ShooterClass, nullptr };
+                Utils::CallFunction(Character, STR("GetComponentByClass"), &GetCompParams);
+                ShooterComp = GetCompParams.ReturnValue;
+            }
+        }
+
+        if (ShooterComp && Utils::IsObjectValid(ShooterComp)) {
+            // 1. Assign required component & character references directly to the AnimInstance
+            Utils::SetPropertyValue<UObject*>(AnimInst, STR("TSCache_ShooterComponent"), ShooterComp, true);
+            Utils::SetPropertyValue<UObject*>(AnimInst, STR("TSCache_OwnerPalCharacter"), Character, true);
+
+            UObject* LookAtComp = nullptr;
+            if (Utils::GetPropertyValue<UObject*>(Character, STR("LookAtComponent"), LookAtComp, true) && LookAtComp) {
+                Utils::SetPropertyValue<UObject*>(AnimInst, STR("LookAtComponent"), LookAtComp, true);
+            }
+
+            // 2. Copy populated WeaponAnimationInfo struct from PalShooter into AnimInstance->WeaponInfo
+            FProperty* DestWeaponInfoProp = Utils::GetProperty(AnimInst, STR("WeaponInfo"), true);
+            FProperty* SrcWeaponInfoProp = Utils::GetProperty(ShooterComp, STR("PrevWeaponAnimationInfo"), true);
+            if (DestWeaponInfoProp && SrcWeaponInfoProp) {
+                void* DestPtr = DestWeaponInfoProp->ContainerPtrToValuePtr<void>(AnimInst);
+                void* SrcPtr = SrcWeaponInfoProp->ContainerPtrToValuePtr<void>(ShooterComp);
+                if (DestPtr && SrcPtr) {
+                    DestWeaponInfoProp->CopyCompleteValue(DestPtr, SrcPtr);
+                    DP_LOG(Default, "[NPC] Copied PrevWeaponAnimationInfo into AnimInstance->WeaponInfo.");
+                }
+            }
+
+            // 3. Trigger native PalShooterComponent animation setup
+            UFunction* InitAnimFunc = ShooterComp->GetFunctionByNameInChain(STR("OnOwnerAnimInitialized"));
+            if (InitAnimFunc) {
+                alignas(8) uint8_t Params[16] = {0};
+                Utils::SafeProcessEvent(ShooterComp, InitAnimFunc, Params);
+            }
+
+            // 4. Update the AnimInstance with the ShooterComponent
+            UFunction* UpdateFunc = AnimInst->GetFunctionByNameInChain(STR("ShooterComponentUpdate"));
+            if (UpdateFunc) {
+                struct { UObject* InShooter; } UpdateParams{ ShooterComp };
+                Utils::SafeProcessEvent(AnimInst, UpdateFunc, &UpdateParams);
+            }
+
+            // 5. Re-trigger weapon creation/attachment to bind hand sockets to the new mesh
+            UFunction* CreateWeaponFunc = Character->GetFunctionByNameInChain(STR("CreateWeapon"));
+            if (CreateWeaponFunc) {
+                alignas(8) uint8_t WeaponParams[64] = {0};
+                Utils::SafeProcessEvent(Character, CreateWeaponFunc, WeaponParams);
+            }
+        }
+    }
+
+    static void ReLinkAnimLayers(UObject* MeshComp, UObject* TargetCDO, UObject* Character = nullptr) {
         if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
         UObject* AnimInst = nullptr;
         Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &AnimInst);
         if (!AnimInst || !Utils::IsObjectValid(AnimInst)) return;
 
         UFunction* LinkFunc = AnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
+        UFunction* UnlinkFunc = AnimInst->GetFunctionByNameInChain(STR("UnlinkAnimClassLayers"));
         if (!LinkFunc) return;
 
-        static const std::vector<std::wstring> StandardLayers = {
-            L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C",
-            L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C"
-        };
+        // Accurate Discriminator: Check for 'AnimLayerClass' property (Human NPCs)
+        FProperty* LayerProp = TargetCDO ? Utils::GetProperty(TargetCDO, STR("AnimLayerClass"), true) : nullptr;
+        bool bIsHumanNPC = (LayerProp != nullptr);
 
-        for (const auto& LayerPath : StandardLayers) {
-            UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetInternal(LayerPath, false));
+        DP_LOG(Default, "[ReLinkAnimLayers] Entity Type: {}", bIsHumanNPC ? L"Human NPC" : L"Monster Pal");
+
+        if (bIsHumanNPC) {
+            // Human NPC Path:
+            UClass* LayerClass = nullptr;
+            Utils::GetPropertyValue<UClass*>(TargetCDO, STR("AnimLayerClass"), LayerClass, true);
             if (LayerClass && Utils::IsObjectValid(LayerClass)) {
-                struct { UClass* InClass; } LinkParams{ LayerClass };
-                Utils::SafeProcessEvent(AnimInst, LinkFunc, &LinkParams);
+                struct { UClass* InClass; } LayerParams{ LayerClass };
+
+                // 1. Unlink existing layer instance first if present (Engine.hpp Line 10294)
+                if (UnlinkFunc) {
+                    Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &LayerParams);
+                }
+
+                // 2. Link clean layer instance
+                Utils::SafeProcessEvent(AnimInst, LinkFunc, &LayerParams);
+                DP_LOG(Default, "[ReLinkAnimLayers] Linked NPC AnimLayerClass: '{}'", LayerClass->GetName());
             }
+
+            // 3. Re-populate locomotion blendspaces and cached pointers on the NPC AnimInstance
+            if (Character && Utils::IsObjectValid(Character)) {
+                RefreshNPCShooterAnime(Character, AnimInst);
+            }
+        } else {
+            // Monster Pal Path:
+            static const std::vector<std::wstring> StandardLayers = {
+                L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C",
+                L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C"
+            };
+
+            for (const auto& LayerPath : StandardLayers) {
+                UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetInternal(LayerPath, false));
+                if (LayerClass && Utils::IsObjectValid(LayerClass)) {
+                    struct { UClass* InClass; } LayerParams{ LayerClass };
+                    if (UnlinkFunc) {
+                        Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &LayerParams);
+                    }
+                    Utils::SafeProcessEvent(AnimInst, LinkFunc, &LayerParams);
+                    DP_LOG(Default, "[ReLinkAnimLayers] Linked Monster Layer: '{}'", LayerClass->GetName());
+                }
+            }
+        }
+
+        // 4. Initialize AdditiveAnimationRate using native UPalAnimInstance function (Pal.hpp Line 16053)
+        UFunction* SetAdditiveFunc = AnimInst->GetFunctionByNameInChain(STR("SetAdditiveAnimationRate"));
+        if (SetAdditiveFunc) {
+            struct {
+                FName FlagName;
+                float Rate;
+            } AdditiveParams{ FName(STR("UPalAnimInstance::NativeBeginPlay()"), FNAME_Add), 1.0f };
+            Utils::SafeProcessEvent(AnimInst, SetAdditiveFunc, &AdditiveParams);
+            DP_LOG(Default, "[ReLinkAnimLayers] Initialized AdditiveAnimationRate to 1.0.");
         }
     }
 
@@ -298,41 +404,48 @@ namespace DynPals {
     static void ResetPhysicsAndDynamics(UObject* MeshComp) {
         if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
 
-        // 1. Reset standard Unreal Engine Dynamics (AnimDynamics, RigidBody, KawaiiPhysics on main AnimInstance)
+        // 1. Reset standard dynamics on main AnimInstance
         UObject* AnimInst = nullptr;
         Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &AnimInst);
         if (AnimInst && Utils::IsObjectValid(AnimInst)) {
             struct { uint8_t InTeleportType; } ResetParams{ 1 }; // ETeleportType: ResetPhysics = 1
             UFunction* ResetFunc = AnimInst->GetFunctionByNameInChain(STR("ResetDynamics"));
-            if (ResetFunc) {
-                Utils::SafeProcessEvent(AnimInst, ResetFunc, &ResetParams);
-            }
+            if (ResetFunc) Utils::SafeProcessEvent(AnimInst, ResetFunc, &ResetParams);
         }
 
-        // 2. Reset PostProcess AnimInstance (secondary physics motion)
+        // 2. Reset PostProcess AnimInstance
         UObject* PostProcessInst = nullptr;
         Utils::CallFunction(MeshComp, STR("GetPostProcessInstance"), &PostProcessInst);
         if (PostProcessInst && Utils::IsObjectValid(PostProcessInst)) {
             struct { uint8_t InTeleportType; } ResetParams{ 1 };
             UFunction* ResetFunc = PostProcessInst->GetFunctionByNameInChain(STR("ResetDynamics"));
-            if (ResetFunc) {
-                Utils::SafeProcessEvent(PostProcessInst, ResetFunc, &ResetParams);
+            if (ResetFunc) Utils::SafeProcessEvent(PostProcessInst, ResetFunc, &ResetParams);
+        }
+
+        // 3. Reset all LinkedInstances (where KawaiiPhysics nodes live)
+        FProperty* LinkedProp = Utils::GetProperty(MeshComp, STR("LinkedInstances"), true);
+        if (LinkedProp) {
+            TArray<UObject*>* LinkedArray = LinkedProp->ContainerPtrToValuePtr<TArray<UObject*>>(MeshComp);
+            if (LinkedArray) {
+                for (int32_t i = 0; i < LinkedArray->Num(); ++i) {
+                    UObject* LinkedInst = (*LinkedArray)[i];
+                    if (LinkedInst && Utils::IsObjectValid(LinkedInst)) {
+                        struct { uint8_t InTeleportType; } ResetParams{ 1 };
+                        UFunction* ResetFunc = LinkedInst->GetFunctionByNameInChain(STR("ResetDynamics"));
+                        if (ResetFunc) {
+                            Utils::SafeProcessEvent(LinkedInst, ResetFunc, &ResetParams);
+                            DP_LOG(Default, "[Physics] Invoked ResetDynamics on LinkedInstance: '{}'", LinkedInst->GetName());
+                        }
+                    }
+                }
             }
         }
 
-        // 3. KawaiiPhysicsLibrary / Custom Library Fallback
-        static UObject* KawaiiLib = nullptr;
-        if (!KawaiiLib) {
-            KawaiiLib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/KawaiiPhysics.Default__KawaiiPhysicsLibrary"));
-            if (!KawaiiLib) KawaiiLib = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/KawaiiPhysicsRuntime.Default__KawaiiPhysicsLibrary"));
-        }
-
-        if (KawaiiLib && Utils::IsObjectValid(KawaiiLib)) {
-            UFunction* KResetFunc = KawaiiLib->GetFunctionByNameInChain(STR("ResetDynamics"));
-            if (KResetFunc) {
-                struct { UObject* InMeshComponent; } KParams{ MeshComp };
-                Utils::SafeProcessEvent(KawaiiLib, KResetFunc, &KParams);
-            }
+        // 4. Force URO / Evaluation Interval reset so the engine evaluates the newly initialized pose immediately
+        UFunction* EvalRateFunc = MeshComp->GetFunctionByNameInChain(STR("SetEvaluationRate"));
+        if (EvalRateFunc) {
+            struct { float InRate; bool bResetCurrentInterval; } RateParams{ 0.0f, true };
+            Utils::SafeProcessEvent(MeshComp, EvalRateFunc, &RateParams);
         }
     }
 
@@ -1098,7 +1211,15 @@ namespace DynPals {
                         }
 
                         if (!IsWild) {
-                            UObject* PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+                            UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
+                            UObject* PlayerController = nullptr;
+                            if (GameplayStatics) {
+                                struct { UObject* WorldContextObject; int32_t PlayerIndex; UObject* ReturnValue; } GSParams{Character, 0, nullptr};
+                                Utils::CallFunction(GameplayStatics, STR("GetPlayerController"), &GSParams);
+                                PlayerController = GSParams.ReturnValue;
+                            }
+                            if (!PlayerController) PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+
                             if (PlayerController && Utils::IsObjectValid(PlayerController)) {
                                 UFunction* UpdateNameFunc = PlayerController->GetFunctionByNameInChain(STR("UpdateCharacterNickName_ToServer"));
                                 if (UpdateNameFunc) {
@@ -1194,6 +1315,11 @@ namespace DynPals {
 
         FVanillaDefaults vanillaDefs = ExtractVanillaDefaults(Character);
 
+        // FIX: Default TargetCDO to the Pal/NPC's native CDO
+        UClass* CharClass = Character->GetClassPrivate();
+        UObject* VanillaCDO = CharClass ? CharClass->GetClassDefaultObject() : nullptr;
+        UObject* TargetCDO = VanillaCDO;
+
         if (bNeedsExternalAnimLoad) {
             UClass* TargetBPClass = static_cast<UClass*>(Utils::LoadAssetSafely(ResolvedAnimPath));
             
@@ -1202,9 +1328,10 @@ namespace DynPals {
             if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
 
             if (TargetBPClass && Utils::IsObjectValid(TargetBPClass)) {
-                UObject* TargetCDO = TargetBPClass->GetClassDefaultObject();
+                TargetCDO = TargetBPClass->GetClassDefaultObject(); // Capture the CDO here
                 if (TargetCDO && Utils::IsObjectValid(TargetCDO)) {
                     UObject* TargetMesh = nullptr;
+
                     Utils::GetPropertyValue<UObject*>(TargetCDO, STR("Mesh"), TargetMesh);
                     
                     if (TargetMesh && Utils::IsObjectValid(TargetMesh)) {
@@ -1272,12 +1399,11 @@ namespace DynPals {
 
             if (NewMesh && Utils::IsObjectValid(NewMesh)) {
                 UClass* MeshClass = NewMesh->GetClassPrivate();
-                
                 if (MeshClass && Utils::IsObjectValid(MeshClass)) {
                     std::wstring meshClassName = MeshClass->GetName();
-                    
                     if (meshClassName.find(L"SkeletalMesh") != std::wstring::npos || meshClassName.find(L"SkinnedAsset") != std::wstring::npos) {
                         
+                        // CRITICAL: Must assign TargetSkeleton so UE5 renders the mesh
                         if (TargetSkeleton && Utils::IsObjectValid(TargetSkeleton)) {
                             Utils::SetPropertyValue<UObject*>(NewMesh, STR("Skeleton"), TargetSkeleton);
                         }
@@ -1288,8 +1414,6 @@ namespace DynPals {
                     } else {
                         DP_LOG(Warning, "[ApplySwap] Aborted: Loaded asset is a '{}', not a SkeletalMesh.", meshClassName);
                     }
-                } else {
-                    DP_LOG(Warning, "[ApplySwap] Aborted: Loaded mesh asset has a corrupt or missing Class definition.");
                 }
             } else {
                 DP_LOG(Warning, "Failed to load Skeletal Mesh for Pal '{}' from Pack '{}'!\nPath: {}", CharID, swap.PackName, swap.SkelMeshPath);
@@ -1297,19 +1421,27 @@ namespace DynPals {
         }
         ProfileStep(L"Trace 7: Complete Loading New Mesh Flow");
 
-        if (bNeedsAnimRebuild) {
-            UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
-            if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
-
-            if (TargetAnimClass && SetAnimFunc) {
-                struct { UClass* NewClass; } Params{ TargetAnimClass };
-                Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &Params);
-            }
-
-            SyncStaticCharacterParams(TargetStaticParam, Character);
-            ReLinkAnimLayers(MeshComp);
-            ProfileStep(L"Trace 8: Syncing Static Params & Layers");
+        // Reapply AnimClass unconditionally after mesh load
+        UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
+        if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
+        if (TargetAnimClass && SetAnimFunc) {
+            struct { UClass* NewClass; } Params{ TargetAnimClass };
+            Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &Params);
         }
+
+        // Force full InitAnim on the SkeletalMeshComponent to bind the skeleton reference pose
+        struct { bool bForceReinit; } InitParams{ true };
+        Utils::CallFunction(MeshComp, STR("InitAnim"), &InitParams);
+
+        if (bNeedsAnimRebuild) {
+            SyncStaticCharacterParams(TargetStaticParam, Character);
+            ProfileStep(L"Trace 8: Syncing Static Params");
+        }
+
+        // Link layers now that the bone container is established
+        ReLinkAnimLayers(MeshComp, TargetCDO, Character);
+        ProfileStep(L"Trace 8.5: Linked Anim Layers");
+
 
         // =========================================================================
         // MATERIAL OVERRIDES
@@ -1589,7 +1721,7 @@ namespace DynPals {
         newData.MorphSet.clear();
         newData.MatSet.clear();
         newData.MatColorSet.clear();
-        newData.bIsManuallyLocked = true; // Lock so the matchmaker won't auto-assign skins
+        newData.bIsManuallyLocked = true;
         newData.SizeMultiplier = 1.0;
 
         SaveManager::Get().SetPersistData(id.InstanceID, newData, true);
@@ -1619,19 +1751,10 @@ namespace DynPals {
 
             FVanillaDefaults defs = ExtractVanillaDefaults(TargetPalObj);
 
-            // A. Restore AnimClass
-            UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
-            if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
-            if (SetAnimFunc && defs.AnimClass) {
-                struct { UClass* NewClass; } Params{ defs.AnimClass };
-                Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &Params);
-            }
-
-            // B. Restore StaticCharacterParameterComponent & Re-link layers
+            // A. Restore StaticCharacterParameterComponent
             SyncStaticCharacterParams(defs.StaticParam, TargetPalObj);
-            ReLinkAnimLayers(MeshComp);
 
-            // C. Restore Skeletal Mesh & Restore Exact CDO Base Scale to DefaultScale3D and RelativeScale3D
+            // B. Restore Skeletal Mesh
             if (defs.SkelMesh && Utils::IsObjectValid(defs.SkelMesh)) {
                 if (defs.Skeleton && Utils::IsObjectValid(defs.Skeleton)) {
                     Utils::SetPropertyValue<UObject*>(defs.SkelMesh, STR("Skeleton"), defs.Skeleton);
@@ -1640,25 +1763,27 @@ namespace DynPals {
                 Utils::CallFunction(MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
             }
 
-            // Restore exact CDO mesh scale
-            Utils::SetPropertyValue<FVector_UE5>(MeshComp, STR("DefaultScale3D"), defs.MeshScale);
-            struct { FVector_UE5 NewScale3D; } ResetMeshScaleParams{ defs.MeshScale };
-            Utils::CallFunction(MeshComp, STR("SetRelativeScale3D"), &ResetMeshScaleParams);
-
-            // Restore exact CDO Capsule properties Disabled to prevent multiplayer desync
-            /*
-            UObject* TargetStaticParamInst = nullptr;
-            Utils::GetPropertyValue<UObject*>(TargetPalObj, STR("StaticCharacterParameterComponent"), TargetStaticParamInst);
-            if (TargetStaticParamInst && defs.CapsuleHalfHeight > 0.0f) {
-                Utils::SetPropertyValue<float>(TargetStaticParamInst, STR("MeshCapsuleHalfHeight"), defs.CapsuleHalfHeight);
-                Utils::SetPropertyValue<float>(TargetStaticParamInst, STR("MeshCapsuleRadius"), defs.CapsuleRadius);
-                
+            // C. Restore AnimClass
+            UFunction* SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimInstanceClass"));
+            if (!SetAnimFunc) SetAnimFunc = MeshComp->GetFunctionByNameInChain(STR("SetAnimClass"));
+            if (SetAnimFunc && defs.AnimClass) {
+                struct { UClass* NewClass; } Params{ defs.AnimClass };
+                Utils::SafeProcessEvent(MeshComp, SetAnimFunc, &Params);
             }
-            */
-            // D. Clear Material Overrides
+
+            // D. Force full InitAnim to rebuild BoneContainer on the restored mesh
+            struct { bool bForceReinit; } InitParams{ true };
+            Utils::CallFunction(MeshComp, STR("InitAnim"), &InitParams);
+
+            // E. Re-link layers passing TargetPalObj as Character
+            UClass* VanillaCharClass = TargetPalObj->GetClassPrivate();
+            UObject* VanillaCDO = VanillaCharClass ? VanillaCharClass->GetClassDefaultObject() : nullptr;
+            ReLinkAnimLayers(MeshComp, VanillaCDO, TargetPalObj); 
+
+            // F. Clear Material Overrides
             ClearMaterialOverrides(MeshComp);
 
-            // E. Zero out Morph Targets
+            // G. Zero out Morph Targets
             for (const auto& [morphName, _] : MorphsToZero) {
                 struct { FName MorphTargetName; float Value; bool bRemoveZeroWeight; } MorphParams{
                     FName(morphName.c_str(), FNAME_Add), 0.0f, true
@@ -1666,15 +1791,15 @@ namespace DynPals {
                 Utils::CallFunction(MeshComp, STR("SetMorphTarget"), &MorphParams);
             }
 
-            // F. Unpause Animations & re-enable PostProcess
+            // H. Unpause Animations & re-enable PostProcess
             Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), false, false);
             struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
             Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
-            // G. Reset PalFacialComponent
+            // I. Reset PalFacialComponent
             RefreshFacialModule(TargetPalObj, MeshComp);
 
-            // H. Reset Dynamics / Physics
+            // J. Reset Dynamics across all main, post-process, and linked instances
             ResetPhysicsAndDynamics(MeshComp);
         }
 

@@ -98,6 +98,16 @@ namespace DynPals {
 
         if (!bIsOpen || !MyWidget) return;
 
+        // FIX: If the engine garbage collected our widget silently without telling us, reset the state and abort!
+        if (!Utils::IsObjectValid(MyWidget)) {
+            MyWidget = nullptr;
+            bIsOpen = false;
+            bToggleRequested = false;
+            OnInvalidate();
+            UIRegistry::Get().UpdateTickState();
+            return;
+        }
+
         if (bCloseOnEscape) {
             if ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) || (GetAsyncKeyState(VK_TAB) & 0x8000)) {
                 if (!bWasEscapeDown) {
