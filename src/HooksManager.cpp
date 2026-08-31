@@ -607,11 +607,12 @@ void HooksManager::RegisterHooks() {
 
         void* FriendshipAddr = GetNativeAddress(STR("/Script/Pal.PalIndividualCharacterParameter:AddFriendShip"));
         if (FriendshipAddr) {
+            // FIX: Restore the inline hook creation so Friendship updates trigger evolution
+            Hook_AddFriendship = safetyhook::create_inline(FriendshipAddr, NativeAddFriendship_Hook);
             DP_LOG(Default, "[Native Hook] Detoured AddFriendShip successfully!");
         } else {
             DP_LOG(Error, "Failed to resolve Native AddFriendShip!");
-
-  }
+        }
 
   UFunction* AddToViewportFunc = UObjectGlobals::StaticFindObject<UFunction*>(
       nullptr, nullptr, STR("/Script/UMG.UserWidget:AddToViewport"));

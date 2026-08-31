@@ -205,7 +205,8 @@ namespace DynPals {
             STR("PettingEndLeaveDistance"),
             STR("PettingDistance"),
             STR("HPGaugeUIOffset"),
-            STR("SleepOnSideInfoMapForMapObject")
+            STR("SleepOnSideInfoMapForMapObject"),
+            STR("WazaActionDeclarationMap")
         };
 
         for (const wchar_t* propName : PropNames) {
@@ -481,12 +482,27 @@ namespace DynPals {
     }
 
     std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
-        if (StartsWithIgnoreCase(InputID, L"MiddleBoss_")) return InputID.substr(11);
-        if (StartsWithIgnoreCase(InputID, L"BOSS_"))       return InputID.substr(5);
-        if (StartsWithIgnoreCase(InputID, L"RAID_"))       return InputID.substr(5);
-        if (StartsWithIgnoreCase(InputID, L"GYM_"))        return InputID.substr(4);
-        if (StartsWithIgnoreCase(InputID, L"PREDATOR_"))   return InputID.substr(9); 
-        return InputID;
+        std::wstring result = InputID;
+
+        // 1. Strip Boss/Raid Prefixes
+        if      (StartsWithIgnoreCase(result, L"MiddleBoss_")) result = result.substr(11);
+        else if (StartsWithIgnoreCase(result, L"BOSS_"))       result = result.substr(5);
+        else if (StartsWithIgnoreCase(result, L"RAID_"))       result = result.substr(5);
+        else if (StartsWithIgnoreCase(result, L"GYM_"))        result = result.substr(4);
+        else if (StartsWithIgnoreCase(result, L"PREDATOR_"))   result = result.substr(9); 
+
+        // 2. Strip Player-Party "_otomo" Suffixes but for some reason still not working, gotta check other reasons to figure out whats going on
+        if (result.length() > 6) {
+            std::wstring suffix = result.substr(result.length() - 6);
+            std::wstring lowerSuffix = suffix;
+            std::transform(lowerSuffix.begin(), lowerSuffix.end(), lowerSuffix.begin(), ::towlower);
+            
+            if (lowerSuffix == L"_otomo") {
+                result = result.substr(0, result.length() - 6);
+            }
+        }
+        
+        return result;
     }
 
     void PalProcessor::ScanActivePals() {
@@ -545,16 +561,13 @@ namespace DynPals {
     void PalProcessor::DelayedSwap(UObject* Character, int SwapIndex, const std::wstring& CompName) {
         if (!Character || !Utils::IsObjectValid(Character)) return;
         
+        // 1. Play the visual composition instantly and get the JSON-defined swap delay
         float DelaySeconds = VFXManager::Get().PlayComposition(Character, CompName);
         int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
         
-        std::thread([Character, SwapIndex, DelayMs]() {
-            std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
-            AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Character, SwapIndex]() {
-                if (!Utils::IsObjectValid(Character)) return; 
-                PalProcessor::Get().ProcessPal(Character, false, SwapIndex, false, true);
-            });
-        }).detach();
+        // 2. Schedule the physical swap for later via ForceSwap
+        // This ensures the SaveManager state is locked immediately so we don't get duplicate level-up fires
+        ForceSwap(Character, SwapIndex, DelayMs);
     }
 
     void PalProcessor::DelayedReroll(UObject* Character, const std::wstring& CompName) {
@@ -564,7 +577,8 @@ namespace DynPals {
         int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
         
         std::thread([Character, DelayMs]() {
-            std::this_thread::sleep_for(std::chrono::seconds(DelayMs));
+            // FIX: Using milliseconds instead of seconds
+            std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
             AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Character]() {
                 if (!Utils::IsObjectValid(Character)) return; 
                 PalProcessor::Get().ProcessPal(Character, true);
@@ -911,7 +925,9 @@ namespace DynPals {
                     (ForceReroll) ? L"Force Reroll" : 
                     (finalSwap != currentSwap) ? L"Skin Changed" : L"New Actor Spawned");
 
-                bool bIsLiveEvolution = bLiveEventTriggered && !bIsNewActor && (finalSwap != currentSwap) && (ExplicitSwapIndex == -1) && !ForceReroll;
+                // FIX: bLiveEventTriggered already guarantees this is a live in-game event and not a fresh world spawn.
+                // Removing !bIsNewActor allows vanilla Pals to evolve into custom models with VFX.
+                bool bIsLiveEvolution = bLiveEventTriggered && (finalSwap != currentSwap) && (ExplicitSwapIndex == -1) && !ForceReroll;
 
                 std::vector<std::wstring> assetsToLoad;
                 bool bHasFailedDependency = false;
