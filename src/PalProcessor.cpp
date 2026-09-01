@@ -445,7 +445,7 @@ namespace DynPals {
         }
     }
 
-    static void ReLinkAnimLayers(UObject* MeshComp, UObject* TargetCDO, UObject* Character = nullptr) {
+    static void ReLinkAnimLayers(UObject* MeshComp, UObject* TargetCDO, UObject* Character = nullptr, UObject* NewSkelMesh = nullptr) {
         if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
         UObject* AnimInst = nullptr;
         Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &AnimInst);
@@ -454,6 +454,14 @@ namespace DynPals {
         UFunction* LinkFunc = AnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
         UFunction* UnlinkFunc = AnimInst->GetFunctionByNameInChain(STR("UnlinkAnimClassLayers"));
         if (!LinkFunc) return;
+        
+        bool bHasCustomPhysics = false;
+        if (NewSkelMesh && Utils::IsObjectValid(NewSkelMesh)) {
+            UClass* PPClass = nullptr;
+            if (Utils::GetPropertyValue<UClass*>(NewSkelMesh, STR("PostProcessAnimBlueprint"), PPClass) && PPClass) {
+                bHasCustomPhysics = true;
+            }
+        }
 
         FProperty* LayerProp = TargetCDO ? Utils::GetProperty(TargetCDO, STR("AnimLayerClass"), true) : nullptr;
         bool bIsHumanNPC = (LayerProp != nullptr);
@@ -467,18 +475,28 @@ namespace DynPals {
                 struct { UClass* InClass; } LayerParams{ LayerClass };
 
                 if (UnlinkFunc) Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &LayerParams);
-                Utils::SafeProcessEvent(AnimInst, LinkFunc, &LayerParams);
-                DP_LOG(Default, "[ReLinkAnimLayers] Linked NPC AnimLayerClass: '{}'", LayerClass->GetName());
+                
+                if (!bHasCustomPhysics) {
+                    Utils::SafeProcessEvent(AnimInst, LinkFunc, &LayerParams);
+                    DP_LOG(Default, "[ReLinkAnimLayers] Linked NPC AnimLayerClass: '{}'", LayerClass->GetName());
+                } else {
+                    DP_LOG(Default, "[ReLinkAnimLayers] Skipped linking vanilla AnimLayerClass because custom mesh provides PostProcessAnimBlueprint.");
+                }
             }
 
             if (IsValidPalActor(Character)) {
                 RefreshNPCShooterAnime(Character, AnimInst);
             }
         } else {
-            static const std::vector<std::wstring> StandardLayers = {
-                L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C",
-                L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C"
+            std::vector<std::wstring> StandardLayers = {
+                L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C"
             };
+            
+            if (!bHasCustomPhysics) {
+                StandardLayers.push_back(L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C");
+            } else {
+                DP_LOG(Default, "[ReLinkAnimLayers] Skipped linking ALI_MonsterPhysics because custom mesh provides PostProcessAnimBlueprint.");
+            }
 
             for (const auto& LayerPath : StandardLayers) {
                 UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetInternal(LayerPath, false));
@@ -577,6 +595,7 @@ namespace DynPals {
             Utils::SafeProcessEvent(MeshComp, EvalRateFunc, &RateParams);
         }
     }
+
 
     // =========================================================================
     // CORE ASSET & PATH RESOLUTION
@@ -958,13 +977,12 @@ namespace DynPals {
         }
 
         if (Params.NewSkelMesh && Utils::IsObjectValid(Params.NewSkelMesh)) {
-            // FIX: Only set Skeleton if the custom mesh doesn't have one assigned already
-            UObject* ExistingSkel = nullptr;
-            Utils::GetPropertyValue<UObject*>(Params.NewSkelMesh, STR("Skeleton"), ExistingSkel);
-            if (!ExistingSkel && Params.TargetSkeleton && Utils::IsObjectValid(Params.TargetSkeleton)) {
+            // FORCE the TargetSkeleton onto the new mesh so Root Motion extracts correctly!
+            if (Params.TargetSkeleton && Utils::IsObjectValid(Params.TargetSkeleton)) {
                 Utils::SetPropertyValue<UObject*>(Params.NewSkelMesh, STR("Skeleton"), Params.TargetSkeleton);
             }
 
+            // bReinitPose must be true so that Kawaii Physics maps the new bone indices properly
             struct { UObject* InMesh; bool bReinitPose; } MeshParams{Params.NewSkelMesh, Params.bReinitPose};
             Utils::CallFunction(Params.MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
         }
@@ -981,7 +999,7 @@ namespace DynPals {
             SyncStaticCharacterParams(Params.TargetStaticParam, Params.Character);
         }
 
-        ReLinkAnimLayers(Params.MeshComp, Params.TargetCDO, Params.Character);
+        ReLinkAnimLayers(Params.MeshComp, Params.TargetCDO, Params.Character, Params.NewSkelMesh);
     }
 
     static void SetPalNickname(UObject* IndivParam, const std::wstring& NewNameStr, const std::wstring& InstanceID, bool IsWild, UObject* Character) {
