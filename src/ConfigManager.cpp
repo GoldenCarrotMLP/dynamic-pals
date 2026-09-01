@@ -561,6 +561,22 @@ namespace DynPals {
             
             results.push_back(eval);
         }
+
+        // --- INVALIDATION POST-PROCESS ---
+        // Marks any sub-optimal swap as Invalid so it correctly locks when manually chosen.
+        int bestScore = 999999;
+        for (const auto& eval : results) {
+            if (eval.IsValid && eval.Score < bestScore) {
+                bestScore = eval.Score;
+            }
+        }
+        for (auto& eval : results) {
+            if (eval.IsValid && eval.Score > bestScore) {
+                eval.IsValid = false;
+            }
+        }
+        // ---------------------------------
+
         return results;
     }
 
