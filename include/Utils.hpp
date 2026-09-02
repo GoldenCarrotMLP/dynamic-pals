@@ -313,6 +313,81 @@ namespace DynPals::Utils {
     inline UFunction* GetKSLFunction(const wchar_t* FunctionName) { return GetLibraryFunction(STR("/Script/Engine.Default__KismetSystemLibrary"), FunctionName); }
 
 
+    inline void AssignStringToTextProperty(const std::wstring& Str, void* DestContainer, FProperty* DestTextProp) {
+        UObject* KTL = GetKTL();
+        UFunction* ConvFunc = GetKTLFunction(STR("Conv_StringToText"));
+        if (!KTL || !ConvFunc || !DestTextProp || !DestContainer) return;
+
+        alignas(8) uint8_t ConvParams[256] = {0};
+        
+        // Safely initialize ALL parameters of the conversion function
+        for (FProperty* Prop = (FProperty*)ConvFunc->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
+            Prop->InitializeValue_InContainer(ConvParams);
+        }
+
+        FProperty* InStrProp = ConvFunc->GetPropertyByNameInChain(STR("InString"));
+        if (!InStrProp) InStrProp = ConvFunc->GetPropertyByNameInChain(STR("InStr"));
+        FProperty* OutTextProp = ConvFunc->GetPropertyByNameInChain(STR("ReturnValue"));
+        if (!OutTextProp) OutTextProp = ConvFunc->GetPropertyByNameInChain(STR("OutText"));
+
+        if (InStrProp) {
+            *InStrProp->ContainerPtrToValuePtr<FString>(ConvParams) = FString(Str.c_str());
+        }
+
+        SafeProcessEvent(KTL, ConvFunc, ConvParams);
+
+        if (OutTextProp) {
+            // Copy the result into the destination. We assume DestContainer is already initialized!
+            DestTextProp->CopyCompleteValue(
+                DestTextProp->ContainerPtrToValuePtr<void>(DestContainer),
+                OutTextProp->ContainerPtrToValuePtr<void>(ConvParams)
+            );
+        }
+
+        // Safely destroy ALL parameters to prevent memory leaks
+        for (FProperty* Prop = (FProperty*)ConvFunc->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
+            Prop->DestroyValue_InContainer(ConvParams);
+        }
+    }
+
+    inline void SetTextSafely(UObject* Target, const wchar_t* FuncName, const std::wstring& Str) {
+        if (!Target || !IsObjectValid(Target)) return;
+        UFunction* Func = Target->GetFunctionByNameInChain(FuncName);
+        if (!Func) return;
+
+        alignas(8) uint8_t Params[256] = {0};
+        
+        // Safely initialize ALL parameters of the target function
+        for (FProperty* Prop = (FProperty*)Func->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
+            Prop->InitializeValue_InContainer(Params);
+        }
+
+        FProperty* TextProp = Func->GetPropertyByNameInChain(STR("InText"));
+        if (!TextProp) TextProp = Func->GetPropertyByNameInChain(STR("Text"));
+        if (!TextProp) TextProp = Func->GetPropertyByNameInChain(STR("ReturnValue"));
+        
+        if (!TextProp) {
+            for (FProperty* Prop = (FProperty*)Func->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
+                if (Prop->GetClass().GetName() == STR("TextProperty")) {
+                    TextProp = Prop;
+                    break;
+                }
+            }
+        }
+
+        if (TextProp) {
+            AssignStringToTextProperty(Str, Params, TextProp);
+            SafeProcessEvent(Target, Func, Params);
+        }
+
+        // Safely destroy ALL parameters
+        for (FProperty* Prop = (FProperty*)Func->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
+            Prop->DestroyValue_InContainer(Params);
+        }
+    }
+
+
+
     // ==========================================
     // ZERO-STUTTER ASSET MEMORY CHECKS
     // ==========================================

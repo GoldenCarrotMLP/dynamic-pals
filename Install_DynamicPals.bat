@@ -11,7 +11,12 @@ exit /b %errorlevel%
 # ====================================================================================
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$TargetUE4SSHash = "D0107F63E567313CB6A15C505B5DB2BDBA38130964A04E019BDA7611C6178022"
+# UE4SS Version Hashes mapped to their display name and color
+$UE4SS_Hashes = @{
+    "8AC18FBFFC1EF96B0662D4A2D537B3F224C26D65CAABA7989A9404C566102B26" = @{ Text = "Experimental latest"; Color = "Green" }
+    "D0107F63E567313CB6A15C505B5DB2BDBA38130964A04E019BDA7611C6178022" = @{ Text = "Palworld outdated/stable"; Color = "Yellow" }
+    "2D76EEE05CD3DE480539F1D96DA7366BF8FE445EF6B85A5C9DDD38BD503E508E" = @{ Text = "Palworld latest"; Color = "Green" }
+}
 
 function Find-Palworld {
     $SteamPath = (Get-ItemPropertyValue -Path "HKCU:\Software\Valve\Steam" -Name "SteamPath" -ErrorAction SilentlyContinue)
@@ -53,7 +58,7 @@ function Get-ModStatus {
     }
 }
 
-function Install-DynamicPals($PalworldPath, $Win64Dir, $ModDir, $RemoteVersion) {
+function Install-DynamicPals($PalworldPath, $Ue4ssRoot, $ModDir, $RemoteVersion) {
     # -------------------------------------------------------------
     # 1. Download and Extract the Base Release ZIP
     # -------------------------------------------------------------
@@ -61,7 +66,7 @@ function Install-DynamicPals($PalworldPath, $Win64Dir, $ModDir, $RemoteVersion) 
     
     $BaseZipUrl = "https://github.com/GoldenCarrotMLP/dynamic-pals/releases/latest/download/DynamicPals_AutoUpdate.zip"
     $ZipTempPath = Join-Path $env:TEMP "DynamicPals_Base.zip"
-    $ModsDir = Join-Path $Win64Dir "ue4ss\Mods"
+    $ModsDir = Join-Path $Ue4ssRoot "Mods"
     
     New-Item -ItemType Directory -Force -Path $ModsDir | Out-Null
 
@@ -80,6 +85,8 @@ function Install-DynamicPals($PalworldPath, $Win64Dir, $ModDir, $RemoteVersion) 
     Write-Host "Fetching Latest Bleeding-Edge DLL and PAK (v$RemoteVersion)..." -ForegroundColor Cyan
     
     $DllDir = Join-Path $ModDir "dlls"
+    
+    # Pak file still goes to the main game content folder because UE natively mounts from there
     $LogicModsDir = Join-Path $PalworldPath "Pal\Content\Paks\LogicMods"
     
     New-Item -ItemType Directory -Force -Path $DllDir | Out-Null
@@ -105,7 +112,7 @@ function Install-DynamicPals($PalworldPath, $Win64Dir, $ModDir, $RemoteVersion) 
         Move-Item -Path $PakTemp -Destination $FinalPakPath -Force
 
         # Ensure DynamicPals is enabled in mods.txt
-        $ModsTxt = Join-Path $Win64Dir "ue4ss\Mods\mods.txt"
+        $ModsTxt = Join-Path $Ue4ssRoot "Mods\mods.txt"
         if (Test-Path $ModsTxt) {
             $Content = Get-Content $ModsTxt -Raw
             if ($Content -notmatch "(?im)^DynamicPals\s*:") {
@@ -119,7 +126,7 @@ function Install-DynamicPals($PalworldPath, $Win64Dir, $ModDir, $RemoteVersion) 
     }
 }
 
-function Install-UE4SS($Win64Dir) {
+function Install-UE4SS($Win64Dir, $Ue4ssRoot) {
     Write-Host "`nSelect UE4SS Branch to Install:"
     Write-Host "[1] Palworld-Experimental (Recommended, stable out-of-the-box)"
     Write-Host "[2] Latest-Experimental (Upstream experimental release)"
@@ -149,26 +156,32 @@ function Install-UE4SS($Win64Dir) {
         Expand-Archive -Path $ZipPath -DestinationPath $ExtPath -Force
 
         Write-Host "Deploying UE4SS..." -ForegroundColor Cyan
-        $TargetUe4ssDir = Join-Path $Win64Dir "ue4ss"
-        New-Item -ItemType Directory -Force -Path $TargetUe4ssDir | Out-Null
+        New-Item -ItemType Directory -Force -Path $Ue4ssRoot | Out-Null
 
         $OkaetsuDir = Join-Path $ExtPath "ue4ss"
+        $SourceDir = $ExtPath
+
         if (Test-Path $OkaetsuDir) {
             $DwmApi = Join-Path $ExtPath "dwmapi.dll"
             if (Test-Path $DwmApi) { Copy-Item $DwmApi -Destination (Join-Path $Win64Dir "dwmapi.dll") -Force }
-            Copy-Item "$OkaetsuDir\*" -Destination $TargetUe4ssDir -Recurse -Force
-        } else {
-            foreach ($item in Get-ChildItem $ExtPath) {
-                if ($item.Name.ToLower() -eq "dwmapi.dll") {
-                    Copy-Item $item.FullName -Destination (Join-Path $Win64Dir "dwmapi.dll") -Force
-                } else {
-                    Copy-Item $item.FullName -Destination $TargetUe4ssDir -Recurse -Force
+            $SourceDir = $OkaetsuDir
+        }
+
+        foreach ($item in Get-ChildItem $SourceDir) {
+            if ($item.Name.ToLower() -eq "dwmapi.dll") {
+                Copy-Item $item.FullName -Destination (Join-Path $Win64Dir "dwmapi.dll") -Force
+            } else {
+                $DestPath = Join-Path $Ue4ssRoot $item.Name
+                if ($item.Name.ToLower() -eq "ue4ss-settings.ini" -and (Test-Path $DestPath)) {
+                    Write-Host "Keeping existing UE4SS-settings.ini..." -ForegroundColor Yellow
+                    continue
                 }
+                Copy-Item $item.FullName -Destination $DestPath -Recurse -Force
             }
         }
 
         # Configure mods.txt
-        $ModsTxt = Join-Path $TargetUe4ssDir "Mods\mods.txt"
+        $ModsTxt = Join-Path $Ue4ssRoot "Mods\mods.txt"
         if (Test-Path $ModsTxt) {
             $Lines = Get-Content $ModsTxt
             $Mandatory = @{
@@ -226,7 +239,28 @@ if (-not (Test-Path $Win64Dir)) {
     exit
 }
 
-$ModDir = Join-Path $Win64Dir "ue4ss\Mods\DynamicPals"
+# Default UE4SS location
+$Ue4ssRoot = Join-Path $Win64Dir "ue4ss"
+$IsWorkshopLocation = $false
+
+# Check for Steam Workshop Mod Manager overrides
+$PalModSettingsPath = Join-Path $PalworldPath "Mods\PalModSettings.ini"
+if (Test-Path $PalModSettingsPath) {
+    $IniContent = Get-Content $PalModSettingsPath
+    $Match = $IniContent | Select-String -Pattern "^WorkshopRootDir=(.*)$"
+    if ($Match) {
+        $WorkshopRootDir = $Match.Matches[0].Groups[1].Value.Trim()
+        if (Test-Path $WorkshopRootDir) {
+            $FoundUE4SS = Get-ChildItem -Path $WorkshopRootDir -Filter "UE4SS.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($FoundUE4SS) {
+                $Ue4ssRoot = $FoundUE4SS.Directory.FullName
+                $IsWorkshopLocation = $true
+            }
+        }
+    }
+}
+
+$ModDir = Join-Path $Ue4ssRoot "Mods\DynamicPals"
 $RemoteVersionUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/refs/heads/main/dlls/version.txt"
 
 # Resolve network payload safely by casting to a standard string
@@ -238,16 +272,22 @@ if ($RemoteVersionStr -match '^\d+$') { $RemoteVersion = [int]$RemoteVersionStr 
 
 while ($true) {
     Write-Host "`n======================= STATUS ==========================="
-    Write-Host "Game Path  : $PalworldPath" -ForegroundColor Gray
+    if ($IsWorkshopLocation) {
+        Write-Host "Mode       : Steam Workshop Managed" -ForegroundColor Cyan
+        Write-Host "Target Dir : $Ue4ssRoot" -ForegroundColor Gray
+    } else {
+        Write-Host "Game Path  : $PalworldPath" -ForegroundColor Gray
+    }
     
     # Check UE4SS Status
-    $Ue4ssDll = Join-Path $Win64Dir "ue4ss\UE4SS.dll"
+    $Ue4ssDll = Join-Path $Ue4ssRoot "UE4SS.dll"
     if (Test-Path $Ue4ssDll) {
         $Hash = (Get-FileHash -Path $Ue4ssDll -Algorithm SHA256).Hash
-        if ($Hash -eq $TargetUE4SSHash) {
-            Write-Host "UE4SS      : Up to Date" -ForegroundColor Green
+        if ($UE4SS_Hashes.ContainsKey($Hash)) {
+            $HashInfo = $UE4SS_Hashes[$Hash]
+            Write-Host "UE4SS      : Installed ($($HashInfo.Text))" -ForegroundColor $HashInfo.Color
         } else {
-            Write-Host "UE4SS      : Outdated or Custom Build" -ForegroundColor Red
+            Write-Host "UE4SS      : Unknown or Custom Build" -ForegroundColor Yellow
         }
     } else {
         Write-Host "UE4SS      : Not Installed" -ForegroundColor Red
@@ -258,6 +298,10 @@ while ($true) {
     Write-Host "DynamicPals: $($StatusInfo.Text)" -ForegroundColor $StatusInfo.Color
     Write-Host "=========================================================="
 
+    if ($IsWorkshopLocation) {
+        Write-Host "`n[NOTICE] UE4SS and DynamicPals will be installed in the Steam Workshop location!" -ForegroundColor Cyan
+    }
+
     Write-Host "`nSelect an option:"
     Write-Host "[1] Install / Update UE4SS"
     Write-Host "[2] Install / Update Dynamic Pals"
@@ -266,12 +310,12 @@ while ($true) {
     $Choice = Read-Host "`nEnter option"
 
     if ($Choice -eq "1") {
-        Install-UE4SS $Win64Dir
+        Install-UE4SS $Win64Dir $Ue4ssRoot
         Read-Host "`nPress Enter to return to menu..."
         Clear-Host
     } elseif ($Choice -eq "2") {
         if ($RemoteVersion -gt 0) {
-            Install-DynamicPals $PalworldPath $Win64Dir $ModDir $RemoteVersion
+            Install-DynamicPals $PalworldPath $Ue4ssRoot $ModDir $RemoteVersion
         } else {
             Write-Host "Could not fetch remote version from GitHub. Check your internet connection." -ForegroundColor Red
         }

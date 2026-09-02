@@ -275,15 +275,7 @@ namespace DynPals {
 
 
         WidgetBuilder& Text(const std::wstring& Str) {
-            // Fully qualify UFunction with its namespace
-            RC::Unreal::UFunction* ConvFunc = DynPals::Utils::GetKTLFunction(STR("Conv_StringToText"));
-            if (!KTL || !ConvFunc) return *this;
-
-            struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(Str.c_str()), RC::Unreal::FText() };
-            KTL->ProcessEvent(ConvFunc, &P1);
-            
-            struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
-            Utils::CallFunction(Widget, STR("SetText"), &P2);
+            DynPals::Utils::SetTextSafely(Widget, STR("SetText"), Str);
             return *this;
         }
 

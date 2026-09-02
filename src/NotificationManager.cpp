@@ -8,7 +8,6 @@
 #include "UI/Components/Button.hpp"
 #include "AsyncHelper.hpp"
 #include "Utils.hpp"
-#include <Unreal/FText.hpp>
 #include <Unreal/FString.hpp>
 
 using namespace RC::Unreal;
@@ -43,48 +42,61 @@ namespace DynPals {
     }
 
     static void ShowToastDirectWithLogManager(UObject* LogManager, const std::wstring& Message, EPalLogPriority Priority, EPalLogContentToneType Tone) {
-        UObject* KTL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Engine.Default__KismetTextLibrary"));
-        if (!KTL) return;
-
         UFunction* AddLogFunc = LogManager->GetFunctionByNameInChain(STR("AddLog"));
-        UFunction* ConvFunc = KTL->GetFunctionByNameInChain(STR("Conv_StringToText"));
-        if (!AddLogFunc || !ConvFunc) return;
+        if (!AddLogFunc) return;
 
-        struct { FString InStr; FText OutText; } ConvParams{ FString(Message.c_str()), FText() };
-        KTL->ProcessEvent(ConvFunc, &ConvParams);
+        alignas(8) uint8_t Params[256] = {0};
 
-        FPalLogAdditionalData AddData{};
-        AddData.LogToneType = static_cast<uint8_t>(Tone);
-        AddData.DefaultFontStyleName = FName(); 
-        AddData.OverrideWidgetClass = nullptr;
+        // 1. Initialize ALL parameters
+        for (FProperty* Prop = (FProperty*)AddLogFunc->GetChildProperties(); Prop; Prop = (FProperty*)Utils::GetNextField(Prop)) {
+            Prop->InitializeValue_InContainer(Params);
+        }
 
-        FPalAddLogParams LogParams{};
-        LogParams.Priority = static_cast<uint8_t>(Priority); 
-        LogParams.Text = ConvParams.OutText;
-        LogParams.AdditionalData = AddData;
+        FProperty* PriorityProp = AddLogFunc->GetPropertyByNameInChain(STR("logPriority"));
+        if (!PriorityProp) PriorityProp = AddLogFunc->GetPropertyByNameInChain(STR("Priority"));
+        if (PriorityProp) {
+            *PriorityProp->ContainerPtrToValuePtr<uint8_t>(Params) = static_cast<uint8_t>(Priority);
+        }
 
-        LogManager->ProcessEvent(AddLogFunc, &LogParams);
+        FProperty* TextProp = AddLogFunc->GetPropertyByNameInChain(STR("LogText"));
+        if (!TextProp) TextProp = AddLogFunc->GetPropertyByNameInChain(STR("Text"));
+        if (TextProp) {
+            Utils::AssignStringToTextProperty(Message, Params, TextProp);
+        }
+
+        FProperty* AddDataProp = AddLogFunc->GetPropertyByNameInChain(STR("logAdditionalData"));
+        if (!AddDataProp) AddDataProp = AddLogFunc->GetPropertyByNameInChain(STR("AdditionalData"));
+        if (AddDataProp) {
+            void* AddDataPtr = AddDataProp->ContainerPtrToValuePtr<void>(Params);
+            FStructProperty* StructProp = CastField<FStructProperty>(AddDataProp);
+            if (StructProp && StructProp->GetStruct()) {
+                FProperty* ToneProp = StructProp->GetStruct()->GetPropertyByNameInChain(STR("logToneType"));
+                if (!ToneProp) ToneProp = StructProp->GetStruct()->GetPropertyByNameInChain(STR("LogToneType"));
+                if (ToneProp) {
+                    *ToneProp->ContainerPtrToValuePtr<uint8_t>(AddDataPtr) = static_cast<uint8_t>(Tone);
+                }
+            }
+        }
+
+        Utils::SafeProcessEvent(LogManager, AddLogFunc, Params);
+
+        // 2. Destroy ALL parameters
+        for (FProperty* Prop = (FProperty*)AddLogFunc->GetChildProperties(); Prop; Prop = (FProperty*)Utils::GetNextField(Prop)) {
+            Prop->DestroyValue_InContainer(Params);
+        }
     }
 
-    // Helper: Sets text directly on WBP_CommonButton's internal Text_Main component
+
+
+
     static void SetCommonButtonText(UObject* CommonButtonObj, const std::wstring& TextStr) {
         if (!CommonButtonObj || !Utils::IsObjectValid(CommonButtonObj)) return;
 
-        UObject* KTL = Utils::GetKTL();
-        UFunction* ConvFunc = Utils::GetKTLFunction(STR("Conv_StringToText"));
-        if (!KTL || !ConvFunc) return;
-
-        struct { FString InStr; FText OutText; } ConvParams{ FString(TextStr.c_str()), FText() };
-        KTL->ProcessEvent(ConvFunc, &ConvParams);
-
-        // Target the inner Text_Main text block proved by FModel JSON dump!
         UObject* TextMainObj = nullptr;
         if (Utils::GetPropertyValue<UObject*>(CommonButtonObj, STR("Text_Main"), TextMainObj, true) && TextMainObj) {
-            struct { FText InText; } TextParams{ ConvParams.OutText };
-            Utils::CallFunction(TextMainObj, STR("SetText"), &TextParams);
+            Utils::SetTextSafely(TextMainObj, STR("SetText"), TextStr);
         } else {
-            struct { FText InText; } TextParams{ ConvParams.OutText };
-            Utils::CallFunction(CommonButtonObj, STR("SetText"), &TextParams);
+            Utils::SetTextSafely(CommonButtonObj, STR("SetText"), TextStr);
         }
     }
 
@@ -196,20 +208,35 @@ namespace DynPals {
             if (!PlayerController || !Utils::IsObjectValid(PlayerController)) return;
 
             UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
-            UObject* KTL = Utils::GetKTL();
-            if (!PalUtil || !KTL) return;
+            if (!PalUtil) return;
 
             UFunction* AlertFunc = PalUtil->GetFunctionByNameInChain(STR("Alert"));
-            UFunction* ConvFunc = KTL->GetFunctionByNameInChain(STR("Conv_StringToText"));
-            if (!AlertFunc || !ConvFunc) return;
+            if (AlertFunc) {
+                alignas(8) uint8_t AlertParams[256] = {0};
+                
+                // Initialize ALL parameters
+                for (FProperty* Prop = (FProperty*)AlertFunc->GetChildProperties(); Prop; Prop = (FProperty*)Utils::GetNextField(Prop)) {
+                    Prop->InitializeValue_InContainer(AlertParams);
+                }
 
-            struct { FString InStr; FText OutText; } ConvParams{ FString(Message.c_str()), FText() };
-            KTL->ProcessEvent(ConvFunc, &ConvParams);
+                FProperty* WCProp = AlertFunc->GetPropertyByNameInChain(STR("WorldContextObject"));
+                if (!WCProp) WCProp = AlertFunc->GetPropertyByNameInChain(STR("WorldContext"));
+                if (WCProp) *WCProp->ContainerPtrToValuePtr<UObject*>(AlertParams) = PlayerController;
 
-            struct { UObject* WorldContext; FText Message; } AlertParams{ PlayerController, ConvParams.OutText };
-            PalUtil->ProcessEvent(AlertFunc, &AlertParams);
+                FProperty* MsgProp = AlertFunc->GetPropertyByNameInChain(STR("Message"));
+                if (!MsgProp) MsgProp = AlertFunc->GetPropertyByNameInChain(STR("Msg"));
+                if (MsgProp) Utils::AssignStringToTextProperty(Message, AlertParams, MsgProp);
 
-            DP_LOG(Default, "[NotificationManager] Displayed native modal alert dialog.");
+                Utils::SafeProcessEvent(PalUtil, AlertFunc, AlertParams);
+
+                // Destroy ALL parameters
+                for (FProperty* Prop = (FProperty*)AlertFunc->GetChildProperties(); Prop; Prop = (FProperty*)Utils::GetNextField(Prop)) {
+                    Prop->DestroyValue_InContainer(AlertParams);
+                }
+                DP_LOG(Default, "[NotificationManager] Displayed native modal alert dialog.");
+
+
+            }
         });
     }
 
@@ -266,16 +293,32 @@ namespace DynPals {
                 }
             }
 
-            // Call SetupUI with DialogType = 1 (YesNo mode - forces 2 native buttons)
-            UObject* KTL = Utils::GetKTL();
-            UFunction* ConvFunc = Utils::GetKTLFunction(STR("Conv_StringToText"));
-            if (KTL && ConvFunc) {
-                struct { FString InStr; FText OutText; } ConvParams{ FString(Message.c_str()), FText() };
-                KTL->ProcessEvent(ConvFunc, &ConvParams);
+            // Call SetupUI with DialogType = 1 (YesNo mode)
+            UFunction* SetupFunc = MyWidget->GetFunctionByNameInChain(STR("SetupUI"));
+            if (SetupFunc) {
+                alignas(8) uint8_t SetupParams[256] = {0};
+                
+                // Initialize ALL parameters
+                for (FProperty* Prop = (FProperty*)SetupFunc->GetChildProperties(); Prop; Prop = (FProperty*)Utils::GetNextField(Prop)) {
+                    Prop->InitializeValue_InContainer(SetupParams);
+                }
+                
+                FProperty* DialogTypeProp = SetupFunc->GetPropertyByNameInChain(STR("DialogType"));
+                if (DialogTypeProp) *DialogTypeProp->ContainerPtrToValuePtr<uint8_t>(SetupParams) = 1;
 
-                struct { uint8_t DialogType; uint8_t Pad[7]; FText Msg; } SetupParams{ 1, {0}, ConvParams.OutText };
-                Utils::CallFunction(MyWidget, STR("SetupUI"), &SetupParams);
+                FProperty* MsgProp = SetupFunc->GetPropertyByNameInChain(STR("Msg"));
+                if (!MsgProp) MsgProp = SetupFunc->GetPropertyByNameInChain(STR("Message"));
+                if (MsgProp) Utils::AssignStringToTextProperty(Message, SetupParams, MsgProp);
+
+                Utils::SafeProcessEvent(MyWidget, SetupFunc, SetupParams);
+
+                // Destroy ALL parameters
+                for (FProperty* Prop = (FProperty*)SetupFunc->GetChildProperties(); Prop; Prop = (FProperty*)Utils::GetNextField(Prop)) {
+                    Prop->DestroyValue_InContainer(SetupParams);
+
+                }
             }
+
 
             // Fetch inner WBP_CommonPopupWindow
             UObject* PopupWindow = nullptr;

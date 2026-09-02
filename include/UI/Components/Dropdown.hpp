@@ -200,16 +200,7 @@ namespace DynPals::UI {
         void UpdateMainButtonText() {
             if (!MainButtonCtrl || Options.empty()) return;
             std::wstring newText = L"Select: " + Options[SelectedIndex];
-            
-            RC::Unreal::UObject* KTL = DynPals::Utils::GetKTL();
-            RC::Unreal::UFunction* ConvFunc = DynPals::Utils::GetKTLFunction(STR("Conv_StringToText"));
-            if (KTL && ConvFunc) {
-                struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(newText.c_str()), RC::Unreal::FText() };
-                KTL->ProcessEvent(ConvFunc, &P1);
-                
-                struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
-                Utils::CallFunction(MainButtonCtrl->GetWidget(), STR("SetText"), &P2, true);
-            }
+            DynPals::Utils::SetTextSafely(MainButtonCtrl->GetWidget(), STR("SetText"), newText);
         }
 
         void RebuildList() {
@@ -340,12 +331,10 @@ namespace DynPals::UI {
 
                 PooledHeader& ph = HeaderPool[m_HeaderUsedIndex++];
                 
-                if (ph.TextWidget && KTL && ConvFunc) {
-                    struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(cleanHeader.c_str()), RC::Unreal::FText() };
-                    KTL->ProcessEvent(ConvFunc, &P1);
-                    struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
-                    Utils::CallFunction(ph.TextWidget, STR("SetText"), &P2, true);
+                if (ph.TextWidget) {
+                    DynPals::Utils::SetTextSafely(ph.TextWidget, STR("SetText"), cleanHeader);
                 }
+
 
                 struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{ph.RootWidget, nullptr};
                 Utils::CallFunction(ScrollBoxList, STR("AddChild"), &AddParams);
@@ -377,11 +366,8 @@ namespace DynPals::UI {
                 if (m_ButtonUsedIndex < static_cast<int>(ButtonPool.size())) {
                     PooledButton& pb = ButtonPool[m_ButtonUsedIndex++];
                     
-                    if (pb.TextWidget && KTL && ConvFunc) {
-                        struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(opt.c_str()), RC::Unreal::FText() };
-                        KTL->ProcessEvent(ConvFunc, &P1);
-                        struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
-                        Utils::CallFunction(pb.TextWidget, STR("SetText"), &P2, true);
+                    if (pb.TextWidget) {
+                        DynPals::Utils::SetTextSafely(pb.TextWidget, STR("SetText"), opt);
                     }
 
                     int itemIndex = static_cast<int>(m_BuildIndex);

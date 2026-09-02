@@ -155,32 +155,9 @@ namespace DynPals {
         Normal = 0, Negative = 1, Positive = 2 
     };
 
-    struct FPalStaticItemIdAndNum {
-        RC::Unreal::FName ItemId;
-        int32_t Num = 0;
-    };
+    
 
-    #pragma pack(push, 1)
-    struct FPalLogAdditionalData {
-        RC::Unreal::TArray<void*> SoftTextures; 
-        uint8_t LogToneType;                    
-        uint8_t Pad1[3];                        
-        RC::Unreal::FName DefaultFontStyleName; 
-        uint8_t Pad2[4];                        
-        RC::Unreal::UClass* OverrideWidgetClass;
-        FPalStaticItemIdAndNum ItemIDAndNum;    
-        uint8_t Pad3[4];
-        FPalInstanceID IndividualId;
-        uint8_t LogType;
-        uint8_t Pad4[7];
-    };
-    #pragma pack(pop)
+    
 
-    struct FPalAddLogParams {
-        uint8_t Priority;                       
-        uint8_t Pad1[7];                        
-        RC::Unreal::FText Text;                 
-        FPalLogAdditionalData AdditionalData;   
-        DynPalsGuid ReturnValue;                
-    };
+    
 }

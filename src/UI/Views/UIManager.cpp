@@ -638,23 +638,15 @@ namespace DynPals {
 
         // 1. Dynamic Header Text Update
         if (HeaderTextObj) {
-            RC::Unreal::UObject* KTL = DynPals::Utils::GetKTL();
-            RC::Unreal::UFunction* ConvFunc = DynPals::Utils::GetKTLFunction(STR("Conv_StringToText"));
-            if (KTL && ConvFunc) {
-                std::wstring headerStr = L"DYN PALS: " + TargetCharID;
-                
-                // Add the locked indicator to the UI string
-                if (currentPersist && currentPersist->bIsManuallyLocked) {
-                    headerStr += L" [LOCKED]";
-                }
-
-                struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(headerStr.c_str()), RC::Unreal::FText() };
-                KTL->ProcessEvent(ConvFunc, &P1);
-                struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
-                Utils::CallFunction(HeaderTextObj, STR("SetText"), &P2, true);
-
+            std::wstring headerStr = L"DYN PALS: " + TargetCharID;
+            
+            // Add the locked indicator to the UI string
+            if (currentPersist && currentPersist->bIsManuallyLocked) {
+                headerStr += L" [LOCKED]";
             }
+            DynPals::Utils::SetTextSafely(HeaderTextObj, STR("SetText"), headerStr);
         }
+
 
         // 2. Fetch Pal Statistics
         bool IsRare = false, IsWild = false;
@@ -955,15 +947,7 @@ namespace DynPals {
             }
             logTextUsed++;
 
-            RC::Unreal::UObject* KTL = DynPals::Utils::GetKTL();
-            RC::Unreal::UFunction* ConvFunc = DynPals::Utils::GetKTLFunction(STR("Conv_StringToText"));
-            if (KTL && ConvFunc) {
-                struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } P1{ RC::Unreal::FString(TextStr.c_str()), RC::Unreal::FText() };
-                KTL->ProcessEvent(ConvFunc, &P1);
-                struct { RC::Unreal::FText InText; } P2{P1.ReturnValue};
-                Utils::CallFunction(TextObj, STR("SetText"), &P2, true);
-            }
-
+            DynPals::Utils::SetTextSafely(TextObj, STR("SetText"), TextStr);
             DynPals::UI::SetTextColor(TextObj, Color);
             
             FProperty* FontProp = Utils::GetProperty(TextObj, STR("Font"));

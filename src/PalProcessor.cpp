@@ -1295,7 +1295,8 @@ namespace DynPals {
         }
         std::wstring RawCharID = CharIDParams.RetVal.ToString();
 
-        if (RawCharID.rfind(L"GYM_", 0) == 0 || RawCharID.find(L"_Gym_") != std::wstring::npos) return false;
+        //Re enabling gym leaders
+        //if (RawCharID.rfind(L"GYM_", 0) == 0 || RawCharID.find(L"_Gym_") != std::wstring::npos) return false;
 
         static UObject* LastWorldLoaded = nullptr;
         if (World != LastWorldLoaded) {

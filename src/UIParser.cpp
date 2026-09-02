@@ -96,13 +96,8 @@ namespace DynPals {
     void UIParser::ApplyStyle(UObject* Widget, const nlohmann::json& styleNode) {
         std::wstring className = Widget->GetClassPrivate()->GetName();
 
-        if (styleNode.contains("Text") && KismetTextLibrary) {
-            UFunction* ConvStringFunc = KismetTextLibrary->GetFunctionByNameInChain(STR("Conv_StringToText"));
-            struct { FString InString; FText ReturnValue; } Params{ FString(Utils::StringToWString(styleNode["Text"].get<std::string>()).c_str()), FText() };
-            KismetTextLibrary->ProcessEvent(ConvStringFunc, &Params);
-
-            struct { FText InText; } SetTextParams{Params.ReturnValue};
-            Utils::CallFunction(Widget, STR("SetText"), &SetTextParams);
+        if (styleNode.contains("Text")) {
+            Utils::SetTextSafely(Widget, STR("SetText"), Utils::StringToWString(styleNode["Text"].get<std::string>()));
         }
 
         if (styleNode.contains("Color")) {
