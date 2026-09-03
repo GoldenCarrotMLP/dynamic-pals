@@ -37,7 +37,9 @@ namespace DynPals::UI {
         void SetOptions(const std::vector<std::wstring>& InOptions, int NewIndex) {
             Options = InOptions;
             SelectedIndex = NewIndex;
-            if (SelectedIndex < 0 || SelectedIndex >= static_cast<int>(Options.size())) SelectedIndex = 0;
+            if (SelectedIndex < 0 || SelectedIndex >= static_cast<int>(Options.size())) {
+                SelectedIndex = -1; // Keep as -1 for Vanilla / Default
+            }
             
             bNeedsListRebuild = true;
             UpdateMainButtonText();
@@ -108,7 +110,15 @@ namespace DynPals::UI {
             }
             PlayerController = PC;
 
-            std::wstring DisplayText = Options.empty() ? L"" : Options[SelectedIndex];
+            std::wstring DisplayText = (SelectedIndex >= 0 && SelectedIndex < static_cast<int>(Options.size())) 
+                                       ? Options[SelectedIndex] 
+                                       : L"(Vanilla / Default)";
+            
+            size_t firstNonSpace = DisplayText.find_first_not_of(L" ");
+            if (firstNonSpace != std::wstring::npos) {
+                DisplayText = DisplayText.substr(firstNonSpace);
+            }
+
             MainButtonCtrl = std::make_unique<class DynPals::UI::Button>(Outer, L"Select: " + DisplayText);
             
             MainButtonCtrl->OnClicked([this]() {
@@ -198,10 +208,20 @@ namespace DynPals::UI {
         std::vector<std::unique_ptr<class DynPals::UI::Button>> AllButtonCtrls;
 
         void UpdateMainButtonText() {
-            if (!MainButtonCtrl || Options.empty()) return;
-            std::wstring newText = L"Select: " + Options[SelectedIndex];
+            if (!MainButtonCtrl) return;
+            std::wstring DisplayText = (SelectedIndex >= 0 && SelectedIndex < static_cast<int>(Options.size())) 
+                                       ? Options[SelectedIndex] 
+                                       : L"(Vanilla / Default)";
+            
+            size_t firstNonSpace = DisplayText.find_first_not_of(L" ");
+            if (firstNonSpace != std::wstring::npos) {
+                DisplayText = DisplayText.substr(firstNonSpace);
+            }
+
+            std::wstring newText = L"Select: " + DisplayText;
             DynPals::Utils::SetTextSafely(MainButtonCtrl->GetWidget(), STR("SetText"), newText);
         }
+
 
         void RebuildList() {
             if (!ScrollBoxList) return;
@@ -422,7 +442,7 @@ namespace DynPals::UI {
 
             auto item_end = std::chrono::steady_clock::now();
             auto duration_us = std::chrono::duration_cast<std::chrono::microseconds>(item_end - item_start).count();
-            
+            /*
             DP_LOG(Default, "[Profile] [Dropdown Item {:02d}/{:02d}] [{:<6}] [{:<10}] rendered in {:.3f} ms ({} us) | Text: '{}'",
                    m_BuildIndex + 1, 
                    Options.size(),
@@ -430,7 +450,7 @@ namespace DynPals::UI {
                    bWasNewlyAllocated ? L"NEW ALLOC" : L"POOLED",
                    duration_us / 1000.0f, 
                    duration_us,
-                   opt);
+                   opt);*/
         }
 
         void CleanupUnusedPoolWidgets() {

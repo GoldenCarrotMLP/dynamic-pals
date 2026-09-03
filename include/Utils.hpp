@@ -352,6 +352,14 @@ namespace DynPals::Utils {
 
     inline void SetTextSafely(UObject* Target, const wchar_t* FuncName, const std::wstring& Str) {
         if (!Target || !IsObjectValid(Target)) return;
+
+        // If target is a CommonButton wrapper, forward SetText directly to its inner Text_Main component!
+        UObject* TextMainObj = nullptr;
+        if (GetPropertyValue<UObject*>(Target, STR("Text_Main"), TextMainObj, true) && TextMainObj && IsObjectValid(TextMainObj)) {
+            SetTextSafely(TextMainObj, FuncName, Str);
+            return;
+        }
+
         UFunction* Func = Target->GetFunctionByNameInChain(FuncName);
         if (!Func) return;
 
@@ -384,6 +392,15 @@ namespace DynPals::Utils {
         for (FProperty* Prop = (FProperty*)Func->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
             Prop->DestroyValue_InContainer(Params);
         }
+    }
+
+inline bool IsGameWindowFocused() {
+        HWND foregroundWindow = GetForegroundWindow();
+        if (!foregroundWindow) return false;
+
+        DWORD foregroundProcId = 0;
+        GetWindowThreadProcessId(foregroundWindow, &foregroundProcId);
+        return foregroundProcId == GetCurrentProcessId();
     }
 
 

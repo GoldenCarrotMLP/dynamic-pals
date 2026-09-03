@@ -321,32 +321,23 @@ namespace DynPals {
             }
         }
 
+        // --- ENFORCE UNIQUE UI LABELS & PREVENT INFINITE LOOPS ---
         std::map<std::wstring, std::vector<size_t>> collisionMap;
         for (size_t i = 0; i < Configs.size(); ++i) {
             auto& cfg = Configs[i];
-            
-            if (cfg.SwapLabel.empty() && (cfg.SkinName.empty() || cfg.SkinName == L"None")) {
-                std::wstring key = cfg.PackName + L"|" + ToLower(cfg.CharacterID) + L"|" + cfg.SkelMeshPath;
-                collisionMap[key].push_back(i);
-            }
+            std::wstring key = cfg.PackName + L"|" + ToLower(cfg.CharacterID) + L"|" + ToLower(cfg.SwapLabel);
+            collisionMap[key].push_back(i);
         }
 
         for (const auto& [key, indices] : collisionMap) {
             if (indices.size() > 1) { 
                 auto& cfg = Configs[indices[0]];
+                DP_LOG(Warning, "JSON WARNING in Pack '{}': Found {} identical labels for '{}' (CharID: {}). Auto-numbering to prevent conflicts.", 
+                    cfg.PackName, indices.size(), cfg.SwapLabel, cfg.CharacterID);
                 
-                std::wstring meshName = cfg.SkelMeshPath;
-                size_t lastSlash = meshName.find_last_of(L'/');
-                if (lastSlash != std::wstring::npos) {
-                    meshName = meshName.substr(lastSlash + 1);
+                for (size_t k = 1; k < indices.size(); ++k) {
+                    Configs[indices[k]].SwapLabel += L" (" + std::to_wstring(k + 1) + L")";
                 }
-                size_t lastDot = meshName.find_last_of(L'.');
-                if (lastDot != std::wstring::npos) {
-                    meshName = meshName.substr(0, lastDot);
-                }
-                
-                DP_LOG(Error, "JSON ERROR in Pack '{}': Found {} variants for '{}'. Please add a 'SkinLabel' property to each or they won't be able to load properly!", 
-                    cfg.PackName, indices.size(), meshName);
             }
         }
 
@@ -371,6 +362,8 @@ namespace DynPals {
 
             if (sc.SwapLabel.empty()) {
                 sc.SwapLabel = Utils::GenerateFallbackLabel(sc.SkelMeshPath, sc.MatReplaceList, sc.MorphTargetList);
+                if (!sc.Gender.empty() && ToLower(sc.Gender) != L"none") sc.SwapLabel += L" [" + sc.Gender + L"]";
+                if (sc.IsRarePal.has_value()) sc.SwapLabel += sc.IsRarePal.value() ? L" [Rare]" : L" [Normal]";
             }
             
             ValidateGender(sc.Gender, sc.PackName, sc.SwapLabel);
@@ -402,6 +395,8 @@ namespace DynPals {
                 
                 if (sc.SwapLabel.empty()) {
                     sc.SwapLabel = Utils::GenerateFallbackLabel(sc.SkelMeshPath, sc.MatReplaceList, sc.MorphTargetList);
+                    if (!sc.Gender.empty() && ToLower(sc.Gender) != L"none") sc.SwapLabel += L" [" + sc.Gender + L"]";
+                    if (sc.IsRarePal.has_value()) sc.SwapLabel += sc.IsRarePal.value() ? L" [Rare]" : L" [Normal]";
                 }
                 
                 ValidateGender(sc.Gender, sc.PackName, sc.SwapLabel);
@@ -479,10 +474,24 @@ namespace DynPals {
                 }
             }
 
-            if (eval.IsValid && !swap.SkinName.empty()) {
-                if (!IEquals(SkinName, swap.SkinName)) eval.IsValid = false;
-                else eval.Score -= 50; 
+            // --- REPLACED SKIN NAME CHECK ---
+            if (eval.IsValid) {
+                bool bPalHasSkin = !SkinName.empty() && !IEquals(SkinName, L"None");
+                bool bConfigHasSkin = !swap.SkinName.empty() && !IEquals(swap.SkinName, L"None");
+
+                if (bPalHasSkin != bConfigHasSkin) {
+                    // One has a skin, the other doesn't -> Isolate completely
+                    eval.IsValid = false;
+                } else if (bPalHasSkin && bConfigHasSkin) {
+                    // Both have skins. Do they match exactly?
+                    if (!IEquals(SkinName, swap.SkinName)) {
+                        eval.IsValid = false;
+                    } else {
+                        eval.Score -= 50; 
+                    }
+                }
             }
+            // --------------------------------
 
             if (eval.IsValid && swap.IsRarePal.has_value()) {
                 bool reqRare = swap.IsRarePal.value();
@@ -581,15 +590,23 @@ namespace DynPals {
     }
 
     int ConfigManager::FindConfigIndex(const std::wstring& PackName, const std::wstring& SkinName, const std::wstring& SwapLabel, const std::wstring& SkelMeshPath, const std::wstring& CharID) const {
+        std::wstring lowerCharID = ToLower(CharID);
+
         if (!SwapLabel.empty()) {
             for (size_t i = 0; i < Configs.size(); ++i) {
-                if (Configs[i].PackName == PackName && Configs[i].SwapLabel == SwapLabel) return (int)i;
+                if (Configs[i].PackName == PackName && Configs[i].SwapLabel == SwapLabel) {
+                    if (!CharID.empty() && ToLower(Configs[i].CharacterID) != lowerCharID) continue;
+                    return (int)i;
+                }
             }
         }
         
         if (!SkinName.empty() && SkinName != L"None") {
             for (size_t i = 0; i < Configs.size(); ++i) {
-                if (Configs[i].PackName == PackName && Configs[i].SkinName == SkinName) return (int)i;
+                if (Configs[i].PackName == PackName && Configs[i].SkinName == SkinName) {
+                    if (!CharID.empty() && ToLower(Configs[i].CharacterID) != lowerCharID) continue;
+                    return (int)i;
+                }
             }
         }
         
@@ -597,16 +614,22 @@ namespace DynPals {
             for (size_t i = 0; i < Configs.size(); ++i) {
                 if (Configs[i].PackName == PackName && 
                     Configs[i].SkelMeshPath == SkelMeshPath && 
-                    ToLower(Configs[i].CharacterID) == ToLower(CharID)) return (int)i;
+                    ToLower(Configs[i].CharacterID) == lowerCharID) return (int)i;
             }
         }
 
         for (size_t i = 0; i < Configs.size(); ++i) {
-            if (Configs[i].PackName == PackName && Configs[i].SkelMeshPath == SkelMeshPath) return (int)i;
+            if (Configs[i].PackName == PackName && Configs[i].SkelMeshPath == SkelMeshPath) {
+                if (!CharID.empty() && ToLower(Configs[i].CharacterID) != lowerCharID) continue;
+                return (int)i;
+            }
         }
 
         for (size_t i = 0; i < Configs.size(); ++i) {
-            if (Configs[i].SkelMeshPath == SkelMeshPath) return (int)i;
+            if (Configs[i].SkelMeshPath == SkelMeshPath) {
+                if (!CharID.empty() && ToLower(Configs[i].CharacterID) != lowerCharID) continue;
+                return (int)i;
+            }
         }
 
         return -1; 

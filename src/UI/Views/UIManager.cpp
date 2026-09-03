@@ -448,7 +448,7 @@ namespace DynPals {
                     MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
                     LastScrollOffset = Params.Offset;
                 }
-                bNeedsRefresh = true; 
+                // Do NOT set bNeedsRefresh = true here; OnTickUI will automatically refresh once the swap finishes saving to disk!
             }
         });
 
@@ -633,7 +633,7 @@ namespace DynPals {
         Utils::CallFunction(DynamicMorphBox, STR("ClearChildren"));
         Utils::CallFunction(DynamicLogBox, STR("ClearChildren"));
 
-        // Fetch persist data early so we can check if it's locked for the header
+        // Single declaration of currentPersist for the entire function
         PalPersistData* currentPersist = SaveManager::Get().GetPersistData(TargetInstanceID);
 
         // 1. Dynamic Header Text Update
@@ -646,7 +646,6 @@ namespace DynPals {
             }
             DynPals::Utils::SetTextSafely(HeaderTextObj, STR("SetText"), headerStr);
         }
-
 
         // 2. Fetch Pal Statistics
         bool IsRare = false, IsWild = false;
@@ -705,7 +704,6 @@ namespace DynPals {
             IsWild = WildParams.RetVal;
         }
 
-        //PalPersistData* currentPersist = SaveManager::Get().GetPersistData(TargetInstanceID);
         std::wstring CurrentSwapLabel = currentPersist ? currentPersist->SwapLabel : L"";
         
         auto evaluations = ConfigManager::Get().EvaluateAllSwaps(TargetCharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);
@@ -723,9 +721,15 @@ namespace DynPals {
             }
         }
 
+        // Single declaration of persistConfigIndex before building rawPacks
+        int persistConfigIndex = currentPersist ? ConfigManager::Get().FindConfigIndex(currentPersist->PackName, currentPersist->SkinName, currentPersist->SwapLabel, currentPersist->SkelMeshPath, TargetCharID) : -1;
+
         std::map<std::wstring, std::vector<SwapEvaluation>> rawPacks;
         for (const auto& eval : evaluations) {
-            if (bHideInvalidSwaps && !eval.IsValid) continue;
+            // Keep valid swaps, AND always keep the currently equipped swap in the dropdown even if invalid!
+            if (bHideInvalidSwaps && !eval.IsValid && eval.ConfigIndex != persistConfigIndex) {
+                continue;
+            }
             rawPacks[ConfigManager::Get().GetConfigs()[eval.ConfigIndex].PackName].push_back(eval);
         }
 
@@ -882,7 +886,6 @@ namespace DynPals {
             newDropdownConfigIndices.push_back(-1);
         }
 
-
         bool bOptionsChanged = false;
         if (newDropdownOptions.size() != DropdownOptions.size()) {
             bOptionsChanged = true;
@@ -895,18 +898,19 @@ namespace DynPals {
             }
         }
 
-        int persistConfigIndex = currentPersist ? ConfigManager::Get().FindConfigIndex(currentPersist->PackName, currentPersist->SkinName, currentPersist->SwapLabel, currentPersist->SkelMeshPath, TargetCharID) : -1;
-        int initialIdx = 0;
+        int initialIdx = -1; // Default to -1 (Vanilla / Default) so it never selects a header
 
-        for (size_t i = 0; i < newDropdownConfigIndices.size(); ++i) {
-            if (newDropdownConfigIndices[i] == persistConfigIndex) {
-                initialIdx = static_cast<int>(i);
-                break;
+        if (persistConfigIndex != -1) {
+            for (size_t i = 0; i < newDropdownConfigIndices.size(); ++i) {
+                if (newDropdownConfigIndices[i] == persistConfigIndex) {
+                    initialIdx = static_cast<int>(i);
+                    break;
+                }
             }
         }
 
         static std::wstring lastTargetInstanceID = L"";
-        static int lastPersistConfigIndex = -1;
+        static int lastPersistConfigIndex = -999;
 
         if (bOptionsChanged) {
             DropdownOptions = std::move(newDropdownOptions);
@@ -1018,77 +1022,77 @@ namespace DynPals {
         }
 
         // 5.5. Dynamic Size Slider (Only displays if Min < Max in the JSON)
-Utils::CallFunction(SizeSliderContainer, STR("ClearChildren"));
-SizeSlider = nullptr;
+        Utils::CallFunction(SizeSliderContainer, STR("ClearChildren"));
+        SizeSlider = nullptr;
 
-if (currentPersist && persistConfigIndex != -1) {
-    auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
-    
-    if (activeCfg.MinSizeMultiplier < activeCfg.MaxSizeMultiplier) {
-        double currentVal = currentPersist->SizeMultiplier > 0.0 ? currentPersist->SizeMultiplier : 1.0;
-        if (currentVal < activeCfg.MinSizeMultiplier) currentVal = activeCfg.MinSizeMultiplier;
-        if (currentVal > activeCfg.MaxSizeMultiplier) currentVal = activeCfg.MaxSizeMultiplier;
+        if (currentPersist && persistConfigIndex != -1) {
+            auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
+            
+            if (activeCfg.MinSizeMultiplier < activeCfg.MaxSizeMultiplier) {
+                double currentVal = currentPersist->SizeMultiplier > 0.0 ? currentPersist->SizeMultiplier : 1.0;
+                if (currentVal < activeCfg.MinSizeMultiplier) currentVal = activeCfg.MinSizeMultiplier;
+                if (currentVal > activeCfg.MaxSizeMultiplier) currentVal = activeCfg.MaxSizeMultiplier;
 
-        SizeSlider = std::make_unique<UI::Slider>(MyWidget, activeCfg.MinSizeMultiplier, activeCfg.MaxSizeMultiplier, currentVal);
-        SizeSlider->OnChanged([this](double NewValue) {
-            LastObservedSize = NewValue; // Prevents UI refresh loop while dragging
+                SizeSlider = std::make_unique<UI::Slider>(MyWidget, activeCfg.MinSizeMultiplier, activeCfg.MaxSizeMultiplier, currentVal);
+                SizeSlider->OnChanged([this](double NewValue) {
+                    LastObservedSize = NewValue; // Prevents UI refresh loop while dragging
 
-            PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
-            if (p) {
-                p->SizeMultiplier = NewValue;
-                SaveManager::Get().SetPersistData(TargetInstanceID, *p, true);
+                    PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
+                    if (p) {
+                        p->SizeMultiplier = NewValue;
+                        SaveManager::Get().SetPersistData(TargetInstanceID, *p, true);
 
-                if (TargetPal && Utils::IsObjectValid(TargetPal)) {
-                    UObject* MeshComp = nullptr;
-                    Utils::CallFunction(TargetPal, STR("GetMainMesh"), &MeshComp);
-                    if (MeshComp && Utils::IsObjectValid(MeshComp)) {
-                        UClass* CharClass = TargetPal->GetClassPrivate();
-                        if (CharClass) {
-                            UObject* CDO = CharClass->GetClassDefaultObject();
-                            UObject* VanillaMesh = nullptr;
-                            if (CDO) Utils::GetPropertyValue<UObject*>(CDO, STR("Mesh"), VanillaMesh);
-                            
-                            // Read RelativeScale3D directly from the CDO (contains the 1.45 base scale)
-                            FVector_UE5 BaseScale{ 1.0, 1.0, 1.0 };
-                            if (VanillaMesh) {
-                                FVector_UE5 CDOScale{ 1.0, 1.0, 1.0 };
-                                if (Utils::GetPropertyValue<FVector_UE5>(VanillaMesh, STR("RelativeScale3D"), CDOScale)) {
-                                    if (CDOScale.X > 0.001 && CDOScale.Y > 0.001 && CDOScale.Z > 0.001) {
-                                        BaseScale = CDOScale;
+                        if (TargetPal && Utils::IsObjectValid(TargetPal)) {
+                            UObject* MeshComp = nullptr;
+                            Utils::CallFunction(TargetPal, STR("GetMainMesh"), &MeshComp);
+                            if (MeshComp && Utils::IsObjectValid(MeshComp)) {
+                                UClass* CharClass = TargetPal->GetClassPrivate();
+                                if (CharClass) {
+                                    UObject* CDO = CharClass->GetClassDefaultObject();
+                                    UObject* VanillaMesh = nullptr;
+                                    if (CDO) Utils::GetPropertyValue<UObject*>(CDO, STR("Mesh"), VanillaMesh);
+                                    
+                                    // Read RelativeScale3D directly from the CDO (contains the 1.45 base scale)
+                                    FVector_UE5 BaseScale{ 1.0, 1.0, 1.0 };
+                                    if (VanillaMesh) {
+                                        FVector_UE5 CDOScale{ 1.0, 1.0, 1.0 };
+                                        if (Utils::GetPropertyValue<FVector_UE5>(VanillaMesh, STR("RelativeScale3D"), CDOScale)) {
+                                            if (CDOScale.X > 0.001 && CDOScale.Y > 0.001 && CDOScale.Z > 0.001) {
+                                                BaseScale = CDOScale;
+                                            }
+                                        }
                                     }
+
+                                    if (NewValue <= 0.001) NewValue = 1.0;
+
+                                    FVector_UE5 FinalMeshScale = {
+                                        BaseScale.X * NewValue,
+                                        BaseScale.Y * NewValue,
+                                        BaseScale.Z * NewValue
+                                    };
+
+                                    // Apply final scale to both active relative and default properties
+                                    Utils::SetPropertyValue<FVector_UE5>(MeshComp, STR("DefaultScale3D"), FinalMeshScale);
+                                    struct { FVector_UE5 NewScale3D; } ScaleParams{ FinalMeshScale };
+                                    Utils::CallFunction(MeshComp, STR("SetRelativeScale3D"), &ScaleParams);
                                 }
                             }
-
-                            if (NewValue <= 0.001) NewValue = 1.0;
-
-                            FVector_UE5 FinalMeshScale = {
-                                BaseScale.X * NewValue,
-                                BaseScale.Y * NewValue,
-                                BaseScale.Z * NewValue
-                            };
-
-                            // Apply final scale to both active relative and default properties
-                            Utils::SetPropertyValue<FVector_UE5>(MeshComp, STR("DefaultScale3D"), FinalMeshScale);
-                            struct { FVector_UE5 NewScale3D; } ScaleParams{ FinalMeshScale };
-                            Utils::CallFunction(MeshComp, STR("SetRelativeScale3D"), &ScaleParams);
                         }
                     }
+                });
+
+                RC::Unreal::UObject* TitleObj = GetPooledText(L"Size Adjustment", Emerald, 18, L"Bold");
+                struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddT{TitleObj, nullptr};
+                Utils::CallFunction(SizeSliderContainer, STR("AddChildToVerticalBox"), &AddT);
+
+                struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddS{SizeSlider->GetWidget(), nullptr};
+                Utils::CallFunction(SizeSliderContainer, STR("AddChildToVerticalBox"), &AddS);
+                if (AddS.ReturnValue) {
+                    DynPals::BoxSlotBuilder SlotBuilder(AddS.ReturnValue);
+                    SlotBuilder.Padding(0.0f, 5.0f, 0.0f, 15.0f);
                 }
             }
-        });
-
-        RC::Unreal::UObject* TitleObj = GetPooledText(L"Size Adjustment", Emerald, 18, L"Bold");
-        struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddT{TitleObj, nullptr};
-        Utils::CallFunction(SizeSliderContainer, STR("AddChildToVerticalBox"), &AddT);
-
-        struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddS{SizeSlider->GetWidget(), nullptr};
-        Utils::CallFunction(SizeSliderContainer, STR("AddChildToVerticalBox"), &AddS);
-        if (AddS.ReturnValue) {
-            DynPals::BoxSlotBuilder SlotBuilder(AddS.ReturnValue);
-            SlotBuilder.Padding(0.0f, 5.0f, 0.0f, 15.0f);
         }
-    }
-}
 
         // 6. Slider Pooling & Shape Keys
         Utils::CallFunction(DynamicMorphBox, STR("ClearChildren"));
@@ -1261,6 +1265,7 @@ if (currentPersist && persistConfigIndex != -1) {
         DP_LOG(Default, "[Profile] UIManager::RefreshUI completed in {} us ({:.3f} ms)", 
                duration, duration / 1000.0f);
     }
+
 
     void UIManager::OnTickUI() {
     if (TargetPal && !Utils::IsObjectValid(TargetPal)) {

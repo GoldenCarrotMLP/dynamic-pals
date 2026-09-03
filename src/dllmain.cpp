@@ -34,6 +34,10 @@ public:
 
     auto on_update() -> void override
     {
+
+         if (!DynPals::Utils::IsGameWindowFocused()) {
+            return;
+        }
         static bool bPrevKeyPressed = false;
         static bool bNextKeyPressed = false;
 

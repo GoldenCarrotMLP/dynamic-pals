@@ -108,7 +108,7 @@ namespace DynPals {
             return;
         }
 
-        if (bCloseOnEscape) {
+        if (bCloseOnEscape && Utils::IsGameWindowFocused()) {
             if ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) || (GetAsyncKeyState(VK_TAB) & 0x8000)) {
                 if (!bWasEscapeDown) {
                     bWasEscapeDown = true;

@@ -701,6 +701,16 @@ namespace DynPals {
         return true;
     }
 
+    // Add this case-insensitive equality helper here:
+    static bool IEquals(std::wstring_view a, std::wstring_view b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (std::towlower(a[i]) != std::towlower(b[i])) return false;
+        }
+        return true;
+    }
+
+
     std::wstring PalProcessor::StripCharacterPrefix(const std::wstring& InputID) {
         std::wstring result = InputID;
 
@@ -779,12 +789,12 @@ namespace DynPals {
     // =========================================================================
     // DELAYED / ASYNC THREADED EXECUTION HELPERS
     // =========================================================================
-    static void ScheduleProcessPal(UObject* Character, int DelayMs, bool ForceReroll, int ExplicitSwapIndex = -1) {
-        std::thread([Character, DelayMs, ForceReroll, ExplicitSwapIndex]() {
+    static void ScheduleProcessPal(UObject* Character, int DelayMs, bool ForceReroll, int ExplicitSwapIndex = -1, bool IsEvolutionEnd = false) {
+        std::thread([Character, DelayMs, ForceReroll, ExplicitSwapIndex, IsEvolutionEnd]() {
             if (DelayMs > 0) std::this_thread::sleep_for(std::chrono::milliseconds(DelayMs));
-            AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Character, ForceReroll, ExplicitSwapIndex]() {
+            AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Character, ForceReroll, ExplicitSwapIndex, IsEvolutionEnd]() {
                 if (!IsValidPalActor(Character)) return; 
-                PalProcessor::Get().ProcessPal(Character, ForceReroll, ExplicitSwapIndex);
+                PalProcessor::Get().ProcessPal(Character, ForceReroll, ExplicitSwapIndex, false, IsEvolutionEnd);
             });
         }).detach();
     }
@@ -795,7 +805,7 @@ namespace DynPals {
         float DelaySeconds = VFXManager::Get().PlayComposition(Character, CompName);
         int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
         
-        ForceSwap(Character, SwapIndex, DelayMs);
+        ScheduleProcessPal(Character, DelayMs, false, SwapIndex, true);
     }
 
     void PalProcessor::DelayedReroll(UObject* Character, const std::wstring& CompName) {
@@ -804,7 +814,7 @@ namespace DynPals {
         float DelaySeconds = VFXManager::Get().PlayComposition(Character, CompName);
         int DelayMs = static_cast<int>(DelaySeconds * 1000.0f);
         
-        ScheduleProcessPal(Character, DelayMs, true);
+        ScheduleProcessPal(Character, DelayMs, true, -1, false);
     }
 
     void PalProcessor::ForceSwap(UObject* Character, int SwapIndex, int DelayMs) {
@@ -815,34 +825,10 @@ namespace DynPals {
 
         ClearSwappedStatus(id.InstanceID, Character);
 
-        auto& config = ConfigManager::Get().GetConfigs()[SwapIndex];
-
-        PalPersistData* ExistingData = SaveManager::Get().GetPersistData(id.InstanceID);
-        if (!ExistingData) {
-            PalPersistData newData;
-            newData.InstanceID = id.InstanceID;
-            newData.PackName = config.PackName;
-            newData.SkinName = config.SkinName;
-            newData.SwapLabel = config.SwapLabel; 
-            newData.SkelMeshPath = config.SkelMeshPath;
-            newData.SizeMultiplier = -1.0; 
-            SaveManager::Get().SetPersistData(id.InstanceID, newData, true); 
-        } else {
-            ExistingData->PackName = config.PackName;
-            ExistingData->SkinName = config.SkinName;
-            ExistingData->SwapLabel = config.SwapLabel;
-            ExistingData->SkelMeshPath = config.SkelMeshPath;
-            
-            ExistingData->MorphSet.clear();
-            ExistingData->MatSet.clear();
-            ExistingData->MatColorSet.clear();
-            ExistingData->SizeMultiplier = -1.0; 
-            
-            SaveManager::Get().SetPersistData(id.InstanceID, *ExistingData, true); 
-        }
-
-        ScheduleProcessPal(Character, DelayMs, false, SwapIndex);
+        // Defer all persistence changes to ExecuteSwap so requirements are evaluated against the true current state
+        ScheduleProcessPal(Character, DelayMs, false, SwapIndex, false);
     }
+
 
     int PalProcessor::EvaluateIdealSwapIndex(UObject* Character, std::wstring& OutInstanceID) {
         return -1; 
@@ -1362,22 +1348,45 @@ namespace DynPals {
             finalSwap = ExplicitSwapIndex;
             
             if (!IsEvolutionEnd) {
-                bool bIsSelectedSwapValid = false;
-                for (const auto& ev : evaluations) {
-                    if (ev.ConfigIndex == finalSwap) {
-                        bIsSelectedSwapValid = ev.IsValid;
-                        break;
-                    }
-                }
+                auto& explicitCfg = ConfigManager::Get().GetConfigs()[finalSwap];
                 
-                bManualLockState = !bIsSelectedSwapValid;
-                if (bManualLockState) {
-                    DP_LOG(Default, "Explicit swap is invalid for this Pal. Engaging Manual Lock.");
+                // If finalizing an in-flight async load for this same swap, preserve the lock state!
+                if (ExistingData && ExistingData->bIsManuallyLocked && ExistingData->SwapLabel == explicitCfg.SwapLabel) {
+                    bManualLockState = true;
                 } else {
-                    DP_LOG(Default, "Explicit swap is valid. Manual Lock disengaged.");
+                    bool bIsSelectedSwapValid = false;
+                    for (const auto& ev : evaluations) {
+                        if (ev.ConfigIndex == finalSwap) {
+                            bIsSelectedSwapValid = ev.IsValid;
+                            break;
+                        }
+                    }
+                    
+                    // If the swap requires an unsatisfied ReqSwap from the Pal's actual active 3D model, it is invalid
+                    if (!explicitCfg.ReqSwap.empty()) {
+                        bool metPriorReq = false;
+                        std::wstring activeMeshLabel = SwappedInstances.count(Character) ? SwappedInstances[Character] : L"";
+                        for (const auto& req : explicitCfg.ReqSwap) {
+                            if (IEquals(req, activeMeshLabel)) {
+                                metPriorReq = true;
+                                break;
+                            }
+                        }
+                        if (!metPriorReq) {
+                            bIsSelectedSwapValid = false;
+                        }
+                    }
+
+                    bManualLockState = !bIsSelectedSwapValid;
+                    if (bManualLockState) {
+                        DP_LOG(Default, "Explicit swap is invalid for this Pal. Engaging Manual Lock.");
+                    } else {
+                        DP_LOG(Default, "Explicit swap is valid. Manual Lock disengaged.");
+                    }
                 }
             } else {
                 bManualLockState = ExistingData ? ExistingData->bIsManuallyLocked : false;
+
             }
         } 
         else if (ForceReroll) {
@@ -1408,7 +1417,11 @@ namespace DynPals {
                             }
 
                             if (!currentEval->IsValid || currentEval->Score > absoluteBestScore) {
-                                DP_LOG(Normal, "Live Event: Better skin found or current became invalid. Upgrading skin.\n");
+                                if (newBestSwap == -1) {
+                                    DP_LOG(Normal, "Live Event: Current skin became invalid and no alternatives exist. Reverting to Vanilla.\n");
+                                } else {
+                                    DP_LOG(Normal, "Live Event: Better skin found or current became invalid. Upgrading skin.\n");
+                                }
                                 finalSwap = newBestSwap;
                             } else {
                                 finalSwap = currentSwap;
@@ -1612,9 +1625,82 @@ namespace DynPals {
 
                 return true;
             }
+        } else {
+            // --- REVERT AND DELETE RECORD WHEN NO VALID SWAP EXISTS ---
+            bool bHasActiveModSwap = SwappedInstances.count(Character) > 0;
+            bool bHasSavedModSwap = ExistingData && ExistingData->HasSavedSwap();
+            
+            if (bHasSavedModSwap || bHasActiveModSwap) {
+                DP_LOG(Default, "[Debug Swap] Pal '{}' (ID: '{}') no longer qualifies for any modded skins. Clearing Mod Data.", CharID, id.InstanceID);
+                
+                PalPersistData emptyData;
+                emptyData.InstanceID = id.InstanceID;
+                emptyData.bIsManuallyLocked = bManualLockState;
+                emptyData.SizeMultiplier = 1.0;
+                
+                // Saving an empty state forces HasSavedSwap() == false, deleting it from the JSON on disk
+                SaveManager::Get().SetPersistData(id.InstanceID, emptyData, true);
+                
+                // ONLY perform a physical runtime revert if WE actively swapped this exact actor memory instance!
+                // This protects dressing facility actors from being corrupted by forcing the Vanilla CDO over them.
+                if (bHasActiveModSwap) {
+                    SwappedInstances.erase(Character);
+                    
+                    UObject* MeshComp = nullptr;
+                    Utils::CallFunction(Character, STR("GetMainMesh"), &MeshComp);
+                    if (MeshComp && Utils::IsObjectValid(MeshComp)) {
+                        FVanillaDefaults defs = ExtractVanillaDefaults(Character);
+                        UClass* VanillaCharClass = Character->GetClassPrivate();
+                        UObject* VanillaCDO = VanillaCharClass ? VanillaCharClass->GetClassDefaultObject() : nullptr;
+
+                        FMeshApplyParams meshParams;
+                        meshParams.MeshComp = MeshComp;
+                        meshParams.NewSkelMesh = defs.SkelMesh;
+                        meshParams.TargetSkeleton = defs.Skeleton;
+                        meshParams.TargetAnimClass = defs.AnimClass;
+                        meshParams.TargetCDO = VanillaCDO;
+                        meshParams.Character = Character;
+                        meshParams.TargetStaticParam = defs.StaticParam;
+                        meshParams.bReinitPose = true;
+
+                        ApplyMeshAndAnim(meshParams, true);
+                        ClearMaterialOverrides(MeshComp);
+
+                        if (ExistingData) {
+                            for (const auto& [morphName, _] : ExistingData->MorphSet) {
+                                struct { FName MorphTargetName; float Value; bool bRemoveZeroWeight; } MorphParams{
+                                    FName(morphName.c_str(), FNAME_Add), 0.0f, true
+                                };
+                                Utils::CallFunction(MeshComp, STR("SetMorphTarget"), &MorphParams);
+                            }
+                        }
+
+                        Utils::SetPropertyValue<bool>(MeshComp, STR("bPauseAnims"), false, false);
+                        struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
+                        Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
+
+                        RefreshFacialModule(Character, MeshComp);
+                        ResetPhysicsAndDynamics(MeshComp);
+                    }
+                    
+                    if (!IsCompanionSync) {
+                        std::vector<UObject*> linkedCompanions = GetLinkedPals(Character);
+                        for (UObject* Companion : linkedCompanions) {
+                            if (IsValidPalActor(Companion) && Companion != Character) {
+                                ProcessPal(Companion, false, -1, true);
+                            }
+                        }
+                    }
+
+                    VFXManager::Get().PlaySwapEffect(Character, L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
+                }
+                return true;
+            }
         }
         return false; 
     }
+
+
 
     void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPersistData& persist) {
         auto total_start = std::chrono::high_resolution_clock::now();
