@@ -45,6 +45,11 @@ namespace DynPals {
                     
                     if (!MyWidget) {
                         BuildWidget();
+
+                        if (MyWidget) {
+                            struct { uint8_t InVisibility; } VisParams{ 0 };
+                            Utils::CallFunction(MyWidget, STR("SetVisibility"), &VisParams);
+                        }
                     } else {
                         // Set visibility to Visible (0)
                         struct { uint8_t InVisibility; } VisParams{ 0 };
@@ -84,8 +89,14 @@ namespace DynPals {
             RC::Unreal::UObject* OldWidget = MyWidget;
             MyWidget = nullptr; 
             
-            BuildWidget(); 
-            OnOpen(); 
+            BuildWidget();
+
+            if (MyWidget) {
+                struct { uint8_t InVisibility; } RebuildVisParams{ 0 };
+                Utils::CallFunction(MyWidget, STR("SetVisibility"), &RebuildVisParams);
+            }
+
+            OnOpen();
             
             if (OldWidget) {
                 Utils::CallFunction(OldWidget, STR("RemoveFromParent")); 

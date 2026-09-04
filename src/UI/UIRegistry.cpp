@@ -69,20 +69,6 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
     Utils::SetPropertyValue<bool>(PlayerController,
                                   STR("bEnableMouseOverEvents"), true);
 
-    struct {
-      bool bNewLookInput;
-    } LookParams{true};
-
-    Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"),
-                        &LookParams);
-
-    struct {
-      bool bNewMoveInput;
-    } MoveParams{true};
-
-    Utils::CallFunction(PlayerController, STR("SetIgnoreMoveInput"),
-                        &MoveParams);
-
     if (OpenUI && OpenUI->GetWidget()) {
       UObject* TargetFocusWidget = OpenUI->GetDesiredFocusTarget();
       if (!TargetFocusWidget) TargetFocusWidget = OpenUI->GetWidget();
@@ -92,11 +78,11 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
 
       if (WBL) {
         UFunction* InputModeFunc =
-            WBL->GetFunctionByNameInChain(STR("SetInputMode_GameAndUIEx"));
+            WBL->GetFunctionByNameInChain(STR("SetInputMode_UIOnlyEx"));
 
         if (!InputModeFunc) {
           InputModeFunc =
-              WBL->GetFunctionByNameInChain(STR("SetInputMode_GameAndUI"));
+              WBL->GetFunctionByNameInChain(STR("SetInputMode_UIOnly"));
         }
 
         if (InputModeFunc) {
@@ -104,7 +90,7 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
             UObject* TargetPlayerController;
             UObject* InWidgetToFocus;
             uint8_t InMouseLockMode;
-            bool bHideCursorDuringCapture;
+            bool bFlushInput;
           } Params{PlayerController, TargetFocusWidget, 0, false};
 
           WBL->ProcessEvent(InputModeFunc, &Params);
@@ -120,33 +106,30 @@ void UIRegistry::UpdateInputState(UObject* PlayerController) {
   }
 
   else if (!bNeedsLock && bIsInputLocked) {
-            struct { bool bNewLookInput; } LookParams{ false };
-            Utils::CallFunction(PlayerController, STR("SetIgnoreLookInput"), &LookParams);
+    Utils::SetPropertyValue<bool>(PlayerController, STR("bShowMouseCursor"), false);
+    Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableClickEvents"), false);
+    Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableMouseOverEvents"), false);
 
-            struct { bool bNewMoveInput; } MoveParams{ false };
-            Utils::CallFunction(PlayerController, STR("SetIgnoreMoveInput"), &MoveParams);
-            
-            bool bIsOpeningOtherMenu = (GetAsyncKeyState(VK_ESCAPE) & 0x8000) || 
-                                       (GetAsyncKeyState(VK_TAB) & 0x8000) || 
-                                       (GetAsyncKeyState('B') & 0x8000);
-            
-            if (!bIsOpeningOtherMenu) {
-                Utils::SetPropertyValue<bool>(PlayerController, STR("bShowMouseCursor"), false);
-                Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableClickEvents"), false);
-                Utils::SetPropertyValue<bool>(PlayerController, STR("bEnableMouseOverEvents"), false);
+    UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(
+        nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
 
-                UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
-                if (WBL) {
-                    Utils::CallFunction(WBL, STR("SetFocusToGameViewport"));
-                    UFunction* InputModeFunc = WBL->GetFunctionByNameInChain(STR("SetInputMode_GameOnly"));
-                    if (InputModeFunc) {
-                        struct { UObject* PC; bool bConsume; } InputModeParams{ PlayerController, false };
-                        WBL->ProcessEvent(InputModeFunc, &InputModeParams);
-                    }
-                }
-            }
+    if (WBL) {
+      Utils::CallFunction(WBL, STR("SetFocusToGameViewport"));
 
-            bIsInputLocked = false;
+      UFunction* InputModeFunc =
+          WBL->GetFunctionByNameInChain(STR("SetInputMode_GameOnly"));
+
+      if (InputModeFunc) {
+        struct {
+          UObject* PC;
+          bool bConsume;
+        } InputModeParams{PlayerController, false};
+
+        WBL->ProcessEvent(InputModeFunc, &InputModeParams);
+      }
+    }
+
+    bIsInputLocked = false;
   }
 }
 
