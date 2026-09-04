@@ -567,17 +567,17 @@ namespace DynPals::UI {
             if (PopupSlot) {
                 float MouseX = 0.0f;
                 float MouseY = 0.0f;
-                GetViewportMousePosition(MouseX, MouseY);
+                if (GetViewportMousePosition(MouseX, MouseY)) {
+                    PopupLeft = MouseX - 100.0f;
+                    PopupTop = MouseY - 20.0f;
+                    PopupWidth = MaxWidth;
 
-                PopupLeft = MouseX - 100.0f;
-                PopupTop = MouseY - 20.0f;
-                PopupWidth = MaxWidth;
-
-                DynPals::CanvasSlotBuilder SlotBuilder(PopupSlot);
-                SlotBuilder.Anchors(0.0, 0.0, 0.0, 0.0)
-                           .Alignment(0.0, 0.0)
-                           .Offsets(PopupLeft, PopupTop, PopupWidth, PopupHeight)
-                           .AutoSize(false);
+                    DynPals::CanvasSlotBuilder SlotBuilder(PopupSlot);
+                    SlotBuilder.Anchors(0.0, 0.0, 0.0, 0.0)
+                               .Alignment(0.0, 0.0)
+                               .Offsets(PopupLeft, PopupTop, PopupWidth, PopupHeight)
+                               .AutoSize(false);
+                }
             }
 
             bWasMouseDown = true;
