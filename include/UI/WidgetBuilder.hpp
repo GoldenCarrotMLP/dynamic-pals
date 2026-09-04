@@ -20,6 +20,7 @@ namespace DynPals {
     enum class EBuilderHorizontalAlignment : uint8_t { HAlign_Fill, HAlign_Left, HAlign_Center, HAlign_Right };
     enum class EBuilderVerticalAlignment : uint8_t { VAlign_Fill, VAlign_Top, VAlign_Center, VAlign_Bottom };
     enum class EBuilderStretch : uint8_t { None, Fill, ScaleToFit, ScaleToFitX, ScaleToFitY, ScaleToFill, ScaleBySafeZone, UserSpecified };
+    enum class EBuilderSlateVisibility : uint8_t { Visible, Collapsed, Hidden, HitTestInvisible, SelfHitTestInvisible };
 
     // ==========================================
     // SLOT BUILDERS
@@ -165,6 +166,12 @@ namespace DynPals {
         WidgetBuilder& AddChild(const WidgetBuilder& Child) {
             struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } Params{Child.Build(), nullptr};
             Utils::CallFunction(Widget, STR("AddChild"), &Params);
+            return *this;
+        }
+
+        WidgetBuilder& Visibility(EBuilderSlateVisibility InVisibility) {
+            struct { EBuilderSlateVisibility InVisibility; } Params{InVisibility};
+            Utils::CallFunction(Widget, STR("SetVisibility"), &Params);
             return *this;
         }
 

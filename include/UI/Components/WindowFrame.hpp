@@ -50,6 +50,19 @@ namespace DynPals::UI {
 
         RC::Unreal::UObject* Build(double AnchorMinX = 0.5, double AnchorMinY = 0.5, double AnchorMaxX = 0.5, double AnchorMaxY = 0.5, double AlignX = 0.5, double AlignY = 0.5) {
             auto RootCanvas = DynPals::UI::Canvas(MyOuter)
+                .Visibility(DynPals::EBuilderSlateVisibility::Visible)
+                .AddToCanvas(
+                    DynPals::UI::Border(MyOuter)
+                        .ImageFromAsset(DynPals::UI::Assets::Borders::WhiteSolid)
+                        .BrushColor({0.0f, 0.0f, 0.0f, 0.0f})
+                        .Visibility(DynPals::EBuilderSlateVisibility::Visible),
+                    [](DynPals::CanvasSlotBuilder& Slot) {
+                        Slot.Anchors(0.0, 0.0, 1.0, 1.0)
+                            .Alignment(0.0, 0.0)
+                            .Offsets(0.0f, 0.0f, 0.0f, 0.0f)
+                            .AutoSize(false);
+                    }
+                )
                 .AddToCanvas(
                     DynPals::UI::Window(MyOuter).PackWindowContent(FrameSizeBox),
                     [=](DynPals::CanvasSlotBuilder& Slot) {
