@@ -28,6 +28,12 @@ namespace DynPals::UI {
             return *this;
         }
 
+        bool IsHovered() const {
+            if (IsWidgetHovered(Widget)) return true;
+            if (EvaluatedTargetBtn != Widget && IsWidgetHovered(EvaluatedTargetBtn)) return true;
+            return false;
+        }
+
         void Tick() {
             if (!Widget) return;
             bool isPressed = IsWidgetPressed();
@@ -65,6 +71,13 @@ namespace DynPals::UI {
             if (EvaluatedTargetBtn) {
                 IsPressedFunc = EvaluatedTargetBtn->GetFunctionByNameInChain(STR("IsPressed"));
             }
+        }
+
+        static bool IsWidgetHovered(RC::Unreal::UObject* InWidget) {
+            if (!InWidget) return false;
+            struct { bool RetVal; } Params{false};
+            Utils::CallFunction(InWidget, STR("IsHovered"), &Params);
+            return Params.RetVal;
         }
 
         bool IsWidgetPressed() const {
