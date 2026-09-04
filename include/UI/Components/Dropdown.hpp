@@ -104,6 +104,7 @@ namespace DynPals::UI {
             if (OuterContext != Outer) {
                 ClosePopup();
                 PopupOverlay = nullptr;
+                PopupSlot = nullptr;
                 ScrollBoxList = nullptr;
                 bNeedsListRebuild = true;
                 OuterContext = Outer;
@@ -134,6 +135,10 @@ namespace DynPals::UI {
 
         void Tick() {
             if (MainButtonCtrl) MainButtonCtrl->Tick();
+
+            if (bIsPopupOpen) {
+                TickOutsideClick();
+            }
 
             if (bIsPopupOpen) {
                 if (m_bIsBuildingListAsync) {
@@ -188,6 +193,11 @@ namespace DynPals::UI {
         // Async Time-slicing state & Profiling
         bool m_bIsBuildingListAsync = false;
         bool m_bWaitingForCooldown = false;
+        bool bWasMouseDown = false;
+        float PopupLeft = 0.0f;
+        float PopupTop = 0.0f;
+        float PopupWidth = 0.0f;
+        float PopupHeight = 450.0f;
         size_t m_BuildIndex = 0;
         int m_HeaderUsedIndex = 0;
         int m_ButtonUsedIndex = 0;
@@ -199,6 +209,7 @@ namespace DynPals::UI {
 
         std::unique_ptr<class DynPals::UI::Button> MainButtonCtrl = nullptr;
         RC::Unreal::UObject* PopupOverlay = nullptr;
+        RC::Unreal::UObject* PopupSlot = nullptr;
         RC::Unreal::UObject* ScrollBoxList = nullptr;
         RC::Unreal::UObject* TargetWidget = nullptr;
         RC::Unreal::UObject* DropdownTrashBin = nullptr;
@@ -206,6 +217,43 @@ namespace DynPals::UI {
         std::vector<PooledHeader> HeaderPool;
         std::vector<PooledButton> ButtonPool;
         std::vector<std::unique_ptr<class DynPals::UI::Button>> AllButtonCtrls;
+
+        bool GetViewportMousePosition(float& OutX, float& OutY) const {
+            RC::Unreal::UObject* WLL = RC::Unreal::UObjectGlobals::StaticFindObject<RC::Unreal::UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetLayoutLibrary"));
+            RC::Unreal::UFunction* GetMouseFunc = WLL ? WLL->GetFunctionByNameInChain(STR("GetMousePositionOnViewport")) : nullptr;
+            if (!WLL || !GetMouseFunc) return false;
+
+            struct FVector2D_Double { double X; double Y; };
+            struct { RC::Unreal::UObject* WorldContextObject; FVector2D_Double ReturnValue; } MouseParams{ PlayerController, {0.0, 0.0} };
+            WLL->ProcessEvent(GetMouseFunc, &MouseParams);
+
+            OutX = static_cast<float>(MouseParams.ReturnValue.X);
+            OutY = static_cast<float>(MouseParams.ReturnValue.Y);
+            return true;
+        }
+
+        void TickOutsideClick() {
+            bool bMouseDown = Utils::IsGameWindowFocused() && ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0);
+
+            if (!bMouseDown) {
+                bWasMouseDown = false;
+                return;
+            }
+
+            if (bWasMouseDown) return;
+            bWasMouseDown = true;
+
+            if (MainButtonCtrl && MainButtonCtrl->IsHovered()) return;
+
+            float MouseX = 0.0f;
+            float MouseY = 0.0f;
+            if (!GetViewportMousePosition(MouseX, MouseY)) return;
+
+            if (MouseX < PopupLeft || MouseX > PopupLeft + PopupWidth ||
+                MouseY < PopupTop || MouseY > PopupTop + PopupHeight) {
+                ClosePopup();
+            }
+        }
 
         void UpdateMainButtonText() {
             if (!MainButtonCtrl) return;
@@ -474,14 +522,12 @@ namespace DynPals::UI {
             auto popup_start = std::chrono::steady_clock::now();
 
             if (!PopupOverlay) {
-                float ComputedHeight = 450.0f;
-                
                 auto ScrollBoxBuilder = DynPals::UI::ScrollBox(OuterContext);
                 ScrollBoxList = ScrollBoxBuilder.Build();
 
                 auto DropdownBuilder = DynPals::UI::SizeBox(OuterContext)
                     .WidthOverride(MaxWidth)
-                    .HeightOverride(ComputedHeight)
+                    .HeightOverride(PopupHeight)
                     .AddChild(
                         DynPals::UI::Border(OuterContext)
                             .ImageFromAsset(DynPals::UI::Assets::Borders::Frame1px)
@@ -506,35 +552,35 @@ namespace DynPals::UI {
                 if (RootCanvas) {
                     struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{PopupOverlay, nullptr};
                     Utils::CallFunction(RootCanvas, STR("AddChild"), &AddParams);
+                    PopupSlot = AddParams.ReturnValue;
 
-                    if (AddParams.ReturnValue) {
-                        RC::Unreal::UObject* WLL = RC::Unreal::UObjectGlobals::StaticFindObject<RC::Unreal::UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetLayoutLibrary"));
-                        RC::Unreal::UFunction* GetMouseFunc = WLL ? WLL->GetFunctionByNameInChain(STR("GetMousePositionOnViewport")) : nullptr;
-                        
-                        struct FVector2D_Double { double X; double Y; };
-                        struct { RC::Unreal::UObject* WorldContextObject; FVector2D_Double ReturnValue; } MouseParams{ PlayerController, {0.0, 0.0} };
-
-                        if (WLL && GetMouseFunc) {
-                            WLL->ProcessEvent(GetMouseFunc, &MouseParams);
-                        }
-
-                        float FinalLeft = static_cast<float>(MouseParams.ReturnValue.X) - 100.0f;
-                        float FinalTop = static_cast<float>(MouseParams.ReturnValue.Y) - 20.0f;
-
-                        DynPals::CanvasSlotBuilder SlotBuilder(AddParams.ReturnValue);
-                        SlotBuilder.Anchors(0.0, 0.0, 0.0, 0.0)
-                                   .Alignment(0.0, 0.0)
-                                   .Offsets(FinalLeft, FinalTop, MaxWidth, ComputedHeight) 
-                                   .AutoSize(false);
-                        
+                    if (PopupSlot) {
                         struct { int32_t ZOrder; } ZParams{99};
-                        Utils::CallFunction(AddParams.ReturnValue, STR("SetZOrder"), &ZParams);
+                        Utils::CallFunction(PopupSlot, STR("SetZOrder"), &ZParams);
                     }
                 }
             } else {
                 struct { float W; } Params{MaxWidth};
                 Utils::CallFunction(PopupOverlay, STR("SetWidthOverride"), &Params);
             }
+
+            if (PopupSlot) {
+                float MouseX = 0.0f;
+                float MouseY = 0.0f;
+                if (GetViewportMousePosition(MouseX, MouseY)) {
+                    PopupLeft = MouseX - 100.0f;
+                    PopupTop = MouseY - 20.0f;
+                    PopupWidth = MaxWidth;
+
+                    DynPals::CanvasSlotBuilder SlotBuilder(PopupSlot);
+                    SlotBuilder.Anchors(0.0, 0.0, 0.0, 0.0)
+                               .Alignment(0.0, 0.0)
+                               .Offsets(PopupLeft, PopupTop, PopupWidth, PopupHeight)
+                               .AutoSize(false);
+                }
+            }
+
+            bWasMouseDown = true;
 
             if (bNeedsListRebuild) RebuildList();
             

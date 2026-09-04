@@ -314,6 +314,8 @@ namespace DynPals {
     }
 
     void UIManager::OnClose() {
+        if (SkinDropdown) SkinDropdown->ClosePopup();
+
         TargetPal = nullptr;
         TargetInstanceID = L"";
         TargetCharID = L"";
