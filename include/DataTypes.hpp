@@ -115,12 +115,24 @@ struct PalPersistData {
     std::map<std::string, std::wstring> MatSet;
     std::map<std::string, FLinearColor_UE5> MatColorSet;
     bool bIsManuallyLocked = false;
-    double SizeMultiplier = -1.0; // Added persistent size tracking
+    double SizeMultiplier = -1.0;
     
+    // Returns true if this Pal has a modded mesh or skin applied
     bool HasSavedSwap() const {
         return !SkelMeshPath.empty() || !SkinName.empty();
     }
+
+    // Returns true if the user explicitly locked this Pal to Vanilla
+    bool IsVanillaLocked() const {
+        return bIsManuallyLocked && !HasSavedSwap();
+    }
+
+    // Determines if this record should be persisted to disk
+    bool ShouldSave() const {
+        return HasSavedSwap() || bIsManuallyLocked || (SizeMultiplier > 0.0 && std::abs(SizeMultiplier - 1.0) > 0.005);
+    }
 };
+
 
 struct AltrSoftObjectPath {
     RC::Unreal::FName PackageName;
@@ -145,7 +157,11 @@ struct AltrSoftObjectPtr {
 struct FVector_UE5 {
     double X, Y, Z;
 };
-
+struct FRotator_UE5 {
+    double Pitch;
+    double Yaw;
+    double Roll;
+};
 namespace DynPals {
     enum class EPalLogPriority : uint8_t { 
         None = 0, Normal = 1, Important = 2, VeryImportant = 3 

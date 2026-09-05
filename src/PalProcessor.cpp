@@ -1293,10 +1293,20 @@ namespace DynPals {
 
         std::wstring CharID = StripCharacterPrefix(RawCharID);
 
+        // --- PLACE THE CHECK HERE (After CharID is declared) ---
+        if (!ForceReroll && ExplicitSwapIndex == -1) {
+            if (ExistingData && ExistingData->IsVanillaLocked()) {
+                DP_LOG(Verbose, "[PalProcessor] Pal '{}' (ID: '{}') is locked to Vanilla. Skipping swap.", CharID, id.InstanceID);
+                return false;
+            }
+        }
+        // -------------------------------------------------------
+
         PalRuntimeStats stats = RetrievePalStats(id.IndivParam, RawCharID, id.InstanceID, true);
         int LevelNum = stats.Level;
         int RankNum = stats.Rank;
         int FriendshipNum = stats.Friendship;
+
 
         struct { UObject* Actor; bool RetVal; } WildParams{Character, false};
         if (GCachedProps.IsWildNPCFunc) Utils::SafeProcessEvent(PalUtil, GCachedProps.IsWildNPCFunc, &WildParams);
@@ -1889,9 +1899,13 @@ namespace DynPals {
 
         PalPersistData newData;
         newData.InstanceID = id.InstanceID;
-        newData.bIsManuallyLocked = true;
+        newData.bIsManuallyLocked = true; // Locks to Vanilla
+        newData.SwapLabel = L"Vanilla";
+        newData.PackName = L"";
+        newData.SkinName = L"";
+        newData.SkelMeshPath = L"";
         newData.SizeMultiplier = 1.0;
-        SaveManager::Get().SetPersistData(id.InstanceID, newData, true);
+        SaveManager::Get().SetPersistData(id.InstanceID, newData, true); // Writes to disk
 
         SwappedInstances.erase(Character);
         std::vector<UObject*> palSet = GetLinkedPals(Character);
@@ -1899,6 +1913,14 @@ namespace DynPals {
         for (UObject* TargetPalObj : palSet) {
             if (!IsValidPalActor(TargetPalObj)) continue;
             SwappedInstances.erase(TargetPalObj);
+
+            // Also persist vanilla lock for linked companions (e.g. Funnels)
+            FPalIdentity compId = ResolvePalIdentity(TargetPalObj);
+            if (compId.bIsValid && compId.InstanceID != id.InstanceID) {
+                PalPersistData compData = newData;
+                compData.InstanceID = compId.InstanceID;
+                SaveManager::Get().SetPersistData(compId.InstanceID, compData, true);
+            }
 
             std::wstring BPName;
             if (!IsPalBlueprintValid(TargetPalObj, BPName)) continue;
@@ -1922,7 +1944,6 @@ namespace DynPals {
             meshParams.bReinitPose = true;
 
             ApplyMeshAndAnim(meshParams, true);
-
             ClearMaterialOverrides(MeshComp);
 
             for (const auto& [morphName, _] : MorphsToZero) {
@@ -1943,4 +1964,5 @@ namespace DynPals {
         VFXManager::Get().PlaySwapEffect(Character, L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
         DP_LOG(Default, "[PalProcessor] Successfully reset Pal '{}' (ID: '{}') to Vanilla and locked.", Character->GetName(), id.InstanceID);
     }
+
 }

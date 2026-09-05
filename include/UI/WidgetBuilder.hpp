@@ -466,6 +466,14 @@ namespace DynPals {
             return *this;
         }
 
+        // --- ADD THIS METHOD ---
+        WidgetBuilder& UserSpecifiedScale(float Scale) {
+            struct { float InUserSpecifiedScale; } Params{Scale};
+            Utils::CallFunction(Widget, STR("SetUserSpecifiedScale"), &Params);
+            Utils::SetPropertyValue<float>(Widget, STR("UserSpecifiedScale"), Scale);
+            return *this;
+        }
+
         WidgetBuilder& SetupSlider(double Value, double Min, double Max) {
             struct { double V; double M; double Mx; } Params{Value, Min, Max};
             Utils::CallFunction(Widget, STR("SetValue"), &Params);
@@ -540,6 +548,15 @@ namespace DynPals {
         inline DynPals::WidgetBuilder OptionLR(RC::Unreal::UObject* Outer) { return DynPals::WidgetBuilder(DynPals::UI::Assets::Blueprints::OptionLR, Outer); }
         inline DynPals::WidgetBuilder OptionSwitch(RC::Unreal::UObject* Outer) { return DynPals::WidgetBuilder(DynPals::UI::Assets::Blueprints::OptionSwitch, Outer); }
 
+       
+        
+        inline DynPals::WidgetBuilder Scaled(RC::Unreal::UObject* Outer, const DynPals::WidgetBuilder& Content, float ScaleRatio) {
+            return DynPals::UI::ScaleBox(Outer)
+                .Stretch(DynPals::EBuilderStretch::UserSpecified)
+                .UserSpecifiedScale(ScaleRatio)
+                .AddChild(Content);
+        }
+        
         inline void SetFontData(RC::Unreal::UObject* Widget, int32_t Size, const FLinearColor_UE5& OutlineCol) {
             RC::Unreal::FProperty* FontProp = Utils::GetProperty(Widget, STR("Font"));
             if (FontProp) {
@@ -569,5 +586,6 @@ namespace DynPals {
             struct { FLinearColor_UE5 InColorAndOpacity; } Params{Col};
             Utils::CallFunction(Widget, STR("SetColorAndOpacity"), &Params);
         }
+        
     }
 }

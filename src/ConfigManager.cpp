@@ -278,7 +278,7 @@ namespace DynPals {
                                         std::string keyName = parsed.get<std::string>();
                                         if (keysAtDepth[depth].count(keyName)) {
                                             std::wstring wKey = Utils::StringToWString(keyName);
-                                            DP_LOG(Error, "JSON DUPLICATE KEY ERROR in '{}': Key '{}' appears multiple times in the same block! The parser will OVERWRITE the first one. Please ensure all your skin labels/keys are uniquely named.", currentFilename, wKey);
+                                            DP_LOG(Verbose, "JSON DUPLICATE KEY ERROR in '{}': Key '{}' appears multiple times in the same block! The parser will OVERWRITE the first one. Please ensure all your skin labels/keys are uniquely named.", currentFilename, wKey);
                                         } else {
                                             keysAtDepth[depth].insert(keyName);
                                         }

@@ -11,6 +11,7 @@ namespace DynPals {
     struct DynPalsSettings {
         bool bFocusPal = true;
         double CameraRotation = 180.0;
+        bool bRelativeCamera = true;
     };
 
     class SaveManager {

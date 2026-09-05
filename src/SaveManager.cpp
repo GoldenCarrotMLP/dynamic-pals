@@ -78,6 +78,7 @@ namespace DynPals {
             } else {
                 Settings.bFocusPal = true;
                 Settings.CameraRotation = 180.0;
+                Settings.bRelativeCamera = true;
             }
 
             if (data.contains("PersistencePals") && data.at("PersistencePals").is_object()) {
@@ -134,6 +135,7 @@ namespace DynPals {
         nlohmann::ordered_json settingsObj;
         settingsObj["FocusPal"] = Settings.bFocusPal;
         settingsObj["CameraRotation"] = Settings.CameraRotation;
+        settingsObj["RelativeCamera"] = Settings.bRelativeCamera;
         out["Settings"] = settingsObj;
         
         nlohmann::ordered_json palsObj;
@@ -142,7 +144,7 @@ namespace DynPals {
             auto it = PersistedSwaps.find(id);
             if (it != PersistedSwaps.end()) {
                 auto& data = it->second;
-                if (!data.HasSavedSwap()) continue;
+                if (!data.ShouldSave()) continue; // <--- Changed from HasSavedSwap()
 
                 nlohmann::ordered_json palNode;
                 palNode["PackName"] = Utils::WStringToString(data.PackName);

@@ -45,10 +45,14 @@ namespace DynPals {
         void UpdateTarget();
         void RefreshUI();
         
+        // --- Consolidated Helpers ---
+        RC::Unreal::UObject* GetCameraBoom(RC::Unreal::UObject* Pal);
+        void CacheScrollOffset();
+
         // --- Camera Helper Methods ---
         void EnablePalCamera();
         void DisablePalCamera();
-        void UpdatePalCameraRotation(double Yaw);
+        void UpdatePalCameraRotation(double Yaw, bool bTeleport = false);
 
         // State Tracking
         bool bHideInvalidSwaps = true; 
@@ -70,6 +74,7 @@ namespace DynPals {
         
         // UI Elements
         std::unique_ptr<class DynPals::UI::Switch> FocusPalSwitch;
+        std::unique_ptr<class DynPals::UI::Switch> RelativeCameraSwitch;
         std::unique_ptr<class DynPals::UI::Slider> CameraRotationSlider;
         std::unique_ptr<class DynPals::UI::Slider> SizeSlider; // <--- Size Slider Controller
 

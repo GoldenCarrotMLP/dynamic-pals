@@ -1,4 +1,3 @@
-// --- START OF FILE src/UI/views/UIManager.cpp ---
 #define NOMINMAX 
 #include <Windows.h>
 
@@ -21,6 +20,88 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
+    // Set to true for smooth camera interpolation; set to false for instant snapping
+    static constexpr bool bEnableCameraSmoothing = false;
+
+    // Helper: Strips any 8-character hexadecimal fallback hash like " (41BCA68A)" from labels
+    static std::wstring StripFallbackHash(std::wstring str) {
+        size_t openPos = 0;
+        while ((openPos = str.find(L" (", openPos)) != std::wstring::npos) {
+            if (openPos + 10 < str.length() && str[openPos + 10] == L')') {
+                bool isHex = true;
+                for (size_t k = openPos + 2; k < openPos + 10; ++k) {
+                    if (!std::iswxdigit(str[k])) {
+                        isHex = false;
+                        break;
+                    }
+                }
+                if (isHex) {
+                    str.erase(openPos, 11);
+                    continue;
+                }
+            }
+            openPos += 2;
+        }
+        return str;
+    }
+
+    // Helper: Safely updates USceneComponent rotation using native reflection functions
+    static void SetComponentRotationDirect(RC::Unreal::UObject* Comp, const FRotator_UE5& Rot, bool bWorldSpace, bool bTeleport = false) {
+        if (!Comp || !Utils::IsObjectValid(Comp)) return;
+
+        const wchar_t* FuncName = bWorldSpace ? STR("K2_SetWorldRotation") : STR("K2_SetRelativeRotation");
+        RC::Unreal::UFunction* Func = Comp->GetFunctionByNameInChain(FuncName);
+        if (!Func) return;
+
+        alignas(8) uint8_t Buffer[512] = {0};
+        for (RC::Unreal::FProperty* Prop = (RC::Unreal::FProperty*)Func->GetChildProperties(); Prop; Prop = (RC::Unreal::FProperty*)Utils::GetNextField(Prop)) {
+            Prop->InitializeValue_InContainer(Buffer);
+        }
+
+        RC::Unreal::FProperty* RotProp = Func->GetPropertyByNameInChain(STR("NewRotation"));
+        if (RotProp) {
+            *RotProp->ContainerPtrToValuePtr<FRotator_UE5>(Buffer) = Rot;
+        }
+
+        RC::Unreal::FProperty* TeleportProp = Func->GetPropertyByNameInChain(STR("bTeleport"));
+        if (TeleportProp && TeleportProp->GetClass().GetName() == STR("BoolProperty")) {
+            static_cast<RC::Unreal::FBoolProperty*>(TeleportProp)->SetPropertyValue(TeleportProp->ContainerPtrToValuePtr<void>(Buffer), bTeleport);
+        }
+
+        Utils::SafeProcessEvent(Comp, Func, Buffer);
+
+        for (RC::Unreal::FProperty* Prop = (RC::Unreal::FProperty*)Func->GetChildProperties(); Prop; Prop = (RC::Unreal::FProperty*)Utils::GetNextField(Prop)) {
+            Prop->DestroyValue_InContainer(Buffer);
+        }
+    }
+
+    // --- CONSOLIDATED CAMERA BOOM RESOLVER ---
+    RC::Unreal::UObject* UIManager::GetCameraBoom(RC::Unreal::UObject* Pal) {
+        if (!Pal || !Utils::IsObjectValid(Pal)) return nullptr;
+
+        UObject* CameraBoomObj = nullptr;
+        if (Utils::GetPropertyValue<UObject*>(Pal, STR("CameraBoom"), CameraBoomObj, true) && CameraBoomObj) {
+            return CameraBoomObj;
+        }
+
+        UClass* SpringArmClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Engine.SpringArmComponent"));
+        if (SpringArmClass) {
+            struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{SpringArmClass, nullptr};
+            Utils::CallFunction(Pal, STR("GetComponentByClass"), &GetCompParams, true);
+            return GetCompParams.ReturnValue;
+        }
+        return nullptr;
+    }
+
+    // --- CONSOLIDATED SCROLL OFFSET CACHER ---
+    void UIManager::CacheScrollOffset() {
+        if (MainScrollBoxObj && GetScrollOffsetFunc) {
+            struct { float Offset; } Params{ 0.0f };
+            MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
+            LastScrollOffset = Params.Offset;
+        }
+    }
+
     void UIManager::EnablePalCamera() {
         if (!CurrentPlayerController || !TargetPal || bIsPalCameraActive) return;
 
@@ -28,11 +109,9 @@ namespace DynPals {
             OriginalViewTarget = nullptr;
         }
 
-        // 1. Locate and Force-Activate the Pal's FollowCamera Component
+        // 1. Locate and Force-Activate FollowCamera
         UObject* FollowCameraObj = nullptr;
-        bool bCamDirectFound = Utils::GetPropertyValue<UObject*>(TargetPal, STR("FollowCamera"), FollowCameraObj, true);
-        
-        if (!bCamDirectFound || !FollowCameraObj) {
+        if (!Utils::GetPropertyValue<UObject*>(TargetPal, STR("FollowCamera"), FollowCameraObj, true) || !FollowCameraObj) {
             UClass* CameraClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Engine.CameraComponent"));
             if (CameraClass) {
                 struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{CameraClass, nullptr};
@@ -47,30 +126,24 @@ namespace DynPals {
             Utils::CallFunction(FollowCameraObj, STR("Activate"), &ActParams, true);
         }
 
-        // 2. Customize the CameraBoom (SpringArm) of the Pal
-        UObject* CameraBoomObj = nullptr;
-        bool bDirectFound = Utils::GetPropertyValue<UObject*>(TargetPal, STR("CameraBoom"), CameraBoomObj, true);
-        
-        if (!bDirectFound || !CameraBoomObj) {
-            UClass* SpringArmClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Engine.SpringArmComponent"));
-            if (SpringArmClass) {
-                struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{SpringArmClass, nullptr};
-                Utils::CallFunction(TargetPal, STR("GetComponentByClass"), &GetCompParams, true);
-                CameraBoomObj = GetCompParams.ReturnValue;
-            }
-        }
-
+        // 2. Configure CameraBoom
+        UObject* CameraBoomObj = GetCameraBoom(TargetPal);
         if (CameraBoomObj) {
             Utils::SetPropertyValue<float>(CameraBoomObj, STR("TargetArmLength"), 2000.0f);
             Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bUsePawnControlRotation"), false);
             Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bDoCollisionTest"), false); 
-            
-            struct FRotator_UE5 { double Pitch, Yaw, Roll; };
-            FRotator_UE5 FrontRot{ 0.0, SaveManager::Get().Settings.CameraRotation, 0.0 };
-            Utils::SetPropertyValue<FRotator_UE5>(CameraBoomObj, STR("RelativeRotation"), FrontRot);
+
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bEnableCameraLag"), bEnableCameraSmoothing);
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bEnableCameraRotationLag"), bEnableCameraSmoothing);
+            if constexpr (bEnableCameraSmoothing) {
+                Utils::SetPropertyValue<float>(CameraBoomObj, STR("CameraLagSpeed"), 10.0f);
+                Utils::SetPropertyValue<float>(CameraBoomObj, STR("CameraRotationLagSpeed"), 15.0f);
+            }
+
+            UpdatePalCameraRotation(SaveManager::Get().Settings.CameraRotation, true);
         }
 
-        // 3. Switch to Pal's camera via SetViewTargetWithBlend
+        // 3. Blend view target
         UFunction* SetViewTargetFunc = CurrentPlayerController->GetFunctionByNameInChain(STR("SetViewTargetWithBlend"));
         if (SetViewTargetFunc) {
             alignas(8) uint8_t SetViewParams[128] = {0};
@@ -88,6 +161,18 @@ namespace DynPals {
             OriginalViewTarget = nullptr;
         }
 
+        // Restore CameraBoom settings
+        UObject* CameraBoomObj = GetCameraBoom(TargetPal);
+        if (CameraBoomObj) {
+            UFunction* SetAbsFunc = CameraBoomObj->GetFunctionByNameInChain(STR("SetAbsolute"));
+            if (SetAbsFunc) {
+                struct { bool bNewAbsoluteLocation; bool bNewAbsoluteRotation; bool bNewAbsoluteScale; } AbsParams{ false, false, false };
+                Utils::SafeProcessEvent(CameraBoomObj, SetAbsFunc, &AbsParams);
+            }
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bInheritYaw"), true);
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bDoCollisionTest"), true);
+        }
+
         UFunction* SetViewTargetFunc = CurrentPlayerController->GetFunctionByNameInChain(STR("SetViewTargetWithBlend"));
         if (SetViewTargetFunc) {
             alignas(8) uint8_t Params[128] = {0};
@@ -101,25 +186,22 @@ namespace DynPals {
         bIsPalCameraActive = false;
     }
 
-    void UIManager::UpdatePalCameraRotation(double Yaw) {
-        if (!TargetPal) return;
-        
-        UObject* CameraBoomObj = nullptr;
-        bool bDirectFound = Utils::GetPropertyValue<UObject*>(TargetPal, STR("CameraBoom"), CameraBoomObj, true);
-        
-        if (!bDirectFound || !CameraBoomObj) {
-            UClass* SpringArmClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Engine.SpringArmComponent"));
-            if (SpringArmClass) {
-                struct { UClass* ComponentClass; UObject* ReturnValue; } GetCompParams{SpringArmClass, nullptr};
-                Utils::CallFunction(TargetPal, STR("GetComponentByClass"), &GetCompParams, true);
-                CameraBoomObj = GetCompParams.ReturnValue;
-            }
-        }
+    void UIManager::UpdatePalCameraRotation(double Yaw, bool bTeleport) {
+        UObject* CameraBoomObj = GetCameraBoom(TargetPal);
+        if (CameraBoomObj && Utils::IsObjectValid(CameraBoomObj)) {
+            bool bRelative = SaveManager::Get().Settings.bRelativeCamera;
 
-        if (CameraBoomObj) {
-            struct FRotator_UE5 { double Pitch, Yaw, Roll; };
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bInheritYaw"), bRelative);
+
+            UFunction* SetAbsFunc = CameraBoomObj->GetFunctionByNameInChain(STR("SetAbsolute"));
+            if (SetAbsFunc) {
+                struct { bool bNewAbsoluteLocation; bool bNewAbsoluteRotation; bool bNewAbsoluteScale; } AbsParams{ false, !bRelative, false };
+                Utils::SafeProcessEvent(CameraBoomObj, SetAbsFunc, &AbsParams);
+            }
+
+            bool bEffectiveTeleport = bTeleport || !bEnableCameraSmoothing;
             FRotator_UE5 NewRot{ 0.0, Yaw, 0.0 };
-            Utils::SetPropertyValue<FRotator_UE5>(CameraBoomObj, STR("RelativeRotation"), NewRot);
+            SetComponentRotationDirect(CameraBoomObj, NewRot, !bRelative, bEffectiveTeleport);
         }
     }
 
@@ -134,7 +216,6 @@ namespace DynPals {
         Utils::CallFunction(CurrentPlayerController, STR("K2_GetPawn"), &PlayerPawn);
         if (!PlayerPawn) return;
 
-        struct FRotator_UE5 { double Pitch, Yaw, Roll; };
         struct { FVector_UE5 Location; FRotator_UE5 Rotation; } ViewPointParams;
         Utils::CallFunction(CurrentPlayerController, STR("GetPlayerViewPoint"), &ViewPointParams);
         
@@ -145,10 +226,11 @@ namespace DynPals {
         double YawRad = CameraRot.Yaw * 0.01745329251;
         double CosPitch = std::cos(PitchRad);
 
-        FVector_UE5 CameraForward;
-        CameraForward.X = std::cos(YawRad) * CosPitch;
-        CameraForward.Y = std::sin(YawRad) * CosPitch;
-        CameraForward.Z = std::sin(PitchRad);
+        FVector_UE5 CameraForward{
+            std::cos(YawRad) * CosPitch,
+            std::sin(YawRad) * CosPitch,
+            std::sin(PitchRad)
+        };
 
         std::vector<UObject*> AllPals;
         UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
@@ -161,39 +243,29 @@ namespace DynPals {
         for (UObject* Pal : AllPals) {
             if (Pal == PlayerPawn || !Utils::IsObjectValid(Pal)) continue;
 
-            // STRICT FILTER: Ignore invisible or dying Pals!
             bool bHidden = false;
             Utils::GetPropertyValue<bool>(Pal, STR("bHidden"), bHidden, true);
             bool bBeingDestroyed = false;
             Utils::GetPropertyValue<bool>(Pal, STR("bActorIsBeingDestroyed"), bBeingDestroyed, true);
 
-            if (bHidden || bBeingDestroyed) {
-                continue;
-            }
+            if (bHidden || bBeingDestroyed) continue;
 
-            FVector_UE5 PalLoc{ 0.0, 0.0, 0.0 };
             struct { FVector_UE5 RetVal; } PalLocParams;
             Utils::CallFunction(Pal, STR("K2_GetActorLocation"), &PalLocParams);
-            PalLoc = PalLocParams.RetVal;
+            FVector_UE5 PalLoc = PalLocParams.RetVal;
 
-            FVector_UE5 Dir;
-            Dir.X = PalLoc.X - CameraLoc.X;
-            Dir.Y = PalLoc.Y - CameraLoc.Y;
-            Dir.Z = PalLoc.Z - CameraLoc.Z;
-
+            FVector_UE5 Dir{ PalLoc.X - CameraLoc.X, PalLoc.Y - CameraLoc.Y, PalLoc.Z - CameraLoc.Z };
             double distSq = (Dir.X * Dir.X) + (Dir.Y * Dir.Y) + (Dir.Z * Dir.Z);
             double dist = std::sqrt(distSq);
 
             if (dist > 5000.0) continue;
 
-            FVector_UE5 DirNorm = { Dir.X / dist, Dir.Y / dist, Dir.Z / dist };
+            FVector_UE5 DirNorm{ Dir.X / dist, Dir.Y / dist, Dir.Z / dist };
             double dot = CameraForward.X * DirNorm.X + CameraForward.Y * DirNorm.Y + CameraForward.Z * DirNorm.Z;
 
-            if (dot >= 0.80) {
-                if (dot > highestDot) {
-                    highestDot = dot;
-                    aimedPal = Pal;
-                }
+            if (dot >= 0.80 && dot > highestDot) {
+                highestDot = dot;
+                aimedPal = Pal;
             }
 
             if (distSq < closestDistSq) {
@@ -205,11 +277,6 @@ namespace DynPals {
         TargetPal = aimedPal ? aimedPal : closestPal;
 
         if (TargetPal) {
-            bool bIsHidden = false;
-            Utils::GetPropertyValue<bool>(TargetPal, STR("bHidden"), bIsHidden, true);
-            std::wstring targetName = TargetPal->GetName();
-            DP_LOG(Default, "[UIManager] Alt+N Targeted Pal: {} | bHidden: {}", targetName, bIsHidden ? L"True" : L"False");
-
             UObject* ParamComp = nullptr;
             Utils::GetPropertyValue(TargetPal, STR("CharacterParameterComponent"), ParamComp);
             if (!ParamComp) return;
@@ -227,11 +294,8 @@ namespace DynPals {
             struct { UObject* Char; FName RetVal; } CharIDParams{TargetPal, FName()};
             if (PalUtil) Utils::CallFunction(PalUtil, STR("GetCharacterIDFromCharacter"), &CharIDParams);
             TargetCharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams.RetVal.ToString());
-        } else {
-            DP_LOG(Default, "[UIManager] Alt+N Targeted Pal: NONE (No valid visible Pals in range)");
         }
     }
-
 
     bool UIManager::OnSetup() {
         UpdateTarget();
@@ -246,7 +310,6 @@ namespace DynPals {
             return false; 
         }
 
-        // 1. Store original view target safely via Reflection
         RC::Unreal::UFunction* GetViewTargetFunc = CurrentPlayerController->GetFunctionByNameInChain(STR("GetViewTarget")); 
         if (GetViewTargetFunc) {
             alignas(8) uint8_t Params[32] = {0};
@@ -255,7 +318,6 @@ namespace DynPals {
             if (RetProp) OriginalViewTarget = *RetProp->ContainerPtrToValuePtr<UObject*>(Params);
         }
 
-        // Fallback to Pawn if GetViewTarget failed
         if (!OriginalViewTarget) {
             struct { RC::Unreal::UObject* ReturnValue; } GetPawnParams{nullptr};
             Utils::CallFunction(CurrentPlayerController, STR("K2_GetPawn"), &GetPawnParams, true);
@@ -270,46 +332,46 @@ namespace DynPals {
     }
 
     void UIManager::OnInvalidate() {
-    TargetPal = nullptr;
-    TargetInstanceID = L"";
-    TargetCharID = L"";
-    SkinDropdown = nullptr;
-    
-    if (PreloadContainer) {
-        Utils::CallFunction(PreloadContainer, STR("RemoveFromParent"));
-        PreloadContainer = nullptr;
+        TargetPal = nullptr;
+        TargetInstanceID = L"";
+        TargetCharID = L"";
+        SkinDropdown = nullptr;
+        
+        if (PreloadContainer) {
+            Utils::CallFunction(PreloadContainer, STR("RemoveFromParent"));
+            PreloadContainer = nullptr;
+        }
+        HideInvalidSwitch = nullptr;
+        RerollButton = nullptr;
+        ResetButton = nullptr;
+        MorphSliderPool.clear(); 
+        ActiveMorphSlidersCount = 0;
+        FocusPalSwitch = nullptr;
+        RelativeCameraSwitch = nullptr;
+        CameraRotationSlider = nullptr;
+        SizeSlider = nullptr;
+        MainScrollBoxObj = nullptr;
+        GetScrollOffsetFunc = nullptr;
+        
+        DynamicMorphBox = nullptr;
+        DynamicLogBox = nullptr;
+        CameraRotationContainer = nullptr;
+        SizeSliderContainer = nullptr;
+        HeaderTextObj = nullptr;
+        WidgetTrashBin = nullptr;
+
+        LastObservedSize = -999.0;
+        LastObservedLabel = L"";
+
+        LogTextPool.clear();
+        DropdownOptions.clear();
+        DropdownConfigIndices.clear();
+
+        OriginalViewTarget = nullptr;
+        bIsPalCameraActive = false;
     }
-    HideInvalidSwitch = nullptr;
-    RerollButton = nullptr;
-    ResetButton = nullptr;
-    MorphSliderPool.clear(); 
-    ActiveMorphSlidersCount = 0;
-    FocusPalSwitch = nullptr;
-    CameraRotationSlider = nullptr;
-    SizeSlider = nullptr;                 // <--- ADD THIS
-    MainScrollBoxObj = nullptr;
-    GetScrollOffsetFunc = nullptr;
-    
-    DynamicMorphBox = nullptr;
-    DynamicLogBox = nullptr;
-    CameraRotationContainer = nullptr;
-    SizeSliderContainer = nullptr;         // <--- ADD THIS
-    HeaderTextObj = nullptr;
-    WidgetTrashBin = nullptr;
-
-    LastObservedSize = -999.0;            // <--- ADD THIS
-    LastObservedLabel = L"";               // <--- ADD THIS
-
-    LogTextPool.clear();
-    DropdownOptions.clear();
-    DropdownConfigIndices.clear();
-
-    OriginalViewTarget = nullptr;
-    bIsPalCameraActive = false;
-}
 
     void UIManager::OnOpen() {
-        // Trigger data population and dynamic UI layout immediately upon showing the UI
         RefreshUI();
     }
 
@@ -320,7 +382,6 @@ namespace DynPals {
         TargetInstanceID = L"";
         TargetCharID = L"";
 
-        // Reset tracking state
         LastScrollOffset = 0.0f;
         bNeedsRefresh = false;
 
@@ -333,7 +394,6 @@ namespace DynPals {
             SkinDropdown = std::make_unique<UI::Dropdown>(std::vector<std::wstring>{}, 0);
         }
         
-        // --- PRELOAD AND CACHE CORE UI BLUEPRINTS TO PREVENT DISK STUTTER ---
         std::vector<std::wstring> AssetsToCache = {
             UI::Assets::Blueprints::CommonWindow,
             UI::Assets::Blueprints::CommonButton,
@@ -366,10 +426,9 @@ namespace DynPals {
                 if (RootProp) *RootProp->ContainerPtrToValuePtr<UObject*>(WidgetTree) = ScrollBox;
             }
 
-            struct { uint8_t InVisibility; } VisParams{ 1 }; // Collapsed
+            struct { uint8_t InVisibility; } VisParams{ 1 };
             Utils::CallFunction(PreloadContainer, STR("SetVisibility"), &VisParams);
             
-            // Move offscreen cleanly using Render Translation (Preserves viewport DPI/Layout)
             struct FVector2D_Double { double X; double Y; };
             struct { FVector2D_Double Translation; } RenderParams{ {-99999.0, -99999.0} };
             Utils::CallFunction(PreloadContainer, STR("SetRenderTranslation"), &RenderParams);
@@ -398,13 +457,9 @@ namespace DynPals {
     void UIManager::BuildWidget() {
         if (!CurrentPlayerController || !TargetPal) return;
 
-        
         LogTextPool.clear();
         MorphSliderPool.clear();
         ActiveMorphSlidersCount = 0;
-
-        // Start Profiling Checkpoint
-        auto start = std::chrono::high_resolution_clock::now();
 
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
         UClass* WidgetClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.UserWidget"));
@@ -421,15 +476,13 @@ namespace DynPals {
         const FLinearColor_UE5 White   = {1.0f, 1.0f, 1.0f, 1.0f};
         const FLinearColor_UE5 Emerald = {0.063f, 0.725f, 0.506f, 1.0f};
 
-        // Pre-build persistent Dynamic containers
         DynamicMorphBox = UI::VerticalBox(MyWidget).Build();
         DynamicLogBox = UI::VerticalBox(MyWidget).Build();
         CameraRotationContainer = UI::VerticalBox(MyWidget).Build();
         SizeSliderContainer = UI::VerticalBox(MyWidget).Build();
 
-        // Create Trash Bin to hold unused pooled widgets and prevent garbage collection
         WidgetTrashBin = UI::VerticalBox(MyWidget).Build();
-        struct { uint8_t InVisibility; } VisParams{ 1 }; // Collapsed
+        struct { uint8_t InVisibility; } VisParams{ 1 };
         Utils::CallFunction(WidgetTrashBin, STR("SetVisibility"), &VisParams);
 
         if (!SkinDropdown) {
@@ -437,31 +490,20 @@ namespace DynPals {
         }
         SkinDropdown->SetTrashBin(WidgetTrashBin);
 
-
         SkinDropdown->OnChanged([this](int Index, std::wstring Choice) {
             if (Index >= 0 && Index < static_cast<int>(DropdownConfigIndices.size())) {
                 int TargetConfig = DropdownConfigIndices[Index];
                 if (TargetConfig != -1) {
                     PalProcessor::Get().ForceSwap(TargetPal, TargetConfig);
                 }
-                
-                if (MainScrollBoxObj && GetScrollOffsetFunc) {
-                    struct { float Offset; } Params{ 0.0f };
-                    MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
-                    LastScrollOffset = Params.Offset;
-                }
-                // Do NOT set bNeedsRefresh = true here; OnTickUI will automatically refresh once the swap finishes saving to disk!
+                CacheScrollOffset();
             }
         });
 
         HideInvalidSwitch = std::make_unique<UI::Switch>(MyWidget, bHideInvalidSwaps);
         HideInvalidSwitch->OnChanged([this](bool bState) {
             bHideInvalidSwaps = bState;
-            if (MainScrollBoxObj && GetScrollOffsetFunc) {
-                struct { float Offset; } Params{ 0.0f };
-                MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
-                LastScrollOffset = Params.Offset;
-            }
+            CacheScrollOffset();
             bNeedsRefresh = true; 
         });
 
@@ -474,12 +516,7 @@ namespace DynPals {
             } else {
                 DisablePalCamera();
             }
-            
-            if (MainScrollBoxObj && GetScrollOffsetFunc) {
-                struct { float Offset; } Params{ 0.0f };
-                MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
-                LastScrollOffset = Params.Offset;
-            }
+            CacheScrollOffset();
             bNeedsRefresh = true; 
         });
 
@@ -493,15 +530,10 @@ namespace DynPals {
         RerollButton = std::make_unique<UI::Button>(RerollBtnObj);
         RerollButton->OnClicked([this]() {
             PalProcessor::Get().ProcessPal(TargetPal, true);
-            if (MainScrollBoxObj && GetScrollOffsetFunc) {
-                struct { float Offset; } Params{ 0.0f };
-                MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
-                LastScrollOffset = Params.Offset;
-            }
+            CacheScrollOffset();
             bNeedsRefresh = true; 
         });
 
-        // --- Reset Button ---
         auto ResetBtnBuilder = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget)
             .Text(L"      Reset Pal      ")
             .BackgroundColor(FLinearColor_UE5{0.85f, 0.25f, 0.25f, 1.0f})
@@ -512,25 +544,18 @@ namespace DynPals {
         ResetButton = std::make_unique<UI::Button>(ResetBtnObj);
         ResetButton->OnClicked([this]() {
             if (TargetPal && Utils::IsObjectValid(TargetPal)) {
-                // Live-revert visual meshes, materials, animations, and lock Pal
                 PalProcessor::Get().ResetPal(TargetPal);
-                
-                if (MainScrollBoxObj && GetScrollOffsetFunc) {
-                    struct { float Offset; } Params{ 0.0f };
-                    MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
-                    LastScrollOffset = Params.Offset;
-                }
+                CacheScrollOffset();
                 bNeedsRefresh = true; 
             }
         });
-
 
         auto InnerContentBox = UI::VerticalBox(MyWidget);
 
         InnerContentBox.AddToVerticalBox(
             UI::HorizontalBox(MyWidget).AddToHorizontalBox(
                 UI::Text(MyWidget).Text(L"Current Swap:").Font(PalFontCache, L"Medium", 20).TextColor(Emerald),
-                [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,10); } 
+                [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); } 
             )
         );
 
@@ -542,37 +567,34 @@ namespace DynPals {
         InnerContentBox.AddToVerticalBox(
             WidgetBuilder(RerollBtnObj),
             [](DynPals::BoxSlotBuilder& Slot) { 
-                Slot.Padding(20.0f, 0.0f, 20.0f, 10.0f) // Adjusted to group tightly with Reset
-                    .HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); 
+                Slot.Padding(20.0f, 0.0f, 20.0f, 10.0f).HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); 
             } 
         );
 
         InnerContentBox.AddToVerticalBox(
             WidgetBuilder(ResetBtnObj),
             [](DynPals::BoxSlotBuilder& Slot) { 
-                Slot.Padding(20.0f, 0.0f, 20.0f, 15.0f)
-                    .HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); 
+                Slot.Padding(20.0f, 0.0f, 20.0f, 15.0f).HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); 
             } 
         );
 
         auto FilterRow = UI::HorizontalBox(MyWidget)
-            .AddToHorizontalBox(DynPals::WidgetBuilder(HideInvalidSwitch->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,10,0); })
+            .AddToHorizontalBox(DynPals::WidgetBuilder(HideInvalidSwitch->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); })
             .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Hide Invalid").Font(PalFontCache, L"Medium", 18).TextColor(White), [](DynPals::BoxSlotBuilder& Slot) { Slot.VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); });
         
-        InnerContentBox.AddToVerticalBox(FilterRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,25); });
+        InnerContentBox.AddToVerticalBox(FilterRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 25); });
 
         auto CameraSettingsRow = UI::HorizontalBox(MyWidget)
-            .AddToHorizontalBox(DynPals::WidgetBuilder(FocusPalSwitch->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,10,0); })
+            .AddToHorizontalBox(DynPals::WidgetBuilder(FocusPalSwitch->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); })
             .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Focus Pal Camera").Font(PalFontCache, L"Medium", 18).TextColor(White), [](DynPals::BoxSlotBuilder& Slot) { Slot.VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); });
         
-        InnerContentBox.AddToVerticalBox(CameraSettingsRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,15); });
+        InnerContentBox.AddToVerticalBox(CameraSettingsRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
 
-        // Add pre-constructed empty containers
-        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(CameraRotationContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,10); });
-        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(SizeSliderContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,10); });
-        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(DynamicMorphBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,0,0,10); });
-        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(DynamicLogBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0,10,0,10); });
-        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(WidgetTrashBin)); // Must be added to hierarchy
+        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(CameraRotationContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
+        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(SizeSliderContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
+        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(DynamicMorphBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
+        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(DynamicLogBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 10, 0, 10); });
+        InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(WidgetTrashBin));
 
         auto MainScrollBoxBuilder = UI::ScrollBox(MyWidget).AddChild(InnerContentBox);
         MainScrollBoxObj = MainScrollBoxBuilder.Build();
@@ -589,7 +611,6 @@ namespace DynPals {
             .AddToHorizontalBox(UI::Image(MyWidget).ImageFromAsset(UI::Assets::Common::NoticeMark).ImageColor(PalBlue).ImageSize(24, 24), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); }) 
             .AddToHorizontalBox(DynPals::WidgetBuilder(HeaderTextObj));
 
-
         UObject* Canvas = UI::WindowFrame(MyWidget, 650.0f)
             .SetHeader(HeaderBox)
             .AddContent(MainContentConstrained) 
@@ -604,13 +625,6 @@ namespace DynPals {
 
         struct { int32_t ZOrder; } ViewportParams{9999};
         Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
-
-        // End Profiling Checkpoint
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        DP_LOG(Default, "[Profile] UIManager::BuildWidget shell layout initialized in {} us ({:.3f} ms)", 
-               duration, duration / 1000.0f);
-
     }
 
     RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
@@ -623,26 +637,31 @@ namespace DynPals {
     void UIManager::RefreshUI() {
         if (!TargetPal || !DynamicLogBox || !DynamicMorphBox || !CameraRotationContainer) return;
 
-        // Start Profiling Checkpoint
-        auto start = std::chrono::high_resolution_clock::now();
-
         const FLinearColor_UE5 PalBlue = {0.78f, 0.96f, 1.0f, 1.0f}; 
         const FLinearColor_UE5 White   = {1.0f, 1.0f, 1.0f, 1.0f};
         const FLinearColor_UE5 Emerald = {0.063f, 0.725f, 0.506f, 1.0f};
 
-        // Clear visual containers immediately
+        // Clear visual containers
         Utils::CallFunction(CameraRotationContainer, STR("ClearChildren"));
         Utils::CallFunction(DynamicMorphBox, STR("ClearChildren"));
         Utils::CallFunction(DynamicLogBox, STR("ClearChildren"));
 
-        // Single declaration of currentPersist for the entire function
+        // Helper lambda: Consolidated VBox child addition with padding
+        auto AddToVBox = [](UObject* Container, UObject* Widget, float Bottom = 10.0f, float Left = 0.0f, float Top = 0.0f, float Right = 0.0f) {
+            if (!Container || !Widget) return;
+            struct { UObject* Content; UObject* ReturnValue; } Params{Widget, nullptr};
+            Utils::CallFunction(Container, STR("AddChildToVerticalBox"), &Params);
+            if (Params.ReturnValue) {
+                DynPals::BoxSlotBuilder Slot(Params.ReturnValue);
+                Slot.Padding(Left, Top, Right, Bottom);
+            }
+        };
+
         PalPersistData* currentPersist = SaveManager::Get().GetPersistData(TargetInstanceID);
 
         // 1. Dynamic Header Text Update
         if (HeaderTextObj) {
             std::wstring headerStr = L"DYN PALS: " + TargetCharID;
-            
-            // Add the locked indicator to the UI string
             if (currentPersist && currentPersist->bIsManuallyLocked) {
                 headerStr += L" [LOCKED]";
             }
@@ -707,13 +726,11 @@ namespace DynPals {
         }
 
         std::wstring CurrentSwapLabel = currentPersist ? currentPersist->SwapLabel : L"";
-        
         auto evaluations = ConfigManager::Get().EvaluateAllSwaps(TargetCharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);
 
         int bestScore = 999999;
         for (const auto& eval : evaluations) {
-            if (!eval.IsValid) continue;
-            if (eval.Score < bestScore) bestScore = eval.Score;
+            if (eval.IsValid && eval.Score < bestScore) bestScore = eval.Score;
         }
 
         double totalTiedWeight = 0.0;
@@ -723,110 +740,58 @@ namespace DynPals {
             }
         }
 
-        // Single declaration of persistConfigIndex before building rawPacks
         int persistConfigIndex = currentPersist ? ConfigManager::Get().FindConfigIndex(currentPersist->PackName, currentPersist->SkinName, currentPersist->SwapLabel, currentPersist->SkelMeshPath, TargetCharID) : -1;
 
         std::map<std::wstring, std::vector<SwapEvaluation>> rawPacks;
         for (const auto& eval : evaluations) {
-            // Keep valid swaps, AND always keep the currently equipped swap in the dropdown even if invalid!
             if (bHideInvalidSwaps && !eval.IsValid && eval.ConfigIndex != persistConfigIndex) {
                 continue;
             }
             rawPacks[ConfigManager::Get().GetConfigs()[eval.ConfigIndex].PackName].push_back(eval);
         }
 
-        // 3. Dropdown Reconstruction with Structural Diffing Check
+        // 3. Consolidated Dropdown Reconstruction (Single Pre-Parse Pass)
         std::vector<std::wstring> newDropdownOptions;
         std::vector<int> newDropdownConfigIndices;
 
+        struct FParsedDropdownItem {
+            int ConfigIndex;
+            std::wstring CleanLabel;
+            std::vector<std::wstring> Tokens;
+        };
+
         for (auto& [packName, evals] : rawPacks) {
-            std::map<std::wstring, int> prefixCounts; 
-            
-            std::wstring headerStr = L"[ " + packName + L" ]";
-            newDropdownOptions.push_back(headerStr);
+            newDropdownOptions.push_back(L"[ " + packName + L" ]");
             newDropdownConfigIndices.push_back(-1); 
 
+            std::map<std::wstring, int> prefixCounts;
+            std::vector<FParsedDropdownItem> parsedItems;
+            parsedItems.reserve(evals.size());
+
+            // Single Pre-parsing Pass: Extracts label, strips prefixes, tokenizes once
             for (auto& eval : evals) {
                 auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
-                std::wstring labelName = cfg.SwapLabel;
-                
-                if (labelName.length() > 11) {
-                    size_t len = labelName.length();
-                    if (labelName[len - 1] == L')' && labelName[len - 10] == L'(' && labelName[len - 11] == L' ') {
-                        labelName = labelName.substr(0, len - 11);
-                    }
+                std::wstring label = StripFallbackHash(cfg.SwapLabel);
+                if (label.empty()) label = cfg.SkinName;
+                if (label.empty()) {
+                    label = cfg.SkelMeshPath;
+                    size_t slash = label.find_last_of(L'/');
+                    if (slash != std::wstring::npos) label = label.substr(slash + 1);
+                    size_t dot = label.find(L'.');
+                    if (dot != std::wstring::npos) label = label.substr(0, dot);
                 }
 
-                if (labelName.empty()) labelName = cfg.SkinName;
-                if (labelName.empty()) {
-                    std::wstring filename = cfg.SkelMeshPath;
-                    size_t lastSlash = filename.find_last_of(L'/');
-                    if (lastSlash != std::wstring::npos) filename = filename.substr(lastSlash + 1);
-                    size_t dotPos = filename.find(L'.');
-                    if (dotPos != std::wstring::npos) filename = filename.substr(0, dotPos);
-                    labelName = filename;
-                }
-                
-                if (labelName.rfind(L"SK_", 0) == 0 || labelName.rfind(L"sk_", 0) == 0 || labelName.find(L'_') != std::wstring::npos) {
-                    std::wstring clean = labelName;
+                FParsedDropdownItem item{ eval.ConfigIndex, label, {} };
+
+                if (label.rfind(L"SK_", 0) == 0 || label.rfind(L"sk_", 0) == 0 || label.find(L'_') != std::wstring::npos) {
+                    std::wstring clean = label;
                     if (clean.rfind(L"SK_", 0) == 0 || clean.rfind(L"sk_", 0) == 0) clean = clean.substr(3);
-                    
+
                     std::wstring lowerClean = clean;
                     std::transform(lowerClean.begin(), lowerClean.end(), lowerClean.begin(), ::towlower);
                     std::wstring lowerCharID = TargetCharID;
                     std::transform(lowerCharID.begin(), lowerCharID.end(), lowerCharID.begin(), ::towlower);
-                    
-                    if (lowerClean.rfind(lowerCharID + L"_", 0) == 0 && clean.length() >= TargetCharID.length() + 1) {
-                        clean = clean.substr(TargetCharID.length() + 1);
-                    } else if (lowerClean.rfind(lowerCharID, 0) == 0 && clean.length() >= TargetCharID.length()) {
-                        clean = clean.substr(TargetCharID.length());
-                        if (!clean.empty() && clean[0] == L'_') clean = clean.substr(1);
-                    }
-                    
-                    std::vector<std::wstring> tokens;
-                    size_t start = 0, end;
-                    while ((end = clean.find(L'_', start)) != std::wstring::npos) {
-                        if (end != start) tokens.push_back(clean.substr(start, end - start));
-                        start = end + 1;
-                    }
-                    if (start < clean.length()) tokens.push_back(clean.substr(start));
-                    
-                    if (tokens.size() >= 3) prefixCounts[tokens[0] + L"_" + tokens[1]]++;
-                    if (tokens.size() >= 2) prefixCounts[tokens[0]]++;
-                }
-            }
 
-            for (auto& eval : evals) {
-                auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
-                std::wstring labelName = cfg.SwapLabel;
-                
-                if (labelName.length() > 11) {
-                    size_t len = labelName.length();
-                    if (labelName[len - 1] == L')' && labelName[len - 10] == L'(' && labelName[len - 11] == L' ') {
-                        labelName = labelName.substr(0, len - 11);
-                    }
-                }
-
-                if (labelName.empty()) labelName = cfg.SkinName;
-                if (labelName.empty()) {
-                    std::wstring filename = cfg.SkelMeshPath;
-                    size_t lastSlash = filename.find_last_of(L'/');
-                    if (lastSlash != std::wstring::npos) filename = filename.substr(lastSlash + 1);
-                    size_t dotPos = filename.find(L'.');
-                    if (dotPos != std::wstring::npos) filename = filename.substr(0, dotPos);
-                    labelName = filename;
-                }
-                
-                std::wstring display = labelName;
-                if (labelName.rfind(L"SK_", 0) == 0 || labelName.rfind(L"sk_", 0) == 0 || labelName.find(L'_') != std::wstring::npos) {
-                    std::wstring clean = labelName;
-                    if (clean.rfind(L"SK_", 0) == 0 || clean.rfind(L"sk_", 0) == 0) clean = clean.substr(3);
-                    
-                    std::wstring lowerClean = clean;
-                    std::transform(lowerClean.begin(), lowerClean.end(), lowerClean.begin(), ::towlower);
-                    std::wstring lowerCharID = TargetCharID;
-                    std::transform(lowerCharID.begin(), lowerCharID.end(), lowerCharID.begin(), ::towlower);
-                    
                     if (lowerClean.rfind(lowerCharID + L"_", 0) == 0 && clean.length() >= TargetCharID.length() + 1) {
                         clean = clean.substr(TargetCharID.length() + 1);
                     } else if (lowerClean.rfind(lowerCharID, 0) == 0 && clean.length() >= TargetCharID.length()) {
@@ -834,42 +799,52 @@ namespace DynPals {
                         if (!clean.empty() && clean[0] == L'_') clean = clean.substr(1);
                     }
                     if (clean.empty()) clean = L"(Vanilla Mesh)";
-                    
-                    std::vector<std::wstring> tokens;
-                    size_t start = 0, end;
+
+                    size_t start = 0, end = 0;
                     while ((end = clean.find(L'_', start)) != std::wstring::npos) {
-                        if (end != start) tokens.push_back(clean.substr(start, end - start));
+                        if (end != start) item.Tokens.push_back(clean.substr(start, end - start));
                         start = end + 1;
                     }
-                    if (start < clean.length()) tokens.push_back(clean.substr(start));
-                    
+                    if (start < clean.length()) item.Tokens.push_back(clean.substr(start));
+
+                    item.CleanLabel = clean;
+                    if (item.Tokens.size() >= 3) prefixCounts[item.Tokens[0] + L"_" + item.Tokens[1]]++;
+                    if (item.Tokens.size() >= 2) prefixCounts[item.Tokens[0]]++;
+                }
+
+                parsedItems.push_back(std::move(item));
+            }
+
+            // Assembly Pass: Generates clean display strings from cached tokens
+            for (const auto& item : parsedItems) {
+                std::wstring display = item.CleanLabel;
+
+                if (!item.Tokens.empty()) {
                     std::wstring bestPrefix = L"";
                     int prefixTokens = 0;
-                    if (tokens.size() >= 3) {
-                        std::wstring cand = tokens[0] + L"_" + tokens[1];
-                        if (prefixCounts[cand] >= 2) { bestPrefix = cand; prefixTokens = 2; }
+                    if (item.Tokens.size() >= 3 && prefixCounts[item.Tokens[0] + L"_" + item.Tokens[1]] >= 2) {
+                        bestPrefix = item.Tokens[0] + L"_" + item.Tokens[1];
+                        prefixTokens = 2;
+                    } else if (item.Tokens.size() >= 2 && prefixCounts[item.Tokens[0]] >= 2) {
+                        bestPrefix = item.Tokens[0];
+                        prefixTokens = 1;
                     }
-                    if (bestPrefix.empty() && tokens.size() >= 2) {
-                        std::wstring cand = tokens[0];
-                        if (prefixCounts[cand] >= 2) { bestPrefix = cand; prefixTokens = 1; }
-                    }
-                    
+
                     if (!bestPrefix.empty()) {
                         display = L"";
-                        for (size_t i = prefixTokens; i < tokens.size(); ++i) {
-                            display += tokens[i];
-                            if (i < tokens.size() - 1) display += L" ";
+                        for (size_t i = prefixTokens; i < item.Tokens.size(); ++i) {
+                            display += item.Tokens[i] + (i < item.Tokens.size() - 1 ? L" " : L"");
                         }
                     } else {
                         std::replace(display.begin(), display.end(), L'_', L' ');
                     }
-                    
+
+                    // CamelCase spacing
                     std::wstring splitDisplay = L"";
                     if (!display.empty()) {
                         splitDisplay.push_back(display[0]);
                         for (size_t i = 1; i < display.size(); ++i) {
-                            if ((display[i - 1] >= L'a' && display[i - 1] <= L'z') && 
-                                (display[i] >= L'A' && display[i] <= L'Z')) {
+                            if ((display[i - 1] >= L'a' && display[i - 1] <= L'z') && (display[i] >= L'A' && display[i] <= L'Z')) {
                                 splitDisplay.push_back(L' ');
                             }
                             splitDisplay.push_back(display[i]);
@@ -877,9 +852,9 @@ namespace DynPals {
                         display = splitDisplay;
                     }
                 }
-                
+
                 newDropdownOptions.push_back(L"   " + display);
-                newDropdownConfigIndices.push_back(eval.ConfigIndex);
+                newDropdownConfigIndices.push_back(item.ConfigIndex);
             }
         }
 
@@ -888,10 +863,8 @@ namespace DynPals {
             newDropdownConfigIndices.push_back(-1);
         }
 
-        bool bOptionsChanged = false;
-        if (newDropdownOptions.size() != DropdownOptions.size()) {
-            bOptionsChanged = true;
-        } else {
+        bool bOptionsChanged = (newDropdownOptions.size() != DropdownOptions.size());
+        if (!bOptionsChanged) {
             for (size_t i = 0; i < newDropdownOptions.size(); ++i) {
                 if (newDropdownOptions[i] != DropdownOptions[i] || newDropdownConfigIndices[i] != DropdownConfigIndices[i]) {
                     bOptionsChanged = true;
@@ -900,8 +873,7 @@ namespace DynPals {
             }
         }
 
-        int initialIdx = -1; // Default to -1 (Vanilla / Default) so it never selects a header
-
+        int initialIdx = -1;
         if (persistConfigIndex != -1) {
             for (size_t i = 0; i < newDropdownConfigIndices.size(); ++i) {
                 if (newDropdownConfigIndices[i] == persistConfigIndex) {
@@ -914,7 +886,7 @@ namespace DynPals {
         static std::wstring lastTargetInstanceID = L"";
         static int lastPersistConfigIndex = -999;
 
-        if (bOptionsChanged) {
+        if (bOptionsChanged || TargetInstanceID != lastTargetInstanceID || persistConfigIndex != lastPersistConfigIndex) {
             DropdownOptions = std::move(newDropdownOptions);
             DropdownConfigIndices = std::move(newDropdownConfigIndices);
             lastTargetInstanceID = TargetInstanceID;
@@ -923,32 +895,22 @@ namespace DynPals {
             if (SkinDropdown) {
                 SkinDropdown->SetOptions(DropdownOptions, initialIdx);
             }
-        } else if (TargetInstanceID != lastTargetInstanceID || persistConfigIndex != lastPersistConfigIndex) {
-            lastTargetInstanceID = TargetInstanceID;
-            lastPersistConfigIndex = persistConfigIndex;
-
-            if (SkinDropdown) {
-                SkinDropdown->SetOptions(DropdownOptions, initialIdx);
-            }
         }
 
-        // 4. Text Widget Pooling Lambda (Mitigates GC Overhead & Avoids Pointer Leakage)
+        // 4. Text Widget Pooling Lambda
         int logTextUsed = 0;
         auto GetPooledText = [&](const std::wstring& TextStr, const FLinearColor_UE5& Color, int32_t FontSize, const wchar_t* Typeface) -> RC::Unreal::UObject* {
             RC::Unreal::UObject* TextObj = nullptr;
             if (logTextUsed < LogTextPool.size()) {
                 TextObj = LogTextPool[logTextUsed];
                 if (!Utils::IsObjectValid(TextObj)) {
-                    // Failsafe if GC bypassed the trash bin
-                    auto Builder = UI::Text(MyWidget);
-                    TextObj = Builder.Build();
+                    TextObj = UI::Text(MyWidget).Build();
                     LogTextPool[logTextUsed] = TextObj;
                 } else {
                     Utils::CallFunction(TextObj, STR("RemoveFromParent"));
                 }
             } else {
-                auto Builder = UI::Text(MyWidget);
-                TextObj = Builder.Build();
+                TextObj = UI::Text(MyWidget).Build();
                 LogTextPool.push_back(TextObj);
             }
             logTextUsed++;
@@ -963,24 +925,14 @@ namespace DynPals {
                     FStructProperty* StructProp = static_cast<FStructProperty*>(FontProp);
                     if (StructProp && StructProp->GetStruct()) {
                         UStruct* FontStruct = StructProp->GetStruct();
-                        
-                        FProperty* ObjProp = FontStruct->GetPropertyByNameInChain(STR("FontObject"));
-                        if (ObjProp && PalFontCache) {
-                            UObject** Ptr = ObjProp->ContainerPtrToValuePtr<UObject*>(FontPtr);
-                            if (Ptr) *Ptr = PalFontCache;
+                        if (PalFontCache) {
+                            FProperty* ObjProp = FontStruct->GetPropertyByNameInChain(STR("FontObject"));
+                            if (ObjProp) *ObjProp->ContainerPtrToValuePtr<UObject*>(FontPtr) = PalFontCache;
                         }
-
                         FProperty* NameProp = FontStruct->GetPropertyByNameInChain(STR("TypefaceFontName"));
-                        if (NameProp) {
-                            FName* NamePtr = NameProp->ContainerPtrToValuePtr<FName>(FontPtr);
-                            if (NamePtr) *NamePtr = FName(Typeface, FNAME_Add);
-                        }
-
+                        if (NameProp) *NameProp->ContainerPtrToValuePtr<FName>(FontPtr) = FName(Typeface, FNAME_Add);
                         FProperty* SizeProp = FontStruct->GetPropertyByNameInChain(STR("Size"));
-                        if (SizeProp) {
-                            int32_t* SizePtr = SizeProp->ContainerPtrToValuePtr<int32_t>(FontPtr);
-                            if (SizePtr) *SizePtr = FontSize;
-                        }
+                        if (SizeProp) *SizeProp->ContainerPtrToValuePtr<int32_t>(FontPtr) = FontSize;
                     }
                 }
                 Utils::CallFunction(TextObj, STR("SetFont"), FontPtr);
@@ -998,9 +950,27 @@ namespace DynPals {
             return TextObj;
         };
 
-        // 5. Camera Rotation Logic
-        Utils::CallFunction(CameraRotationContainer, STR("ClearChildren"));
+        // 5. Camera Controls (Relative Switch + Rotation Slider)
         if (SaveManager::Get().Settings.bFocusPal) {
+            RelativeCameraSwitch = std::make_unique<UI::Switch>(MyWidget, SaveManager::Get().Settings.bRelativeCamera);
+            RelativeCameraSwitch->OnChanged([this](bool bState) {
+                SaveManager::Get().Settings.bRelativeCamera = bState;
+                SaveManager::Get().SaveWorldData();
+                UpdatePalCameraRotation(SaveManager::Get().Settings.CameraRotation);
+            });
+
+            auto ShrunkSwitch = UI::Scaled(MyWidget, DynPals::WidgetBuilder(RelativeCameraSwitch->GetWidget()), 0.6f);
+
+            auto RelativeCamRow = UI::HorizontalBox(MyWidget)
+                .AddToHorizontalBox(ShrunkSwitch, [](DynPals::BoxSlotBuilder& Slot) { 
+                    Slot.Padding(0, 0, 8, 0).VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); 
+                })
+                .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Relative Camera").Font(PalFontCache, L"Medium", 15).TextColor(FLinearColor_UE5{0.85f, 0.85f, 0.85f, 1.0f}), [](DynPals::BoxSlotBuilder& Slot) { 
+                    Slot.VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); 
+                });
+
+            AddToVBox(CameraRotationContainer, RelativeCamRow.Build(), 12.0f, 25.0f);
+
             CameraRotationSlider = std::make_unique<UI::Slider>(MyWidget, 0.0, 360.0, SaveManager::Get().Settings.CameraRotation);
             CameraRotationSlider->OnChanged([this](double NewValue) {
                 SaveManager::Get().Settings.CameraRotation = NewValue;
@@ -1008,36 +978,26 @@ namespace DynPals {
                 UpdatePalCameraRotation(NewValue);
             });
 
-            RC::Unreal::UObject* TitleObj = GetPooledText(L"Camera Rotation", White, 18, L"Medium");
-            struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddL{TitleObj, nullptr};
-            Utils::CallFunction(CameraRotationContainer, STR("AddChildToVerticalBox"), &AddL);
-            
-            struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddS{CameraRotationSlider->GetWidget(), nullptr};
-            Utils::CallFunction(CameraRotationContainer, STR("AddChildToVerticalBox"), &AddS);
-            
-            if (AddS.ReturnValue) {
-                DynPals::BoxSlotBuilder SlotBuilder(AddS.ReturnValue);
-                SlotBuilder.Padding(0.0f, 5.0f, 0.0f, 20.0f);
-            }
+            AddToVBox(CameraRotationContainer, GetPooledText(L"Camera Rotation", White, 18, L"Medium"), 0.0f);
+            AddToVBox(CameraRotationContainer, CameraRotationSlider->GetWidget(), 20.0f, 0.0f, 5.0f);
         } else {
+            RelativeCameraSwitch = nullptr;
             CameraRotationSlider = nullptr;
         }
 
-        // 5.5. Dynamic Size Slider (Only displays if Min < Max in the JSON)
+        // 6. Dynamic Size Slider
         Utils::CallFunction(SizeSliderContainer, STR("ClearChildren"));
         SizeSlider = nullptr;
 
         if (currentPersist && persistConfigIndex != -1) {
             auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
-            
             if (activeCfg.MinSizeMultiplier < activeCfg.MaxSizeMultiplier) {
                 double currentVal = currentPersist->SizeMultiplier > 0.0 ? currentPersist->SizeMultiplier : 1.0;
-                if (currentVal < activeCfg.MinSizeMultiplier) currentVal = activeCfg.MinSizeMultiplier;
-                if (currentVal > activeCfg.MaxSizeMultiplier) currentVal = activeCfg.MaxSizeMultiplier;
+                currentVal = std::clamp(currentVal, activeCfg.MinSizeMultiplier, activeCfg.MaxSizeMultiplier);
 
                 SizeSlider = std::make_unique<UI::Slider>(MyWidget, activeCfg.MinSizeMultiplier, activeCfg.MaxSizeMultiplier, currentVal);
                 SizeSlider->OnChanged([this](double NewValue) {
-                    LastObservedSize = NewValue; // Prevents UI refresh loop while dragging
+                    LastObservedSize = NewValue;
 
                     PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
                     if (p) {
@@ -1054,26 +1014,17 @@ namespace DynPals {
                                     UObject* VanillaMesh = nullptr;
                                     if (CDO) Utils::GetPropertyValue<UObject*>(CDO, STR("Mesh"), VanillaMesh);
                                     
-                                    // Read RelativeScale3D directly from the CDO (contains the 1.45 base scale)
                                     FVector_UE5 BaseScale{ 1.0, 1.0, 1.0 };
                                     if (VanillaMesh) {
                                         FVector_UE5 CDOScale{ 1.0, 1.0, 1.0 };
                                         if (Utils::GetPropertyValue<FVector_UE5>(VanillaMesh, STR("RelativeScale3D"), CDOScale)) {
-                                            if (CDOScale.X > 0.001 && CDOScale.Y > 0.001 && CDOScale.Z > 0.001) {
-                                                BaseScale = CDOScale;
-                                            }
+                                            if (CDOScale.X > 0.001 && CDOScale.Y > 0.001 && CDOScale.Z > 0.001) BaseScale = CDOScale;
                                         }
                                     }
 
                                     if (NewValue <= 0.001) NewValue = 1.0;
+                                    FVector_UE5 FinalMeshScale{ BaseScale.X * NewValue, BaseScale.Y * NewValue, BaseScale.Z * NewValue };
 
-                                    FVector_UE5 FinalMeshScale = {
-                                        BaseScale.X * NewValue,
-                                        BaseScale.Y * NewValue,
-                                        BaseScale.Z * NewValue
-                                    };
-
-                                    // Apply final scale to both active relative and default properties
                                     Utils::SetPropertyValue<FVector_UE5>(MeshComp, STR("DefaultScale3D"), FinalMeshScale);
                                     struct { FVector_UE5 NewScale3D; } ScaleParams{ FinalMeshScale };
                                     Utils::CallFunction(MeshComp, STR("SetRelativeScale3D"), &ScaleParams);
@@ -1083,52 +1034,29 @@ namespace DynPals {
                     }
                 });
 
-                RC::Unreal::UObject* TitleObj = GetPooledText(L"Size Adjustment", Emerald, 18, L"Bold");
-                struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddT{TitleObj, nullptr};
-                Utils::CallFunction(SizeSliderContainer, STR("AddChildToVerticalBox"), &AddT);
-
-                struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddS{SizeSlider->GetWidget(), nullptr};
-                Utils::CallFunction(SizeSliderContainer, STR("AddChildToVerticalBox"), &AddS);
-                if (AddS.ReturnValue) {
-                    DynPals::BoxSlotBuilder SlotBuilder(AddS.ReturnValue);
-                    SlotBuilder.Padding(0.0f, 5.0f, 0.0f, 15.0f);
-                }
+                AddToVBox(SizeSliderContainer, GetPooledText(L"Size Adjustment", Emerald, 18, L"Bold"), 0.0f);
+                AddToVBox(SizeSliderContainer, SizeSlider->GetWidget(), 15.0f, 0.0f, 5.0f);
             }
         }
 
-        // 6. Slider Pooling & Shape Keys
-        Utils::CallFunction(DynamicMorphBox, STR("ClearChildren"));
+        // 7. Shape Keys / Morph Sliders
         ActiveMorphSlidersCount = 0;
-        
         if (currentPersist && persistConfigIndex != -1) {
             auto& activeCfg = ConfigManager::Get().GetConfigs()[persistConfigIndex];
-            
             if (!activeCfg.MorphTargetList.empty()) {
-                RC::Unreal::UObject* MTitleObj = GetPooledText(L"Morph Targets", Emerald, 20, L"Bold");
-                struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddMT{MTitleObj, nullptr};
-                Utils::CallFunction(DynamicMorphBox, STR("AddChildToVerticalBox"), &AddMT);
-                
-                if (AddMT.ReturnValue) {
-                    DynPals::BoxSlotBuilder SlotBuilder(AddMT.ReturnValue);
-                    SlotBuilder.Padding(0.0f, 0.0f, 0.0f, 10.0f);
-                }
+                AddToVBox(DynamicMorphBox, GetPooledText(L"Morph Targets", Emerald, 20, L"Bold"), 10.0f);
 
                 int slidersUsed = 0;
                 for (auto& morph : activeCfg.MorphTargetList) {
                     if (morph.type != L"Restrict" && morph.minVal < morph.maxVal) {
                         float currentVal = (float)currentPersist->MorphSet[morph.target];
-                        
-                        RC::Unreal::UObject* LblObj = GetPooledText(morph.target, White, 18, L"Medium");
-                        struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddL{LblObj, nullptr};
-                        Utils::CallFunction(DynamicMorphBox, STR("AddChildToVerticalBox"), &AddL);
+                        AddToVBox(DynamicMorphBox, GetPooledText(morph.target, White, 18, L"Medium"), 0.0f);
 
                         class DynPals::UI::Slider* SliderCtrl = nullptr;
                         if (slidersUsed < static_cast<int>(MorphSliderPool.size())) {
                             SliderCtrl = MorphSliderPool[slidersUsed].get();
                             RC::Unreal::UObject* SliderW = SliderCtrl->GetWidget();
-                            if (Utils::IsObjectValid(SliderW)) {
-                                Utils::CallFunction(SliderW, STR("RemoveFromParent"));
-                            }
+                            if (Utils::IsObjectValid(SliderW)) Utils::CallFunction(SliderW, STR("RemoveFromParent"));
                             SliderCtrl->UpdateValue(currentVal, morph.minVal, morph.maxVal);
                         } else {
                             auto NewSlider = std::make_unique<class DynPals::UI::Slider>(MyWidget, morph.minVal, morph.maxVal, currentVal);
@@ -1154,63 +1082,36 @@ namespace DynPals {
                             }
                         });
 
-                        RC::Unreal::UObject* BuiltSlider = SliderCtrl->GetWidget();
-
-                        struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddS{BuiltSlider, nullptr};
-                        Utils::CallFunction(DynamicMorphBox, STR("AddChildToVerticalBox"), &AddS);
-                        if (AddS.ReturnValue) {
-                            DynPals::BoxSlotBuilder SlotBuilder(AddS.ReturnValue);
-                            SlotBuilder.Padding(0.0f, 5.0f, 0.0f, 15.0f);
-                        }
+                        AddToVBox(DynamicMorphBox, SliderCtrl->GetWidget(), 15.0f, 0.0f, 5.0f);
                     }
                 }
                 ActiveMorphSlidersCount = slidersUsed;
             }
         }
 
-        // 7. Dynamic Log Output & Scale Multiplier Indicator
-        Utils::CallFunction(DynamicLogBox, STR("ClearChildren"));
-
-        // --- SIZE MODIFIER DISPLAY (Only appears if size != 1.0) ---
+        // 8. Dynamic Log Output
         if (currentPersist && currentPersist->SizeMultiplier > 0.0 && std::abs(currentPersist->SizeMultiplier - 1.0) > 0.005) {
             wchar_t sizeBuf[32];
             swprintf(sizeBuf, 32, L"Size Modifier: %.2fx", currentPersist->SizeMultiplier);
-            RC::Unreal::UObject* SizeTxtObj = GetPooledText(sizeBuf, PalBlue, 18, L"Bold");
-            struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddSize{SizeTxtObj, nullptr};
-            Utils::CallFunction(DynamicLogBox, STR("AddChildToVerticalBox"), &AddSize);
-            if (AddSize.ReturnValue) {
-                DynPals::BoxSlotBuilder SlotBuilder(AddSize.ReturnValue);
-                SlotBuilder.Padding(0.0f, 0.0f, 0.0f, 10.0f);
-            }
+            AddToVBox(DynamicLogBox, GetPooledText(sizeBuf, PalBlue, 18, L"Bold"), 10.0f);
         }
         
-        RC::Unreal::UObject* LogTitleObj = GetPooledText(L"Matchmaker Log", Emerald, 20, L"Bold");
-        struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddLogT{LogTitleObj, nullptr};
-        Utils::CallFunction(DynamicLogBox, STR("AddChildToVerticalBox"), &AddLogT);
-        if (AddLogT.ReturnValue) {
-            DynPals::BoxSlotBuilder SlotBuilder(AddLogT.ReturnValue);
-            SlotBuilder.Padding(0.0f, 10.0f, 0.0f, 10.0f);
-        }
+        AddToVBox(DynamicLogBox, GetPooledText(L"Matchmaker Log", Emerald, 20, L"Bold"), 10.0f);
 
         if (evaluations.empty()) {
-            RC::Unreal::UObject* EmptyLogObj = GetPooledText(L"No swaps configured for this Pal.", White, 16, L"Regular");
-            struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddE{EmptyLogObj, nullptr};
-            Utils::CallFunction(DynamicLogBox, STR("AddChildToVerticalBox"), &AddE);
+            AddToVBox(DynamicLogBox, GetPooledText(L"No swaps configured for this Pal.", White, 16, L"Regular"), 0.0f);
         } else {
             for (const auto& eval : evaluations) {
                 if (bHideInvalidSwaps && !eval.IsValid) continue;
 
                 auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
-                
-                RC::Unreal::UObject* PackObj = GetPooledText(cfg.PackName, White, 16, L"Bold");
-                struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddP{PackObj, nullptr};
-                Utils::CallFunction(DynamicLogBox, STR("AddChildToVerticalBox"), &AddP);
+                AddToVBox(DynamicLogBox, GetPooledText(cfg.PackName, White, 16, L"Bold"), 0.0f);
 
                 std::wstring processedFilename = cfg.SkelMeshPath;
-                size_t lastSlash = processedFilename.find_last_of(L'/');
-                if (lastSlash != std::wstring::npos) processedFilename = processedFilename.substr(lastSlash + 1);
-                size_t dotPos = processedFilename.find(L'.');
-                if (dotPos != std::wstring::npos) processedFilename = processedFilename.substr(0, dotPos);
+                size_t slash = processedFilename.find_last_of(L'/');
+                if (slash != std::wstring::npos) processedFilename = processedFilename.substr(slash + 1);
+                size_t dot = processedFilename.find(L'.');
+                if (dot != std::wstring::npos) processedFilename = processedFilename.substr(0, dot);
 
                 if (processedFilename.rfind(L"SK_", 0) == 0 || processedFilename.rfind(L"sk_", 0) == 0) processedFilename = processedFilename.substr(3);
                 for (wchar_t& c : processedFilename) { if (c == L'_') c = L' '; }
@@ -1224,20 +1125,11 @@ namespace DynPals {
 
                 wchar_t pctBuf[16];
                 swprintf(pctBuf, 16, L"%.1f", pct);
-                std::wstring logStr = L"    " + std::wstring(pctBuf) + L"% : " + processedFilename;
-
-                RC::Unreal::UObject* LogTxtObj = GetPooledText(logStr, textColor, 16, L"Medium");
-
-                struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddL{LogTxtObj, nullptr};
-                Utils::CallFunction(DynamicLogBox, STR("AddChildToVerticalBox"), &AddL);
-                if (AddL.ReturnValue) {
-                    DynPals::BoxSlotBuilder SlotBuilder(AddL.ReturnValue);
-                    SlotBuilder.Padding(0.0f, 0.0f, 0.0f, 8.0f);
-                }
+                AddToVBox(DynamicLogBox, GetPooledText(L"    " + std::wstring(pctBuf) + L"% : " + processedFilename, textColor, 16, L"Medium"), 8.0f);
             }
         }
 
-        // 8. Move unused pooled elements to the Trash Bin to retain allocation
+        // 9. Move unused pooled elements to Trash Bin
         for (size_t i = logTextUsed; i < LogTextPool.size(); ++i) {
             RC::Unreal::UObject* UnusedTxt = LogTextPool[i];
             if (Utils::IsObjectValid(UnusedTxt)) {
@@ -1260,55 +1152,44 @@ namespace DynPals {
             struct { float NewScrollOffset; } ScrollParams{LastScrollOffset};
             Utils::CallFunction(MainScrollBoxObj, STR("SetScrollOffset"), &ScrollParams);
         }
-
-        // End Profiling Checkpoint
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        DP_LOG(Default, "[Profile] UIManager::RefreshUI completed in {} us ({:.3f} ms)", 
-               duration, duration / 1000.0f);
     }
-
 
     void UIManager::OnTickUI() {
-    if (TargetPal && !Utils::IsObjectValid(TargetPal)) {
-        TargetPal = nullptr;
-        RequestToggle(); 
-        return;
-    }
-
-    // --- AUTO-DETECT BACKGROUND SWAP & SIZE UPDATES ---
-    PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
-    if (p) {
-        if (p->SizeMultiplier != LastObservedSize || p->SwapLabel != LastObservedLabel) {
-            LastObservedSize = p->SizeMultiplier;
-            LastObservedLabel = p->SwapLabel;
-            bNeedsRefresh = true;
+        if (TargetPal && !Utils::IsObjectValid(TargetPal)) {
+            TargetPal = nullptr;
+            RequestToggle(); 
+            return;
         }
-    }
 
-    if (bNeedsRefresh) {
-        bNeedsRefresh = false;
-        RefreshUI();
-    }
-
-    if (SkinDropdown)         SkinDropdown->Tick();
-    if (HideInvalidSwitch)    HideInvalidSwitch->Tick();
-    if (RerollButton)         RerollButton->Tick();
-    if (ResetButton)          ResetButton->Tick();
-    if (FocusPalSwitch)       FocusPalSwitch->Tick();
-    if (CameraRotationSlider) CameraRotationSlider->Tick();
-    if (SizeSlider)           SizeSlider->Tick();            // <--- ADD THIS
-
-    for (int i = 0; i < ActiveMorphSlidersCount; ++i) {
-        if (i < static_cast<int>(MorphSliderPool.size())) {
-            MorphSliderPool[i]->Tick();
+        PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
+        if (p) {
+            if (p->SizeMultiplier != LastObservedSize || p->SwapLabel != LastObservedLabel) {
+                LastObservedSize = p->SizeMultiplier;
+                LastObservedLabel = p->SwapLabel;
+                bNeedsRefresh = true;
+            }
         }
+
+        if (bNeedsRefresh) {
+            bNeedsRefresh = false;
+            RefreshUI();
+        }
+
+        if (SkinDropdown)         SkinDropdown->Tick();
+        if (HideInvalidSwitch)    HideInvalidSwitch->Tick();
+        if (RerollButton)         RerollButton->Tick();
+        if (ResetButton)          ResetButton->Tick();
+        if (FocusPalSwitch)       FocusPalSwitch->Tick();
+        if (RelativeCameraSwitch) RelativeCameraSwitch->Tick();
+        if (CameraRotationSlider) CameraRotationSlider->Tick();
+        if (SizeSlider)           SizeSlider->Tick();
+
+        for (int i = 0; i < ActiveMorphSlidersCount; ++i) {
+            if (i < static_cast<int>(MorphSliderPool.size())) {
+                MorphSliderPool[i]->Tick();
+            }
+        }
+        
+        CacheScrollOffset();
     }
-    
-    if (MainScrollBoxObj && GetScrollOffsetFunc) {
-        struct { float Offset; } Params{ 0.0f };
-        MainScrollBoxObj->ProcessEvent(GetScrollOffsetFunc, &Params);
-        LastScrollOffset = Params.Offset;
-    }
-}
 }
