@@ -1,4 +1,3 @@
-// --- START OF FILE src/UI/UIBase.cpp ---
 #define NOMINMAX 
 #include <Windows.h>
 #include "UI/UIBase.hpp"
@@ -41,16 +40,14 @@ namespace DynPals {
             if (!bIsOpen) {
                 // Try to acquire target/setup view. If false, abort opening.
                 if (OnSetup()) {
-                    bIsOpen = true;
-                    
                     if (!MyWidget) {
                         BuildWidget();
+                    }
 
-                        if (MyWidget) {
-                            struct { uint8_t InVisibility; } VisParams{ 0 };
-                            Utils::CallFunction(MyWidget, STR("SetVisibility"), &VisParams);
-                        }
-                    } else {
+                    // Verify the widget exists and is valid before marking the UI open
+                    if (MyWidget && Utils::IsObjectValid(MyWidget)) {
+                        bIsOpen = true;
+
                         // Set visibility to Visible (0)
                         struct { uint8_t InVisibility; } VisParams{ 0 };
                         Utils::CallFunction(MyWidget, STR("SetVisibility"), &VisParams);
@@ -59,8 +56,13 @@ namespace DynPals {
                         struct FVector2D_Double { double X; double Y; };
                         struct { FVector2D_Double Translation; } RenderParams{ {0.0, 0.0} };
                         Utils::CallFunction(MyWidget, STR("SetRenderTranslation"), &RenderParams);
+
+                        OnOpen();
+                    } else {
+                        // BuildWidget failed to produce a valid widget -> Abort opening cleanly
+                        bIsOpen = false;
+                        MyWidget = nullptr;
                     }
-                    OnOpen();
                 }
             } else {
                 bIsOpen = false;
@@ -91,15 +93,23 @@ namespace DynPals {
             
             BuildWidget();
 
-            if (MyWidget) {
+            if (MyWidget && Utils::IsObjectValid(MyWidget)) {
                 struct { uint8_t InVisibility; } RebuildVisParams{ 0 };
                 Utils::CallFunction(MyWidget, STR("SetVisibility"), &RebuildVisParams);
-            }
 
-            OnOpen();
-            
-            if (OldWidget) {
-                Utils::CallFunction(OldWidget, STR("RemoveFromParent")); 
+                OnOpen();
+                
+                if (OldWidget) {
+                    Utils::CallFunction(OldWidget, STR("RemoveFromParent")); 
+                }
+            } else {
+                // If rebuild failed, fall back to the old widget or tear down cleanly
+                MyWidget = OldWidget;
+                if (!MyWidget || !Utils::IsObjectValid(MyWidget)) {
+                    bIsOpen = false;
+                    OnClose();
+                    UIRegistry::Get().UpdateInputState(PlayerController);
+                }
             }
         }
 
@@ -132,8 +142,8 @@ namespace DynPals {
         }
 
         OnTickUI();
-
     }
+
     void UIBase::DestroyWidget() {
         if (MyWidget) {
             Utils::CallFunction(MyWidget, STR("RemoveFromParent"));
