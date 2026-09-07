@@ -126,14 +126,14 @@ namespace DynPals {
             sc.MinTrust = SafeGetInt(dict, "MinTrust", 0);
             sc.MaxTrust = SafeGetInt(dict, "MaxTrust", 999999);
             sc.MinRank = SafeGetInt(dict, "MinRank", 0);
-            sc.MaxRank = SafeGetInt(dict, "MaxRank", 5);
+            sc.MaxRank = SafeGetInt(dict, "MaxRank", 999);
 
             sc.MinSizeMultiplier = SafeGetDouble(dict, "MinSizeMultiplier", 1.0);
             sc.MaxSizeMultiplier = SafeGetDouble(dict, "MaxSizeMultiplier", 1.0);
             
             if (dict.contains("SpawnWeight")) {
                 double w = SafeGetDouble(dict, "SpawnWeight", 1.0);
-                sc.SpawnWeight = w > 0.0 ? w : 1.0;
+                sc.SpawnWeight = std::max(0.0, w); // Allows 0.0, clamps negative values to 0.0
             }
             
             if (dict.contains("ReqSwap")) {
@@ -360,11 +360,18 @@ namespace DynPals {
 
             ParseCommonSwapProperties(sc, dict);
 
+            // --- VALIDATION: Must have either a label or a mesh path ---
+            if (sc.SwapLabel.empty() && sc.SkelMeshPath.empty()) {
+                DP_LOG(Error, "JSON ERROR in Pack '{}': A swap for Pal '{}' is missing both ('SwapLabel') and ('SkelMeshPath'). Material/recolor swaps require a label.", sc.PackName, sc.CharacterID);
+                continue; // Skip this invalid entry
+            }
+
             if (sc.SwapLabel.empty()) {
                 sc.SwapLabel = Utils::GenerateFallbackLabel(sc.SkelMeshPath, sc.MatReplaceList, sc.MorphTargetList);
                 if (!sc.Gender.empty() && ToLower(sc.Gender) != L"none") sc.SwapLabel += L" [" + sc.Gender + L"]";
                 if (sc.IsRarePal.has_value()) sc.SwapLabel += sc.IsRarePal.value() ? L" [Rare]" : L" [Normal]";
             }
+
             
             ValidateGender(sc.Gender, sc.PackName, sc.SwapLabel);
             Configs.push_back(sc);
@@ -393,11 +400,18 @@ namespace DynPals {
 
                 ParseCommonSwapProperties(sc, dict);
                 
+                // --- VALIDATION: Must have either a label or a mesh path ---
+                if (sc.SwapLabel.empty() && sc.SkelMeshPath.empty()) {
+                    DP_LOG(Error, "JSON ERROR in Pack '{}': A swap for Pal '{}' has an empty label key and no 'SkinPath'.", sc.PackName, sc.CharacterID);
+                    continue; // Skip this invalid entry
+                }
+
                 if (sc.SwapLabel.empty()) {
                     sc.SwapLabel = Utils::GenerateFallbackLabel(sc.SkelMeshPath, sc.MatReplaceList, sc.MorphTargetList);
                     if (!sc.Gender.empty() && ToLower(sc.Gender) != L"none") sc.SwapLabel += L" [" + sc.Gender + L"]";
                     if (sc.IsRarePal.has_value()) sc.SwapLabel += sc.IsRarePal.value() ? L" [Rare]" : L" [Normal]";
                 }
+
                 
                 ValidateGender(sc.Gender, sc.PackName, sc.SwapLabel);
                 Configs.push_back(sc);
@@ -420,7 +434,6 @@ namespace DynPals {
         for (size_t i = 0; i < Configs.size(); i++) {
             auto& swap = Configs[i];
             
-            // Immediately reject configs that don't match the Pal's ID without allocating memory
             if (!IEquals(swap.CharacterID, CharID)) continue;
 
             SwapEvaluation eval;
@@ -428,22 +441,37 @@ namespace DynPals {
             eval.Score = 0; 
             eval.IsValid = true;
 
+            // 1. Level check
             if (Level < swap.MinLevel || Level > swap.MaxLevel) {
                 eval.IsValid = false;
+                wchar_t buf[64];
+                if (Level < swap.MinLevel) swprintf(buf, 64, L"Level %d < MinLevel %d", Level, swap.MinLevel);
+                else swprintf(buf, 64, L"Level %d > MaxLevel %d", Level, swap.MaxLevel);
+                eval.RejectionReason = buf;
             } else if (swap.MinLevel > 1 || swap.MaxLevel < 999) {
                 eval.Score -= 10; 
                 if (swap.MinLevel > 1) eval.Score -= swap.MinLevel;
             }
 
+            // 2. Rank check
             if (eval.IsValid && (Rank < swap.MinRank || Rank > swap.MaxRank)) {
                 eval.IsValid = false;
-            } else if (swap.MinRank > 0 || swap.MaxRank < 5) {
+                wchar_t buf[64];
+                if (Rank < swap.MinRank) swprintf(buf, 64, L"Rank %d < MinRank %d", Rank, swap.MinRank);
+                else swprintf(buf, 64, L"Rank %d > MaxRank %d", Rank, swap.MaxRank);
+                eval.RejectionReason = buf;
+            } else if (swap.MinRank > 0 || swap.MaxRank < 999) {
                 eval.Score -= 10; 
                 if (swap.MinRank > 0) eval.Score -= (swap.MinRank * 5); 
             }
 
+            // 3. Trust / Friendship check
             if (eval.IsValid && (Trust < swap.MinTrust || Trust > swap.MaxTrust)) {
                 eval.IsValid = false;
+                wchar_t buf[64];
+                if (Trust < swap.MinTrust) swprintf(buf, 64, L"Trust %d < MinTrust %d", Trust, swap.MinTrust);
+                else swprintf(buf, 64, L"Trust %d > MaxTrust %d", Trust, swap.MaxTrust);
+                eval.RejectionReason = buf;
             } else if (swap.MinTrust > 0 || swap.MaxTrust < 999999) {
                 eval.Score -= 10; 
             }
@@ -460,6 +488,7 @@ namespace DynPals {
                 charGender = L"none";
             }
 
+            // 4. Gender check
             if (eval.IsValid && swapGender != L"none") {
                 if (swapGender != charGender) {
                     bool fallbackMatched = false;
@@ -470,41 +499,52 @@ namespace DynPals {
                     }
                     if (!fallbackMatched) {
                         eval.IsValid = false;
+                        eval.RejectionReason = L"Gender mismatch (" + swap.Gender + L" != " + GenderStr + L")";
                     }
                 }
             }
 
-            // --- REPLACED SKIN NAME CHECK ---
+            // 5. Skin Name check
             if (eval.IsValid) {
                 bool bPalHasSkin = !SkinName.empty() && !IEquals(SkinName, L"None");
                 bool bConfigHasSkin = !swap.SkinName.empty() && !IEquals(swap.SkinName, L"None");
 
                 if (bPalHasSkin != bConfigHasSkin) {
-                    // One has a skin, the other doesn't -> Isolate completely
                     eval.IsValid = false;
+                    eval.RejectionReason = bPalHasSkin ? L"Skin mismatch (Pal has skin, config requires none)" : L"Skin mismatch (Config requires skin, Pal has none)";
                 } else if (bPalHasSkin && bConfigHasSkin) {
-                    // Both have skins. Do they match exactly?
                     if (!IEquals(SkinName, swap.SkinName)) {
                         eval.IsValid = false;
+                        eval.RejectionReason = L"Skin mismatch (" + swap.SkinName + L" != " + SkinName + L")";
                     } else {
                         eval.Score -= 50; 
                     }
                 }
             }
-            // --------------------------------
 
+            // 6. Rare / Lucky check
             if (eval.IsValid && swap.IsRarePal.has_value()) {
                 bool reqRare = swap.IsRarePal.value();
-                if (reqRare != IsRare) eval.IsValid = false; 
-                else eval.Score -= 50; 
+                if (reqRare != IsRare) {
+                    eval.IsValid = false;
+                    eval.RejectionReason = reqRare ? L"Requires Lucky/Rare" : L"Requires Non-Lucky/Normal";
+                } else {
+                    eval.Score -= 50; 
+                }
             }
 
+            // 7. Wild Pal check
             if (eval.IsValid && swap.IsWildPal.has_value()) {
                 bool reqWild = swap.IsWildPal.value();
-                if (reqWild != IsWild) eval.IsValid = false;
-                else eval.Score -= 50; 
+                if (reqWild != IsWild) {
+                    eval.IsValid = false;
+                    eval.RejectionReason = reqWild ? L"Requires Wild Pal" : L"Requires Tamed Pal";
+                } else {
+                    eval.Score -= 50; 
+                }
             }
 
+            // 8. Required Traits check
             if (eval.IsValid) {
                 for (const auto& req : swap.ReqTrait) {
                     bool hasTrait = false;
@@ -513,6 +553,7 @@ namespace DynPals {
                     }
                     if (!hasTrait) {
                         eval.IsValid = false;
+                        eval.RejectionReason = L"Missing trait (" + req + L")";
                         break;
                     } else {
                         eval.Score -= 20; 
@@ -520,9 +561,9 @@ namespace DynPals {
                 }
             }
 
+            // 9. Required Prior Swap (ReqSwap)
             if (eval.IsValid && !swap.ReqSwap.empty()) {
                 bool hasReqSwap = false;
-
                 if (!swap.SwapLabel.empty() && IEquals(swap.SwapLabel, CurrentSwapLabel)) {
                     hasReqSwap = true;
                 } else {
@@ -536,6 +577,7 @@ namespace DynPals {
 
                 if (!hasReqSwap) {
                     eval.IsValid = false;
+                    eval.RejectionReason = L"Requires prior swap (" + (swap.ReqSwap.empty() ? L"" : swap.ReqSwap[0]) + L")";
                 } else {
                     eval.Score -= 30;
                 }
@@ -552,6 +594,7 @@ namespace DynPals {
                 }
             }
             
+            // 10. SkipTrait (Blacklisted Traits)
             if (eval.IsValid) {
                 for (const auto& skip : swap.SkipTrait) {
                     bool hasBlacklistedTrait = false;
@@ -563,6 +606,7 @@ namespace DynPals {
                     }
                     if (hasBlacklistedTrait) {
                         eval.IsValid = false; 
+                        eval.RejectionReason = L"Has blacklisted trait (" + skip + L")";
                         break;
                     }
                 }
@@ -572,7 +616,6 @@ namespace DynPals {
         }
 
         // --- INVALIDATION POST-PROCESS ---
-        // Marks any sub-optimal swap as Invalid so it correctly locks when manually chosen.
         int bestScore = 999999;
         for (const auto& eval : results) {
             if (eval.IsValid && eval.Score < bestScore) {
@@ -582,6 +625,9 @@ namespace DynPals {
         for (auto& eval : results) {
             if (eval.IsValid && eval.Score > bestScore) {
                 eval.IsValid = false;
+                if (eval.RejectionReason.empty()) {
+                    eval.RejectionReason = L"Sub-optimal priority";
+                }
             }
         }
         // ---------------------------------
@@ -642,6 +688,9 @@ namespace DynPals {
         for (const auto& eval : evaluations) {
             if (!eval.IsValid) continue;
             
+            // Exclude disabled (0-weight) configs from the auto-spawn lottery
+            if (Configs[eval.ConfigIndex].SpawnWeight <= 0.0) continue;
+
             if (eval.Score < bestScore) {
                 bestScore = eval.Score;
                 bestMatches = { eval.ConfigIndex };
@@ -707,12 +756,11 @@ namespace DynPals {
                         return idx;
                     }
                 }
+                return bestMatches.back();
             }
-            return bestMatches[0];
         }
-        return -1;
+        return -1; // If all candidates have weight 0 or no matches exist, return -1 (Vanilla)
     }
-
     std::vector<int> ConfigManager::GetConfigsForCharID(const std::wstring& CharID) const {
         std::vector<int> results;
         for (size_t i = 0; i < Configs.size(); ++i) {

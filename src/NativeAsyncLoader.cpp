@@ -103,6 +103,7 @@ namespace DynPals {
 
     void NativeAsyncLoader::MarkAsLoaded(const std::wstring& AssetPath) { 
         GPendingAssets.erase(AssetPath); 
+        GFailedAssets.erase(AssetPath); // <--- Clear from blacklist if loaded!
     }
 
     void NativeAsyncLoader::MarkAsFailed(const std::wstring& AssetPath) { 
@@ -178,7 +179,7 @@ namespace DynPals {
                 if (lowerPath.find(lowerName) != std::wstring::npos) {
                     return Ptr;
                 } else {
-                    DP_LOG(Warning, "[Cache] Pointer recycling detected at {}! Expected '{}', found '{}'. Evicting.", 
+                    DP_LOG(Verbose, "[Cache] Pointer recycling detected at {}! Expected '{}', found '{}'. Evicting.", 
                            (void*)Ptr, Path, currentName);
                 }
             }
@@ -364,7 +365,7 @@ namespace DynPals {
         // Fallback cleanup if dispatch failed
         for (const auto& path : AssetPaths) {
             GPendingAssets.erase(path);
-            GFailedAssets.insert(path);
+            //GFailedAssets.insert(path);
         }
         GPendingCount[Requester] = 0;
         return false;

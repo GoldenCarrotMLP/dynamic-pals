@@ -121,6 +121,9 @@ This mod is possible and stable thanks to these amazing people:
 - Raeil
 - Jyanon 
 - Faust0151 
+- Hevensdragon
+- [Isovel](https://github.com/isovel)
+- [Syncriix](https://github.com/Syncriix)
   
 ## License
 

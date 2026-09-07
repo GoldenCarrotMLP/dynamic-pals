@@ -69,14 +69,11 @@ namespace DynPals {
             .AddToHorizontalBox(UI::Text(MyWidget).Text(L"DYN PALS SYSTEM TEST").Font(PalFont, L"Bold", 24).TextOutline(2, {0.0f, 0.0f, 0.0f, 1.0f}).TextColor(PalBlue));
 
         auto TabLayout = UI::HorizontalBox(MyWidget);
-        auto Tab1Builder = UI::OptionTab(MyWidget).SetupTab(L"Settings", 0).SetTabActive(ActiveTab == 0);
-        auto Tab2Builder = UI::OptionTab(MyWidget).SetupTab(L"Visuals", 1).SetTabActive(ActiveTab == 1);
+        auto Tab1Builder = UI::OptionTab(MyWidget).SetupTab(L"Settings", 0);
+        auto Tab2Builder = UI::OptionTab(MyWidget).SetupTab(L"Visuals", 1);
 
         UObject* Tab1Widget = Tab1Builder.Build();
         UObject* Tab2Widget = Tab2Builder.Build();
-
-        if (ActiveTab == 0) Utils::CallFunction(Tab1Widget, STR("SetTabActive"), &bHighlight); 
-        else Utils::CallFunction(Tab2Widget, STR("SetTabActive"), &bHighlight);
 
         TabBtn1 = std::make_unique<UI::Button>(Tab1Widget);
         TabBtn1->OnClicked([this]() {
@@ -88,8 +85,8 @@ namespace DynPals {
             if (ActiveTab != 1) { ActiveTab = 1; RequestRebuild(); }
         });
 
-        TabLayout.AddToHorizontalBox(Tab1Builder, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); }).AddToHorizontalBox(Tab2Builder);
-
+        TabLayout.AddToHorizontalBox(Tab1Builder, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); })
+                 .AddToHorizontalBox(Tab2Builder);
         auto ContentContainer = UI::VerticalBox(MyWidget);
 
         if (ActiveTab == 0) {
@@ -193,6 +190,12 @@ namespace DynPals {
         //Utils::CallFunction(MyWidget, STR("Initialize")); //Redundant
         struct { int32_t ZOrder; } ViewportParams{9999};
         Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
+
+        // Call SetTabActive AFTER AddToViewport so PlayAnimation has a valid UWorld
+        struct { bool bActive; } Tab1ActiveParams{ ActiveTab == 0 };
+        struct { bool bActive; } Tab2ActiveParams{ ActiveTab == 1 };
+        Utils::CallFunction(Tab1Widget, STR("SetTabActive"), &Tab1ActiveParams);
+        Utils::CallFunction(Tab2Widget, STR("SetTabActive"), &Tab2ActiveParams);
     }
 
     void TestUI::OnTickUI() {

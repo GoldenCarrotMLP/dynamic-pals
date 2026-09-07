@@ -247,10 +247,10 @@ $IsWorkshopLocation = $false
 $PalModSettingsPath = Join-Path $PalworldPath "Mods\PalModSettings.ini"
 if (Test-Path $PalModSettingsPath) {
     $IniContent = Get-Content $PalModSettingsPath
-    $Match = $IniContent | Select-String -Pattern "^WorkshopRootDir=(.*)$"
+    $Match = $IniContent | Select-String -Pattern "^\s*WorkshopRootDir\s*=\s*(.+)$"
     if ($Match) {
-        $WorkshopRootDir = $Match.Matches[0].Groups[1].Value.Trim()
-        if (Test-Path $WorkshopRootDir) {
+        $WorkshopRootDir = $Match.Matches[0].Groups[1].Value.Trim().Trim('"').Trim("'")
+        if (-not [string]::IsNullOrWhiteSpace($WorkshopRootDir) -and (Test-Path $WorkshopRootDir)) {
             $FoundUE4SS = Get-ChildItem -Path $WorkshopRootDir -Filter "UE4SS.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($FoundUE4SS) {
                 $Ue4ssRoot = $FoundUE4SS.Directory.FullName

@@ -78,12 +78,12 @@ struct SwapConfig {
     int MinTrust = 0;        
     int MaxTrust = 999999;   
     int MinRank = 0;         
-    int MaxRank = 5;         
+    int MaxRank = 999; // <--- Changed from 5 to 999 for modded rank compatibility
     double SpawnWeight = 1;          
     std::optional<bool> IsRarePal; 
     std::optional<bool> IsWildPal; 
-    double MinSizeMultiplier = 1.0;  // Added min scale range
-    double MaxSizeMultiplier = 1.0;  // Added max scale range
+    double MinSizeMultiplier = 1.0;
+    double MaxSizeMultiplier = 1.0;
     std::vector<std::wstring> ReqSwap;
     std::vector<std::wstring> ReqTrait;
     std::vector<std::wstring> PrefTrait;
@@ -97,6 +97,7 @@ struct SwapEvaluation {
     int ConfigIndex;
     bool IsValid;
     int Score;
+    std::wstring RejectionReason = L""; // <--- ADD THIS
 };
 
 struct FPalInstanceID {
@@ -117,17 +118,21 @@ struct PalPersistData {
     bool bIsManuallyLocked = false;
     double SizeMultiplier = -1.0;
     
-    // Returns true if this Pal has a modded mesh or skin applied
+    // Checks the actual composition of swap data components
     bool HasSavedSwap() const {
-        return !SkelMeshPath.empty() || !SkinName.empty();
+        return !SkelMeshPath.empty() 
+            || !SkinName.empty() 
+            || !MatSet.empty() 
+            || !MatColorSet.empty() 
+            || !MorphSet.empty();
     }
 
-    // Returns true if the user explicitly locked this Pal to Vanilla
+    // Returns true if explicitly locked to Vanilla
     bool IsVanillaLocked() const {
         return bIsManuallyLocked && !HasSavedSwap();
     }
 
-    // Determines if this record should be persisted to disk
+    // Determines if this record should be written to disk
     bool ShouldSave() const {
         return HasSavedSwap() || bIsManuallyLocked || (SizeMultiplier > 0.0 && std::abs(SizeMultiplier - 1.0) > 0.005);
     }

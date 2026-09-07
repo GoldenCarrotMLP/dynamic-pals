@@ -421,7 +421,7 @@ namespace DynPals {
                 void* SrcPtr = SrcWeaponInfoProp->ContainerPtrToValuePtr<void>(ShooterComp);
                 if (DestPtr && SrcPtr) {
                     DestWeaponInfoProp->CopyCompleteValue(DestPtr, SrcPtr);
-                    DP_LOG(Default, "[NPC] Copied PrevWeaponAnimationInfo into AnimInstance->WeaponInfo.");
+                    //DP_LOG(Default, "[NPC] Copied PrevWeaponAnimationInfo into AnimInstance->WeaponInfo.");
                 }
             }
 
@@ -466,7 +466,7 @@ namespace DynPals {
         FProperty* LayerProp = TargetCDO ? Utils::GetProperty(TargetCDO, STR("AnimLayerClass"), true) : nullptr;
         bool bIsHumanNPC = (LayerProp != nullptr);
 
-        DP_LOG(Default, "[ReLinkAnimLayers] Entity Type: {}", bIsHumanNPC ? L"Human NPC" : L"Monster Pal");
+        //DP_LOG(Default, "[ReLinkAnimLayers] Entity Type: {}", bIsHumanNPC ? L"Human NPC" : L"Monster Pal");
 
         if (bIsHumanNPC) {
             UClass* LayerClass = nullptr;
@@ -504,7 +504,7 @@ namespace DynPals {
                     struct { UClass* InClass; } LayerParams{ LayerClass };
                     if (UnlinkFunc) Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &LayerParams);
                     Utils::SafeProcessEvent(AnimInst, LinkFunc, &LayerParams);
-                    DP_LOG(Default, "[ReLinkAnimLayers] Linked Monster Layer: '{}'", LayerClass->GetName());
+                    //DP_LOG(Default, "[ReLinkAnimLayers] Linked Monster Layer: '{}'", LayerClass->GetName());
                 }
             }
         }
@@ -1538,9 +1538,7 @@ namespace DynPals {
                 if (bIsLiveEvolution) {
                     auto compAssets = VFXManager::Get().GetCompositionAssets(L"evolve_1");
                     for (const auto& p : compAssets) CheckDependency(p);
-                } else if (ForceReroll || (ExplicitSwapIndex != -1 && !IsEvolutionEnd)) {
-                    CheckDependency(L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
-                }
+                } 
 
                 if (bHasFailedDependency) {
                     DP_LOG(Error, "[Swap Aborted] Pal '{}' swap failed: Material or Mesh asset does not exist! Path: '{}'", RawCharID, failedPath);
@@ -1718,7 +1716,7 @@ namespace DynPals {
         auto ProfileStep = [&](const std::wstring& stepName) {
             auto now = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - step_start).count();
-            DP_LOG(Default, "[Profile] [ApplySwap] {} took {:.3f} ms", stepName, duration / 1000.0f);
+            //DP_LOG(Default, "[Profile] [ApplySwap] {} took {:.3f} ms", stepName, duration / 1000.0f);
             step_start = now;
         };
 
@@ -1873,8 +1871,7 @@ namespace DynPals {
 
         ResetPhysicsAndDynamics(MeshComp);
 
-        DP_LOG(Default, "Successfully applied swap '{}' from Pack '{}' to Pal '{}' (Scale: {:.2f}x)!\n", 
-               swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID, persist.SizeMultiplier);
+        //DP_LOG(Default, "Successfully applied swap '{}' from Pack '{}' to Pal '{}' (Scale: {:.2f}x)!\n", swap.SkinName.empty() ? L"Mesh Swap" : swap.SkinName, swap.PackName, CharID, persist.SizeMultiplier);
 
         auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - total_start).count();
         DP_LOG(Default, "[Profile] [ApplySwap] Done! Total ApplySwap execution took {:.3f} ms", total_duration / 1000.0f);

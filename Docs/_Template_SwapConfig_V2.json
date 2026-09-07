@@ -13,7 +13,7 @@
         "MinTrust": 0,
         "MaxTrust": 999999,
         "MinRank": 0,
-        "MaxRank": 5,
+        "MaxRank": 999,
         "SpawnWeight": 1,
         "LuckyStarReq": false,
         "IsWildPal": false,

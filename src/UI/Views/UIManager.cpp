@@ -736,7 +736,8 @@ namespace DynPals {
         double totalTiedWeight = 0.0;
         for (const auto& eval : evaluations) {
             if (eval.IsValid && eval.Score == bestScore) {
-                totalTiedWeight += ConfigManager::Get().GetConfigs()[eval.ConfigIndex].SpawnWeight;
+                double w = ConfigManager::Get().GetConfigs()[eval.ConfigIndex].SpawnWeight;
+                if (w > 0.0) totalTiedWeight += w;
             }
         }
 
@@ -1117,15 +1118,25 @@ namespace DynPals {
                 for (wchar_t& c : processedFilename) { if (c == L'_') c = L' '; }
 
                 double pct = 0.0;
-                if (eval.IsValid && eval.Score == bestScore && totalTiedWeight > 0.0) {
+                if (eval.IsValid && eval.Score == bestScore && totalTiedWeight > 0.0 && cfg.SpawnWeight > 0.0) {
                     pct = (cfg.SpawnWeight * 100.0) / totalTiedWeight;
                 }
 
                 FLinearColor_UE5 textColor = eval.IsValid ? (eval.Score < 0 ? PalBlue : (eval.Score == 0 ? Emerald : FLinearColor_UE5{0.960f, 0.620f, 0.043f, 1.0f})) : FLinearColor_UE5{0.850f, 0.150f, 0.150f, 1.0f};
 
-                wchar_t pctBuf[16];
-                swprintf(pctBuf, 16, L"%.1f", pct);
-                AddToVBox(DynamicLogBox, GetPooledText(L"    " + std::wstring(pctBuf) + L"% : " + processedFilename, textColor, 16, L"Medium"), 8.0f);
+                std::wstring logStr;
+                if (eval.IsValid) {
+                    wchar_t pctBuf[16];
+                    swprintf(pctBuf, 16, L"%.1f", pct);
+                    logStr = L"    " + std::wstring(pctBuf) + L"% : " + processedFilename;
+                } else {
+                    logStr = L"    [X] " + processedFilename;
+                    if (!eval.RejectionReason.empty()) {
+                        logStr += L" (" + eval.RejectionReason + L")";
+                    }
+                }
+
+                AddToVBox(DynamicLogBox, GetPooledText(logStr, textColor, 16, L"Medium"), 8.0f);
             }
         }
 

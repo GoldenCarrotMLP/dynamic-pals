@@ -487,12 +487,32 @@ namespace DynPals {
         }
 
         WidgetBuilder& SetupTab(const std::wstring& Name, int32_t Index) {
-            RC::Unreal::FString InString(Name.c_str());
-            struct { RC::Unreal::FString InString; RC::Unreal::FText ReturnValue; } ConvParams{ InString, RC::Unreal::FText() };
-            KTL->ProcessEvent(KTL->GetFunctionByNameInChain(STR("Conv_StringToText")), &ConvParams);
-            
-            struct { RC::Unreal::FText N; int32_t I; } Params{ConvParams.ReturnValue, Index};
-            Utils::CallFunction(Widget, STR("SetName"), &Params);
+            if (!Widget || !Utils::IsObjectValid(Widget)) return *this;
+
+            RC::Unreal::UFunction* SetNameFunc = Widget->GetFunctionByNameInChain(STR("SetName"));
+            if (!SetNameFunc) return *this;
+
+            alignas(8) uint8_t Params[256] = {0};
+            for (RC::Unreal::FProperty* Prop = (RC::Unreal::FProperty*)SetNameFunc->GetChildProperties(); Prop; Prop = (RC::Unreal::FProperty*)Utils::GetNextField(Prop)) {
+                Prop->InitializeValue_InContainer(Params);
+            }
+
+            RC::Unreal::FProperty* NameProp = SetNameFunc->GetPropertyByNameInChain(STR("Name"));
+            if (NameProp) {
+                Utils::AssignStringToTextProperty(Name, Params, NameProp);
+            }
+
+            RC::Unreal::FProperty* IndexProp = SetNameFunc->GetPropertyByNameInChain(STR("Index"));
+            if (IndexProp) {
+                *IndexProp->ContainerPtrToValuePtr<int32_t>(Params) = Index;
+            }
+
+            Utils::SafeProcessEvent(Widget, SetNameFunc, Params);
+
+            for (RC::Unreal::FProperty* Prop = (RC::Unreal::FProperty*)SetNameFunc->GetChildProperties(); Prop; Prop = (RC::Unreal::FProperty*)Utils::GetNextField(Prop)) {
+                Prop->DestroyValue_InContainer(Params);
+            }
+
             return *this;
         }
         
