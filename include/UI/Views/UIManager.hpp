@@ -49,10 +49,19 @@ namespace DynPals {
         RC::Unreal::UObject* GetCameraBoom(RC::Unreal::UObject* Pal);
         void CacheScrollOffset();
 
+        // --- Debounced Save System ---
+        bool bPendingDiskSave = false;
+        std::chrono::steady_clock::time_point LastSliderChangeTime;
+
+        void TriggerSaveDebounced();
+        void FlushPendingSave();
+
+
         // --- Camera Helper Methods ---
         void EnablePalCamera();
         void DisablePalCamera();
         void UpdatePalCameraRotation(double Yaw, bool bTeleport = false);
+
 
         // State Tracking
         bool bHideInvalidSwaps = true; 

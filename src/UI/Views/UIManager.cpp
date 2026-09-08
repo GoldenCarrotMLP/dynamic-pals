@@ -102,6 +102,19 @@ namespace DynPals {
         }
     }
 
+    // --- DEBOUNCED DISK SAVE METHODS ---
+    void UIManager::TriggerSaveDebounced() {
+        bPendingDiskSave = true;
+        LastSliderChangeTime = std::chrono::steady_clock::now();
+    }
+
+    void UIManager::FlushPendingSave() {
+        if (bPendingDiskSave) {
+            bPendingDiskSave = false;
+            SaveManager::Get().SaveWorldData();
+        }
+    }
+
     void UIManager::EnablePalCamera() {
         if (!CurrentPlayerController || !TargetPal || bIsPalCameraActive) return;
 
@@ -332,6 +345,7 @@ namespace DynPals {
     }
 
     void UIManager::OnInvalidate() {
+        FlushPendingSave();
         TargetPal = nullptr;
         TargetInstanceID = L"";
         TargetCharID = L"";
@@ -376,6 +390,8 @@ namespace DynPals {
     }
 
     void UIManager::OnClose() {
+        FlushPendingSave(); // <--- Flush any active slider save immediately
+
         if (SkinDropdown) SkinDropdown->ClosePopup();
 
         TargetPal = nullptr;
@@ -388,6 +404,7 @@ namespace DynPals {
         DisablePalCamera();
         OriginalViewTarget = nullptr;
     }
+
 
     void UIManager::PreloadUI(RC::Unreal::UObject* PC) {
         if (!SkinDropdown) {
@@ -975,9 +992,10 @@ namespace DynPals {
             CameraRotationSlider = std::make_unique<UI::Slider>(MyWidget, 0.0, 360.0, SaveManager::Get().Settings.CameraRotation);
             CameraRotationSlider->OnChanged([this](double NewValue) {
                 SaveManager::Get().Settings.CameraRotation = NewValue;
-                SaveManager::Get().SaveWorldData();
                 UpdatePalCameraRotation(NewValue);
+                TriggerSaveDebounced(); // <--- Debounce disk write!
             });
+
 
             AddToVBox(CameraRotationContainer, GetPooledText(L"Camera Rotation", White, 18, L"Medium"), 0.0f);
             AddToVBox(CameraRotationContainer, CameraRotationSlider->GetWidget(), 20.0f, 0.0f, 5.0f);
@@ -1003,7 +1021,7 @@ namespace DynPals {
                     PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
                     if (p) {
                         p->SizeMultiplier = NewValue;
-                        SaveManager::Get().SetPersistData(TargetInstanceID, *p, true);
+                        SaveManager::Get().SetPersistData(TargetInstanceID, *p, false); // <--- Pass false (memory only)
 
                         if (TargetPal && Utils::IsObjectValid(TargetPal)) {
                             UObject* MeshComp = nullptr;
@@ -1033,7 +1051,9 @@ namespace DynPals {
                             }
                         }
                     }
+                    TriggerSaveDebounced(); // <--- Debounce disk write!
                 });
+
 
                 AddToVBox(SizeSliderContainer, GetPooledText(L"Size Adjustment", Emerald, 18, L"Bold"), 0.0f);
                 AddToVBox(SizeSliderContainer, SizeSlider->GetWidget(), 15.0f, 0.0f, 5.0f);
@@ -1070,7 +1090,7 @@ namespace DynPals {
                             PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
                             if (p) {
                                 p->MorphSet[morphName] = NewValue;
-                                SaveManager::Get().SetPersistData(TargetInstanceID, *p, true);
+                                SaveManager::Get().SetPersistData(TargetInstanceID, *p, false); // <--- Pass false (memory only)
                                 
                                 UObject* MeshComp = nullptr;
                                 Utils::CallFunction(TargetPal, STR("GetMainMesh"), &MeshComp);
@@ -1081,8 +1101,8 @@ namespace DynPals {
                                     Utils::CallFunction(MeshComp, STR("SetMorphTarget"), &MorphParams);
                                 }
                             }
+                            TriggerSaveDebounced(); // <--- Debounce disk write!
                         });
-
                         AddToVBox(DynamicMorphBox, SliderCtrl->GetWidget(), 15.0f, 0.0f, 5.0f);
                     }
                 }
@@ -1108,14 +1128,31 @@ namespace DynPals {
                 auto& cfg = ConfigManager::Get().GetConfigs()[eval.ConfigIndex];
                 AddToVBox(DynamicLogBox, GetPooledText(cfg.PackName, White, 16, L"Bold"), 0.0f);
 
-                std::wstring processedFilename = cfg.SkelMeshPath;
-                size_t slash = processedFilename.find_last_of(L'/');
-                if (slash != std::wstring::npos) processedFilename = processedFilename.substr(slash + 1);
-                size_t dot = processedFilename.find(L'.');
-                if (dot != std::wstring::npos) processedFilename = processedFilename.substr(0, dot);
-
-                if (processedFilename.rfind(L"SK_", 0) == 0 || processedFilename.rfind(L"sk_", 0) == 0) processedFilename = processedFilename.substr(3);
-                for (wchar_t& c : processedFilename) { if (c == L'_') c = L' '; }
+                // --- 1. Prioritize SwapLabel ---
+                std::wstring displayLabel = StripFallbackHash(cfg.SwapLabel);
+                
+                // --- 2. Fallback to SkinName ---
+                if (displayLabel.empty()) {
+                    displayLabel = cfg.SkinName;
+                }
+                
+                // --- 3. Fallback to Skeletal Mesh Filename ---
+                if (displayLabel.empty() && !cfg.SkelMeshPath.empty()) {
+                    std::wstring meshName = cfg.SkelMeshPath;
+                    size_t slash = meshName.find_last_of(L'/');
+                    if (slash != std::wstring::npos) meshName = meshName.substr(slash + 1);
+                    size_t dot = meshName.find(L'.');
+                    if (dot != std::wstring::npos) meshName = meshName.substr(0, dot);
+                    
+                    if (meshName.rfind(L"SK_", 0) == 0 || meshName.rfind(L"sk_", 0) == 0) meshName = meshName.substr(3);
+                    for (wchar_t& c : meshName) { if (c == L'_') c = L' '; }
+                    displayLabel = meshName;
+                }
+                
+                // --- 4. Final Absolute Fallback ---
+                if (displayLabel.empty()) {
+                    displayLabel = L"(Unlabeled)";
+                }
 
                 double pct = 0.0;
                 if (eval.IsValid && eval.Score == bestScore && totalTiedWeight > 0.0 && cfg.SpawnWeight > 0.0) {
@@ -1128,14 +1165,13 @@ namespace DynPals {
                 if (eval.IsValid) {
                     wchar_t pctBuf[16];
                     swprintf(pctBuf, 16, L"%.1f", pct);
-                    logStr = L"    " + std::wstring(pctBuf) + L"% : " + processedFilename;
+                    logStr = L"    " + std::wstring(pctBuf) + L"% : " + displayLabel;
                 } else {
-                    logStr = L"    [X] " + processedFilename;
+                    logStr = L"    [X] " + displayLabel;
                     if (!eval.RejectionReason.empty()) {
                         logStr += L" (" + eval.RejectionReason + L")";
                     }
                 }
-
                 AddToVBox(DynamicLogBox, GetPooledText(logStr, textColor, 16, L"Medium"), 8.0f);
             }
         }
@@ -1172,6 +1208,19 @@ namespace DynPals {
             return;
         }
 
+        // --- DEBOUNCED DISK SAVE CHECK ---
+        if (bPendingDiskSave) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - LastSliderChangeTime
+            ).count();
+
+            if (elapsed >= 500) { // 0.5s cooldown after user stops dragging
+                bPendingDiskSave = false;
+                SaveManager::Get().SaveWorldData();
+            }
+        }
+
+        // --- AUTO-DETECT BACKGROUND SWAP & SIZE UPDATES ---
         PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
         if (p) {
             if (p->SizeMultiplier != LastObservedSize || p->SwapLabel != LastObservedLabel) {
@@ -1180,7 +1229,7 @@ namespace DynPals {
                 bNeedsRefresh = true;
             }
         }
-
+        
         if (bNeedsRefresh) {
             bNeedsRefresh = false;
             RefreshUI();

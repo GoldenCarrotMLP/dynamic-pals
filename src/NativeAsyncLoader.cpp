@@ -39,8 +39,12 @@ namespace DynPals {
     // FIFO Queue map keyed by Requester to support rapid rerolls on the same Pal actor
     static std::map<UObject*, std::deque<FBatchRequest>> GActiveBatches;
 
-    // Global C++ pointer cache for instant cross-Pal lookups
-    static std::map<std::wstring, UObject*> GGlobalPointerCache;
+    // Global C++ pointer cache for instant cross-Pal lookups (Now with TTL!)
+    struct CachedAssetPtr {
+        UObject* Ptr;
+        std::chrono::steady_clock::time_point ExpirationTime;
+    };
+    static std::map<std::wstring, CachedAssetPtr> GGlobalPointerCache;
 
     void NativeAsyncLoader::ClearCache() {
         GPendingAssets.clear();
@@ -152,22 +156,32 @@ namespace DynPals {
         }
     }
 
-    // --- GLOBAL POINTER CACHE WITH RECYCLING VERIFICATION ---
+    // --- GLOBAL POINTER CACHE WITH TIME-TO-LIVE (TTL) VERIFICATION ---
     void NativeAsyncLoader::RegisterGlobalPointer(const std::wstring& Path, UObject* Asset) {
         if (Asset && Utils::IsObjectValid(Asset)) {
-            GGlobalPointerCache[Path] = Asset;
+            // Give the raw pointer a strict 15-second lifetime.
+            // This guarantees C++ forgets the pointer BEFORE the Blueprint drops its 20-second hard reference.
+            auto Expiration = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+            GGlobalPointerCache[Path] = { Asset, Expiration };
         }
     }
 
     UObject* NativeAsyncLoader::GetGlobalPointer(const std::wstring& Path) {
         auto it = GGlobalPointerCache.find(Path);
         if (it != GGlobalPointerCache.end()) {
-            UObject* Ptr = it->second;
 
-            // 1. Basic memory validity check
+            // 1. TTL Check: If the pointer has expired, evict it immediately without dereferencing it!
+            if (std::chrono::steady_clock::now() > it->second.ExpirationTime) {
+                GGlobalPointerCache.erase(it);
+                return nullptr;
+            }
+
+            UObject* Ptr = it->second.Ptr;
+
+            // 2. Basic memory validity check
             if (Ptr && Utils::IsObjectValid(Ptr)) {
                 
-                // 2. RECYCLING CHECK: Verify the object at this address still matches the asset name!
+                // 3. RECYCLING CHECK: Verify the object at this address still matches the asset name!
                 std::wstring currentName = Ptr->GetName();
                 std::wstring lowerName = currentName;
                 std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::towlower);
@@ -179,7 +193,7 @@ namespace DynPals {
                 if (lowerPath.find(lowerName) != std::wstring::npos) {
                     return Ptr;
                 } else {
-                    DP_LOG(Verbose, "[Cache] Pointer recycling detected at {}! Expected '{}', found '{}'. Evicting.", 
+                    DP_LOG(Warning, "[Cache] Pointer recycling detected at {}! Expected '{}', found '{}'. Evicting.", 
                            (void*)Ptr, Path, currentName);
                 }
             }
@@ -362,10 +376,9 @@ namespace DynPals {
             }
         }
 
-        // Fallback cleanup if dispatch failed
+        // Fallback cleanup if dispatch failed: DO NOT put into GFailedAssets so it loads synchronously safely.
         for (const auto& path : AssetPaths) {
             GPendingAssets.erase(path);
-            //GFailedAssets.insert(path);
         }
         GPendingCount[Requester] = 0;
         return false;
@@ -440,7 +453,7 @@ namespace DynPals {
 
                         if (lowerReq.find(lowerLeafName) != std::wstring::npos) {
                             GResolvedPointers[Requester][reqPath] = Asset; 
-                            RegisterGlobalPointer(reqPath, Asset); // Register globally!
+                            RegisterGlobalPointer(reqPath, Asset);
 
                             if (!correctPath.empty()) {
                                 GCorrectCasingCache[reqPath] = correctPath;
@@ -476,7 +489,20 @@ namespace DynPals {
 
     void NativeAsyncLoader::Tick() {
         auto now = std::chrono::steady_clock::now();
+
+        // --- ACTIVE TTL SWEEP ---
+        // Purge any global pointers older than 15 seconds to prevent GC access violations.
+        for (auto it = GGlobalPointerCache.begin(); it != GGlobalPointerCache.end();) {
+            if (now > it->second.ExpirationTime) {
+                it = GGlobalPointerCache.erase(it);
+            } else {
+                ++it;
+            }
+        }
         
+        // --- BATCH TIMEOUT SWEEP ---
+        // Monitors pending async loads. If a batch hangs for >20 seconds, we force it to abort and 
+        // release the Pal so it doesn't stay stuck waiting forever.
         for (auto reqIt = GActiveBatches.begin(); reqIt != GActiveBatches.end(); ) {
             auto& queue = reqIt->second;
             

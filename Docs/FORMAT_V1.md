@@ -32,7 +32,7 @@ Version 1 is an array-based format originally created by Michael, but now heavil
 | **`ReqTrait`** | Array | No | Array of passive skill IDs the Pal **must** possess. |
 | **`PrefTrait`** | Array | No | Array of passive skill IDs the Pal **should** possess (increases match score). |
 | **`SkipTrait`** | Array | No | Array of passive skill IDs that **banned** this swap from occurring. |
-| **`MatReplaceList`** | Array | No | Array of material override objects. Contains `"Index"` (String integer or wildcard) and `"MatPath"` (String path). |
+| **`MatReplace`** | Array | No | Array of material override objects. Contains `"Index"` (String integer or wildcard) and `"MatPath"` (String path). |
 | **`MorphTargetList`** | Array | No | Array of morph slider overrides. See Morph Target sub-schema below. |
 | **`Extra`** | String/Obj | No | Extended stringified JSON or JSON object for custom metadata. |
 
@@ -72,7 +72,7 @@ Version 1 is an array-based format originally created by Michael, but now heavil
             "ReqTrait": [ "Brave" ],
             "PrefTrait": [ "Swift" ],
             "SkipTrait": [ "Coward" ],
-            "MatReplaceList": [
+            "MatReplace": [
                 {
                     "RandomHue": true,
                     "MatPath": "/Game/Pal/Model/Character/Monster/PinkCat/MI_PinkCat_Body",

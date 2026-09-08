@@ -66,13 +66,13 @@ function Install-DynamicPals($PalworldPath, $Ue4ssRoot, $ModDir, $RemoteVersion)
     
     $BaseZipUrl = "https://github.com/GoldenCarrotMLP/dynamic-pals/releases/latest/download/DynamicPals_AutoUpdate.zip"
     $ZipTempPath = Join-Path $env:TEMP "DynamicPals_Base.zip"
-    $ModsDir = Join-Path $Ue4ssRoot "Mods"
+    $ModsDir = Join-Path $Ue4ssRoot "mods"
     
     New-Item -ItemType Directory -Force -Path $ModsDir | Out-Null
 
     try {
         Invoke-WebRequest -Uri $BaseZipUrl -OutFile $ZipTempPath -UseBasicParsing
-        Write-Host "Extracting Base Package..." -ForegroundColor Cyan
+        Write-Host "Extracting Base Package to: $ModsDir" -ForegroundColor Cyan
         Expand-Archive -Path $ZipTempPath -DestinationPath $ModsDir -Force
         Remove-Item $ZipTempPath -Force
     } catch {
@@ -112,7 +112,7 @@ function Install-DynamicPals($PalworldPath, $Ue4ssRoot, $ModDir, $RemoteVersion)
         Move-Item -Path $PakTemp -Destination $FinalPakPath -Force
 
         # Ensure DynamicPals is enabled in mods.txt
-        $ModsTxt = Join-Path $Ue4ssRoot "Mods\mods.txt"
+        $ModsTxt = Join-Path $Ue4ssRoot "mods\mods.txt"
         if (Test-Path $ModsTxt) {
             $Content = Get-Content $ModsTxt -Raw
             if ($Content -notmatch "(?im)^DynamicPals\s*:") {
@@ -120,13 +120,20 @@ function Install-DynamicPals($PalworldPath, $Ue4ssRoot, $ModDir, $RemoteVersion)
             }
         }
 
-        Write-Host "Dynamic Pals successfully installed!" -ForegroundColor Green
+        Write-Host "Dynamic Pals successfully installed into: $ModDir" -ForegroundColor Green
     } catch {
         Write-Host "Failed to install Dynamic Pals. Ensure the game is closed! Error: $_" -ForegroundColor Red
     }
 }
 
-function Install-UE4SS($Win64Dir, $Ue4ssRoot) {
+function Install-UE4SS($Win64Dir, $Ue4ssRoot, $IsWorkshopLocation) {
+    if ($IsWorkshopLocation) {
+        Write-Host "`n[NOTE] You are using Steam Workshop UE4SS." -ForegroundColor Yellow
+        Write-Host "Workshop UE4SS updates automatically via Steam."
+        $Proceed = Read-Host "Do you still want to overwrite with a standalone manual build? (y/N)"
+        if ($Proceed -ne 'y' -and $Proceed -ne 'Y') { return }
+    }
+
     Write-Host "`nSelect UE4SS Branch to Install:"
     Write-Host "[1] Palworld-Experimental (Recommended, stable out-of-the-box)"
     Write-Host "[2] Latest-Experimental (Upstream experimental release)"
@@ -181,7 +188,7 @@ function Install-UE4SS($Win64Dir, $Ue4ssRoot) {
         }
 
         # Configure mods.txt
-        $ModsTxt = Join-Path $Ue4ssRoot "Mods\mods.txt"
+        $ModsTxt = Join-Path $Ue4ssRoot "mods\mods.txt"
         if (Test-Path $ModsTxt) {
             $Lines = Get-Content $ModsTxt
             $Mandatory = @{
@@ -239,31 +246,40 @@ if (-not (Test-Path $Win64Dir)) {
     exit
 }
 
-# Default UE4SS location
-$Ue4ssRoot = Join-Path $Win64Dir "ue4ss"
+# --- RESOLVE UE4SS ROOT (Manual vs Steam Workshop) ---
+$ManualUe4ss = Join-Path $Win64Dir "ue4ss"
+$WorkshopNativeUe4ss = Join-Path $PalworldPath "Mods\NativeMods\UE4SS"
+
+$Ue4ssRoot = $ManualUe4ss
 $IsWorkshopLocation = $false
 
-# Check for Steam Workshop Mod Manager overrides
-$PalModSettingsPath = Join-Path $PalworldPath "Mods\PalModSettings.ini"
-if (Test-Path $PalModSettingsPath) {
-    $IniContent = Get-Content $PalModSettingsPath
-    $Match = $IniContent | Select-String -Pattern "^\s*WorkshopRootDir\s*=\s*(.+)$"
-    if ($Match) {
-        $WorkshopRootDir = $Match.Matches[0].Groups[1].Value.Trim().Trim('"').Trim("'")
-        if (-not [string]::IsNullOrWhiteSpace($WorkshopRootDir) -and (Test-Path $WorkshopRootDir)) {
-            $FoundUE4SS = Get-ChildItem -Path $WorkshopRootDir -Filter "UE4SS.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($FoundUE4SS) {
-                $Ue4ssRoot = $FoundUE4SS.Directory.FullName
-                $IsWorkshopLocation = $true
+# 1. Check if Palworld/Mods/NativeMods/UE4SS physically exists
+if (Test-Path (Join-Path $WorkshopNativeUe4ss "UE4SS.dll") -or (Test-Path $WorkshopNativeUe4ss)) {
+    $Ue4ssRoot = $WorkshopNativeUe4ss
+    $IsWorkshopLocation = $true
+} else {
+    # 2. Check if Steam Workshop Mod Manager is configured and has UE4SS subscribed
+    $PalModSettingsPath = Join-Path $PalworldPath "Mods\PalModSettings.ini"
+    if (Test-Path $PalModSettingsPath) {
+        $IniContent = Get-Content $PalModSettingsPath -Raw
+        if ($IniContent -match "(?im)WorkshopRootDir\s*=\s*(.+)") {
+            $WorkshopRootDir = $matches[1].Trim().Trim('"').Trim("'")
+            if (-not [string]::IsNullOrWhiteSpace($WorkshopRootDir) -and (Test-Path $WorkshopRootDir)) {
+                $FoundUE4SS = Get-ChildItem -Path $WorkshopRootDir -Filter "UE4SS.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($FoundUE4SS) {
+                    # Workshop UE4SS detected; its active runtime folder is Palworld\Mods\NativeMods\UE4SS
+                    $Ue4ssRoot = $WorkshopNativeUe4ss
+                    $IsWorkshopLocation = $true
+                }
             }
         }
     }
 }
 
-$ModDir = Join-Path $Ue4ssRoot "Mods\DynamicPals"
+$ModDir = Join-Path $Ue4ssRoot "mods\DynamicPals"
 $RemoteVersionUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/refs/heads/main/dlls/version.txt"
 
-# Resolve network payload safely by casting to a standard string
+# Resolve network payload safely
 $RemoteResponse = Invoke-RestMethod -Uri $RemoteVersionUrl -UseBasicParsing -ErrorAction SilentlyContinue
 $RemoteVersionStr = ([string]$RemoteResponse).Trim()
 
@@ -274,9 +290,12 @@ while ($true) {
     Write-Host "`n======================= STATUS ==========================="
     if ($IsWorkshopLocation) {
         Write-Host "Mode       : Steam Workshop Managed" -ForegroundColor Cyan
-        Write-Host "Target Dir : $Ue4ssRoot" -ForegroundColor Gray
+        Write-Host "UE4SS Root : $Ue4ssRoot" -ForegroundColor Gray
+        Write-Host "Mod Target : $ModDir" -ForegroundColor Gray
     } else {
+        Write-Host "Mode       : Standalone / Manual" -ForegroundColor Gray
         Write-Host "Game Path  : $PalworldPath" -ForegroundColor Gray
+        Write-Host "Mod Target : $ModDir" -ForegroundColor Gray
     }
     
     # Check UE4SS Status
@@ -287,7 +306,7 @@ while ($true) {
             $HashInfo = $UE4SS_Hashes[$Hash]
             Write-Host "UE4SS      : Installed ($($HashInfo.Text))" -ForegroundColor $HashInfo.Color
         } else {
-            Write-Host "UE4SS      : Unknown or Custom Build" -ForegroundColor Yellow
+            Write-Host "UE4SS      : Installed (Custom/Workshop Build)" -ForegroundColor Green
         }
     } else {
         Write-Host "UE4SS      : Not Installed" -ForegroundColor Red
@@ -299,7 +318,7 @@ while ($true) {
     Write-Host "=========================================================="
 
     if ($IsWorkshopLocation) {
-        Write-Host "`n[NOTICE] UE4SS and DynamicPals will be installed in the Steam Workshop location!" -ForegroundColor Cyan
+        Write-Host "`n[NOTICE] Workshop UE4SS detected. DynamicPals will install into NativeMods." -ForegroundColor Cyan
     }
 
     Write-Host "`nSelect an option:"
@@ -310,7 +329,7 @@ while ($true) {
     $Choice = Read-Host "`nEnter option"
 
     if ($Choice -eq "1") {
-        Install-UE4SS $Win64Dir $Ue4ssRoot
+        Install-UE4SS $Win64Dir $Ue4ssRoot $IsWorkshopLocation
         Read-Host "`nPress Enter to return to menu..."
         Clear-Host
     } elseif ($Choice -eq "2") {
