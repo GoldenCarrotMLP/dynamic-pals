@@ -445,30 +445,45 @@ namespace DynPals {
         }
     }
 
-    static void ReLinkAnimLayers(UObject* MeshComp, UObject* TargetCDO, UObject* Character = nullptr, UObject* NewSkelMesh = nullptr) {
-        if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
+    static void ReLinkAnimLayers(UObject* MeshComp, UObject* TargetCDO, UObject* Character = nullptr, UObject* NewSkelMesh = nullptr, UClass* PreExistingImplClass = nullptr) {
+        if (!MeshComp || !Utils::IsObjectValid(MeshComp)) {
+            DP_LOG(Error, "[ReLinkAnimLayers] FAILED: MeshComp is null or invalid.");
+            return;
+        }
+
         UObject* AnimInst = nullptr;
         Utils::CallFunction(MeshComp, STR("GetAnimInstance"), &AnimInst);
-        if (!AnimInst || !Utils::IsObjectValid(AnimInst)) return;
+        if (!AnimInst || !Utils::IsObjectValid(AnimInst)) {
+            DP_LOG(Error, "[ReLinkAnimLayers] FAILED: GetAnimInstance returned null on MeshComp '{}'.", MeshComp->GetName());
+            return;
+        }
 
         UFunction* LinkFunc = AnimInst->GetFunctionByNameInChain(STR("LinkAnimClassLayers"));
         UFunction* UnlinkFunc = AnimInst->GetFunctionByNameInChain(STR("UnlinkAnimClassLayers"));
-        if (!LinkFunc) return;
-        
+        if (!LinkFunc) {
+            DP_LOG(Error, "[ReLinkAnimLayers] FAILED: 'LinkAnimClassLayers' function not found on AnimInstance '{}'.", AnimInst->GetName());
+            return;
+        }
+
+        UClass* MainAnimClass = AnimInst->GetClassPrivate();
+        DP_LOG(Default, "[ReLinkAnimLayers] Processing AnimInstance '{}' (Class: '{}') on Character '{}'",
+            AnimInst->GetName(), MainAnimClass ? MainAnimClass->GetName() : L"None",
+            Character ? Character->GetName() : L"Unknown");
+
         bool bHasCustomPhysics = false;
         if (NewSkelMesh && Utils::IsObjectValid(NewSkelMesh)) {
             UClass* PPClass = nullptr;
             if (Utils::GetPropertyValue<UClass*>(NewSkelMesh, STR("PostProcessAnimBlueprint"), PPClass) && PPClass) {
                 bHasCustomPhysics = true;
+                DP_LOG(Default, "[ReLinkAnimLayers] NewSkelMesh provides custom PostProcessAnimBlueprint ('{}').", PPClass->GetName());
             }
         }
 
         FProperty* LayerProp = TargetCDO ? Utils::GetProperty(TargetCDO, STR("AnimLayerClass"), true) : nullptr;
         bool bIsHumanNPC = (LayerProp != nullptr);
 
-        //DP_LOG(Default, "[ReLinkAnimLayers] Entity Type: {}", bIsHumanNPC ? L"Human NPC" : L"Monster Pal");
-
         if (bIsHumanNPC) {
+            DP_LOG(Default, "[ReLinkAnimLayers] Character identified as Human NPC.");
             UClass* LayerClass = nullptr;
             Utils::GetPropertyValue<UClass*>(TargetCDO, STR("AnimLayerClass"), LayerClass, true);
             if (LayerClass && Utils::IsObjectValid(LayerClass)) {
@@ -478,33 +493,116 @@ namespace DynPals {
                 
                 if (!bHasCustomPhysics) {
                     Utils::SafeProcessEvent(AnimInst, LinkFunc, &LayerParams);
-                    DP_LOG(Default, "[ReLinkAnimLayers] Linked NPC AnimLayerClass: '{}'", LayerClass->GetName());
+                    DP_LOG(Default, "[ReLinkAnimLayers] Successfully linked NPC AnimLayerClass: '{}'", LayerClass->GetName());
                 } else {
                     DP_LOG(Default, "[ReLinkAnimLayers] Skipped linking vanilla AnimLayerClass because custom mesh provides PostProcessAnimBlueprint.");
                 }
+            } else {
+                DP_LOG(Warning, "[ReLinkAnimLayers] Human NPC TargetCDO has null or invalid AnimLayerClass.");
             }
 
             if (IsValidPalActor(Character)) {
                 RefreshNPCShooterAnime(Character, AnimInst);
             }
         } else {
-            std::vector<std::wstring> StandardLayers = {
-                L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterBase.ALI_MonsterBase_C"
-            };
-            
-            if (!bHasCustomPhysics) {
-                StandardLayers.push_back(L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C");
-            } else {
-                DP_LOG(Default, "[ReLinkAnimLayers] Skipped linking ALI_MonsterPhysics because custom mesh provides PostProcessAnimBlueprint.");
+            DP_LOG(Default, "[ReLinkAnimLayers] Character identified as Monster Pal.");
+
+            // 1. Resolve Monster Implementation Anim Layer (contains Foot IK Control Rig & Virtual Bones)
+            UClass* ImplClass = nullptr;
+
+            // Priority A: Use captured pre-existing implementation layer if valid
+            if (PreExistingImplClass && Utils::IsObjectValid(PreExistingImplClass)) {
+                ImplClass = PreExistingImplClass;
+                DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Using captured pre-existing implementation layer: '{}'", ImplClass->GetName());
             }
 
-            for (const auto& LayerPath : StandardLayers) {
-                UClass* LayerClass = static_cast<UClass*>(Utils::LoadAssetInternal(LayerPath, false));
-                if (LayerClass && Utils::IsObjectValid(LayerClass)) {
-                    struct { UClass* InClass; } LayerParams{ LayerClass };
-                    if (UnlinkFunc) Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &LayerParams);
-                    Utils::SafeProcessEvent(AnimInst, LinkFunc, &LayerParams);
-                    //DP_LOG(Default, "[ReLinkAnimLayers] Linked Monster Layer: '{}'", LayerClass->GetName());
+            // Priority B: Derive from MainAnimClass path (.../PalActorBP/<Pal>/ABP_<Pal>.ABP_<Pal>_C -> .../ABP_<Pal>_Implementation.ABP_<Pal>_Implementation_C)
+            if (!ImplClass && MainAnimClass && Utils::IsObjectValid(MainAnimClass)) {
+                std::wstring animPath = MainAnimClass->GetPathName();
+                size_t dotPos = animPath.find(L'.');
+                size_t slashPos = animPath.find_last_of(L'/');
+                if (slashPos != std::wstring::npos) {
+                    std::wstring dir = animPath.substr(0, slashPos + 1);
+                    std::wstring leaf = (dotPos != std::wstring::npos) ? animPath.substr(slashPos + 1, dotPos - slashPos - 1) : animPath.substr(slashPos + 1);
+                    
+                    if (leaf.length() > 2 && leaf.substr(leaf.length() - 2) == L"_C") {
+                        leaf = leaf.substr(0, leaf.length() - 2);
+                    }
+
+                    std::wstring candidatePath = dir + leaf + L"_Implementation." + leaf + L"_Implementation_C";
+                    DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Probing derived implementation path: '{}'", candidatePath);
+
+                    UClass* LoadedClass = static_cast<UClass*>(Utils::LoadAssetInternal(candidatePath, false));
+                    if (LoadedClass && Utils::IsObjectValid(LoadedClass)) {
+                        ImplClass = LoadedClass;
+                        DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Successfully resolved derived implementation layer: '{}'", ImplClass->GetName());
+                    }
+                }
+            }
+
+            // Priority C: Probe based on Pal CharacterID
+            if (!ImplClass && Character && Utils::IsObjectValid(Character)) {
+                UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+                struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
+                if (PalUtil) Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetCharacterIDFromCharacter")), &CharIDParams);
+                
+                std::wstring CharID = StripCharacterPrefix(CharIDParams.RetVal.ToString());
+
+                std::vector<std::wstring> ProbePaths = {
+                    L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + CharID + L"/ABP_" + CharID + L"_Implementation.ABP_" + CharID + L"_Implementation_C",
+                    L"/Game/Pal/Blueprint/Character/Monster/" + CharID + L"/ABP_" + CharID + L"_Implementation.ABP_" + CharID + L"_Implementation_C"
+                };
+
+                for (const auto& probe : ProbePaths) {
+                    DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Probing CharID fallback path: '{}'", probe);
+                    UClass* LoadedClass = static_cast<UClass*>(Utils::LoadAssetInternal(probe, false));
+                    if (LoadedClass && Utils::IsObjectValid(LoadedClass)) {
+                        ImplClass = LoadedClass;
+                        DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Resolved CharID fallback implementation layer: '{}'", ImplClass->GetName());
+                        break;
+                    }
+                }
+            }
+
+            // 2. Link the Implementation Layer (Foot IK Control Rig & Virtual Bones)
+            if (ImplClass && Utils::IsObjectValid(ImplClass)) {
+                struct { UClass* InClass; } ImplParams{ ImplClass };
+                if (UnlinkFunc) Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &ImplParams);
+                Utils::SafeProcessEvent(AnimInst, LinkFunc, &ImplParams);
+                DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] LINK SUCCESS: Linked monster implementation layer '{}' to AnimInstance '{}'.",
+                    ImplClass->GetName(), AnimInst->GetName());
+            } else {
+                DP_LOG(Error, "[ReLinkAnimLayers] [FootIK] LINK FAILED: Could not resolve any implementation AnimBlueprint for Pal '{}'. Foot IK will be inactive!",
+                    Character ? Character->GetName() : L"Unknown");
+            }
+
+            // 3. Link Secondary Monster Physics Layer (ALI_MonsterPhysics_C)
+            if (!bHasCustomPhysics) {
+                std::wstring PhysicsLayerPath = L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C";
+                UClass* PhysicsClass = static_cast<UClass*>(Utils::LoadAssetInternal(PhysicsLayerPath, false));
+                if (PhysicsClass && Utils::IsObjectValid(PhysicsClass)) {
+                    struct { UClass* InClass; } PhysParams{ PhysicsClass };
+                    if (UnlinkFunc) Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &PhysParams);
+                    Utils::SafeProcessEvent(AnimInst, LinkFunc, &PhysParams);
+                    DP_LOG(Default, "[ReLinkAnimLayers] [Physics] Successfully linked secondary physics layer: '{}'", PhysicsClass->GetName());
+                } else {
+                    DP_LOG(Warning, "[ReLinkAnimLayers] [Physics] Failed to load ALI_MonsterPhysics layer at '{}'.", PhysicsLayerPath);
+                }
+            } else {
+                DP_LOG(Default, "[ReLinkAnimLayers] [Physics] Skipped ALI_MonsterPhysics (custom mesh provides PostProcessAnimBlueprint).");
+            }
+        }
+
+        // Verification: Log all active linked layers currently attached to the mesh
+        FProperty* LinkedProp = Utils::GetProperty(MeshComp, STR("LinkedInstances"), true);
+        if (LinkedProp) {
+            TArray<UObject*>* LinkedArray = LinkedProp->ContainerPtrToValuePtr<TArray<UObject*>>(MeshComp);
+            if (LinkedArray) {
+                DP_LOG(Default, "[ReLinkAnimLayers] Verification: MeshComp currently has {} active linked instance(s):", LinkedArray->Num());
+                for (int32_t i = 0; i < LinkedArray->Num(); ++i) {
+                    UObject* Inst = (*LinkedArray)[i];
+                    DP_LOG(Default, "  -> [{}] Name: '{}' | Class: '{}'",
+                        i, Inst ? Inst->GetName() : L"null", Inst ? Inst->GetClassPrivate()->GetName() : L"null");
                 }
             }
         }
@@ -517,11 +615,24 @@ namespace DynPals {
         }
     }
 
-    static void RefreshFacialModule(UObject* Character, UObject* MeshComp) {
+    static void RefreshFacialModule(UObject* Character, UObject* MeshComp, UObject* TargetCDO = nullptr, const SwapConfig* CurrentSwap = nullptr) {
         if (!IsValidPalActor(Character) || !MeshComp || !Utils::IsObjectValid(MeshComp)) return;
 
+        // 1. Resolve Face Mesh Component (Human characters / Player have an OverrideFaceMesh like HeadMesh; Pals use MainMesh)
+        UObject* FaceMeshComp = nullptr;
+        UFunction* GetFaceMeshFunc = Character->GetFunctionByNameInChain(STR("GetOverrideFaceMesh"));
+        if (GetFaceMeshFunc) {
+            struct { UObject* ReturnValue; } FaceParams{ nullptr };
+            Utils::SafeProcessEvent(Character, GetFaceMeshFunc, &FaceParams);
+            FaceMeshComp = FaceParams.ReturnValue;
+        }
+        if (!FaceMeshComp || !Utils::IsObjectValid(FaceMeshComp)) {
+            FaceMeshComp = MeshComp;
+        }
+
+        // 2. Resolve PalFacialComponent on Character
         UObject* FacialComp = nullptr;
-        Utils::GetPropertyValue<UObject*>(Character, STR("PalFacial"), FacialComp);
+        Utils::GetPropertyValue<UObject*>(Character, STR("PalFacial"), FacialComp, true);
         if (!FacialComp || !Utils::IsObjectValid(FacialComp)) {
             UClass* FacialClass = Utils::GetClassCached(STR("/Script/Pal.PalFacialComponent"));
             if (FacialClass) {
@@ -531,21 +642,382 @@ namespace DynPals {
             }
         }
 
-        if (FacialComp && Utils::IsObjectValid(FacialComp)) {
-            UObject* MainModule = nullptr;
-            if (Utils::GetPropertyValue<UObject*>(FacialComp, STR("MainModule"), MainModule) && MainModule && Utils::IsObjectValid(MainModule)) {
-                struct { UObject* SkeletalMeshComponent; } SetupParams{ MeshComp };
-                UFunction* SetupFunc = MainModule->GetFunctionByNameInChain(STR("Setup_FacialModule"));
-                if (SetupFunc) {
-                    Utils::SafeProcessEvent(MainModule, SetupFunc, &SetupParams);
-                } else {
-                    DP_LOG(Warning, "[Facial] MainModule on Pal '{}' is missing 'Setup_FacialModule' function. Face textures may stretch.", Character->GetName());
-                } 
-            } else {
-                DP_LOG(Warning, "[Facial] Failed to retrieve 'MainModule' from FacialComponent on Pal '{}'.", Character->GetName());
-            }
-        } else {
+        if (!FacialComp || !Utils::IsObjectValid(FacialComp)) {
             DP_LOG(Verbose, "[Facial] FacialComponent not found on Pal '{}'.", Character->GetName());
+            return;
+        }
+
+        // 3. Resolve MainModule on FacialComp
+        UObject* MainModule = nullptr;
+        Utils::GetPropertyValue<UObject*>(FacialComp, STR("MainModule"), MainModule, true);
+        if (!MainModule || !Utils::IsObjectValid(MainModule)) {
+            DP_LOG(Warning, "[Facial] MainModule on Pal '{}' is null.", Character->GetName());
+            return;
+        }
+
+        // 4. Resolve TargetCDO if not provided
+        if (!TargetCDO || !Utils::IsObjectValid(TargetCDO)) {
+            UClass* CharClass = Character->GetClassPrivate();
+            TargetCDO = CharClass ? CharClass->GetClassDefaultObject() : nullptr;
+        }
+
+        UObject* TargetFacialComp = nullptr;
+        UObject* TargetMainModule = nullptr;
+        if (TargetCDO && Utils::IsObjectValid(TargetCDO)) {
+            Utils::GetPropertyValue<UObject*>(TargetCDO, STR("PalFacial"), TargetFacialComp, true);
+            if (TargetFacialComp && Utils::IsObjectValid(TargetFacialComp)) {
+                Utils::GetPropertyValue<UObject*>(TargetFacialComp, STR("MainModule"), TargetMainModule, true);
+            }
+        }
+
+        // 5. Synchronize morph & blendshape settings from TargetMainModule to MainModule
+        if (TargetMainModule && TargetMainModule != MainModule && Utils::IsObjectValid(TargetMainModule)) {
+            static const wchar_t* const MainModuleSyncProps[] = {
+                STR("MorphSetting_Eye"),
+                STR("MorphSetting_Mouth"),
+                STR("BlendShape_TypeEyeWeight"),
+                STR("BlendShape_TypeMouthWeight"),
+                STR("BlendShape_EyeWeight"),
+                STR("BlendShape_MouthWeight")
+            };
+            for (const wchar_t* propName : MainModuleSyncProps) {
+                FProperty* SrcProp = Utils::GetProperty(TargetMainModule, propName, true);
+                FProperty* DestProp = Utils::GetProperty(MainModule, propName, true);
+                if (SrcProp && DestProp) {
+                    void* SrcPtr = SrcProp->ContainerPtrToValuePtr<void>(TargetMainModule);
+                    void* DestPtr = DestProp->ContainerPtrToValuePtr<void>(MainModule);
+                    if (SrcPtr && DestPtr) {
+                        DestProp->CopyCompleteValue(DestPtr, SrcPtr);
+                    }
+                }
+            }
+        }
+
+        if (TargetFacialComp && TargetFacialComp != FacialComp && Utils::IsObjectValid(TargetFacialComp)) {
+            float TalkSpeed = 1.0f;
+            if (Utils::GetPropertyValue<float>(TargetFacialComp, STR("NPCTalkMouthChangeSpeed"), TalkSpeed, true)) {
+                Utils::SetPropertyValue<float>(FacialComp, STR("NPCTalkMouthChangeSpeed"), TalkSpeed, true);
+            }
+            UObject* Curve = nullptr;
+            if (Utils::GetPropertyValue<UObject*>(TargetFacialComp, STR("NPCTalkMouthWeightCurve"), Curve, true)) {
+                Utils::SetPropertyValue<UObject*>(FacialComp, STR("NPCTalkMouthWeightCurve"), Curve, true);
+            }
+        }
+
+        // 6. Read base candidate indices
+        int32 BaseEyeIndex = -1;
+        int32 BaseMouthIndex = -1;
+        int32 BaseBrowIndex = -1;
+        bool bTargetEnableBlink = true;
+
+        UObject* IndexSourceModule = (TargetMainModule && Utils::IsObjectValid(TargetMainModule)) ? TargetMainModule : MainModule;
+        Utils::GetPropertyValue<int32>(IndexSourceModule, STR("EyeMaterialIndex"), BaseEyeIndex, true);
+        Utils::GetPropertyValue<int32>(IndexSourceModule, STR("MouthMaterialIndex"), BaseMouthIndex, true);
+        Utils::GetPropertyValue<int32>(IndexSourceModule, STR("BrowMaterialIndex"), BaseBrowIndex, true);
+
+        if (TargetFacialComp && Utils::IsObjectValid(TargetFacialComp)) {
+            Utils::GetPropertyValue<bool>(TargetFacialComp, STR("bIsEnableEyeBlink"), bTargetEnableBlink, true);
+        } else {
+            Utils::GetPropertyValue<bool>(FacialComp, STR("bIsEnableEyeBlink"), bTargetEnableBlink, true);
+        }
+
+        // 7. Query material slots on FaceMeshComp
+        struct { int32_t RetVal; } NumMatParams{ 0 };
+        Utils::CallFunction(FaceMeshComp, STR("GetNumMaterials"), &NumMatParams);
+        int32 NumMaterials = NumMatParams.RetVal;
+
+        if (NumMaterials <= 0) {
+            Utils::SetPropertyValue<int32>(MainModule, STR("EyeMaterialIndex"), -1, true);
+            Utils::SetPropertyValue<int32>(MainModule, STR("MouthMaterialIndex"), -1, true);
+            Utils::SetPropertyValue<int32>(MainModule, STR("BrowMaterialIndex"), -1, true);
+            Utils::SetPropertyValue<bool>(FacialComp, STR("bIsEnableEyeBlink"), false, true);
+            return;
+        }
+
+        std::vector<std::wstring> SlotNames(NumMaterials);
+        std::vector<std::wstring> MatNames(NumMaterials);
+
+        UFunction* GetSlotNamesFunc = FaceMeshComp->GetFunctionByNameInChain(STR("GetMaterialSlotNames"));
+        if (GetSlotNamesFunc) {
+            alignas(8) uint8_t SlotParams[128] = {0};
+            Utils::SafeProcessEvent(FaceMeshComp, GetSlotNamesFunc, SlotParams);
+            FProperty* RetProp = GetSlotNamesFunc->GetPropertyByNameInChain(STR("ReturnValue"));
+            if (RetProp) {
+                TArray<FName>* Arr = RetProp->ContainerPtrToValuePtr<TArray<FName>>(SlotParams);
+                if (Arr) {
+                    for (int32 i = 0; i < Arr->Num() && i < NumMaterials; ++i) {
+                        SlotNames[i] = (*Arr)[i].ToString();
+                    }
+                }
+            }
+        }
+
+        for (int32 i = 0; i < NumMaterials; ++i) {
+            struct { int32 ElementIndex; UObject* ReturnValue; } GetMatParams{ i, nullptr };
+            Utils::CallFunction(FaceMeshComp, STR("GetMaterial"), &GetMatParams);
+            if (GetMatParams.ReturnValue && Utils::IsObjectValid(GetMatParams.ReturnValue)) {
+                MatNames[i] = GetMatParams.ReturnValue->GetName();
+            }
+        }
+
+        auto ToLowerW = [](std::wstring s) {
+            std::transform(s.begin(), s.end(), s.begin(), ::towlower);
+            return s;
+        };
+
+        auto ContainsAny = [](const std::wstring& haystack, const std::vector<std::wstring>& needles) {
+            for (const auto& n : needles) {
+                if (haystack.find(n) != std::wstring::npos) return true;
+            }
+            return false;
+        };
+
+        auto IsEyeSlot = [&](int32 index) -> bool {
+            if (index < 0 || index >= NumMaterials) return false;
+            std::wstring sName = ToLowerW(SlotNames[index]);
+            std::wstring mName = ToLowerW(MatNames[index]);
+
+            std::vector<std::wstring> negative = { L"body", L"cloth", L"armor", L"skin", L"hair", L"weapon", L"tail", L"wing", L"horn" };
+            if (ContainsAny(sName, negative) && !ContainsAny(sName, { L"eye", L"pupil" })) return false;
+            if (ContainsAny(mName, negative) && !ContainsAny(mName, { L"eye", L"pupil" })) return false;
+
+            std::vector<std::wstring> eyeKeywords = { L"eye", L"pupil", L"hitomi", L"iris", L"eyeball", L"_me", L"me_" };
+            return ContainsAny(sName, eyeKeywords) || ContainsAny(mName, eyeKeywords);
+        };
+
+        auto IsMouthSlot = [&](int32 index) -> bool {
+            if (index < 0 || index >= NumMaterials) return false;
+            std::wstring sName = ToLowerW(SlotNames[index]);
+            std::wstring mName = ToLowerW(MatNames[index]);
+
+            std::vector<std::wstring> mouthKeywords = { L"mouth", L"kuchi", L"lip", L"teeth", L"fang", L"tongue" };
+            return ContainsAny(sName, mouthKeywords) || ContainsAny(mName, mouthKeywords);
+        };
+
+        auto IsBrowSlot = [&](int32 index) -> bool {
+            if (index < 0 || index >= NumMaterials) return false;
+            std::wstring sName = ToLowerW(SlotNames[index]);
+            std::wstring mName = ToLowerW(MatNames[index]);
+
+            std::vector<std::wstring> browKeywords = { L"brow", L"mayu", L"eyebrow" };
+            return ContainsAny(sName, browKeywords) || ContainsAny(mName, browKeywords);
+        };
+
+        auto IsExplicitNonFacial = [&](int32 index) -> bool {
+            if (index < 0 || index >= NumMaterials) return false;
+            std::wstring sName = ToLowerW(SlotNames[index]);
+            std::wstring mName = ToLowerW(MatNames[index]);
+            std::vector<std::wstring> nonFacial = { L"body", L"cloth", L"armor", L"hair", L"weapon", L"tail", L"wing", L"horn", L"fur", L"skin" };
+            bool hasNonFacial = ContainsAny(sName, nonFacial) || ContainsAny(mName, nonFacial);
+            bool hasFacial = ContainsAny(sName, { L"eye", L"mouth", L"brow" }) || ContainsAny(mName, { L"eye", L"mouth", L"brow" });
+            return hasNonFacial && !hasFacial;
+        };
+
+        // 8. Align Real Eye Index
+        int32 ResolvedEyeIndex = -1;
+        if (BaseEyeIndex >= 0 && BaseEyeIndex < NumMaterials) {
+            if (IsEyeSlot(BaseEyeIndex)) {
+                ResolvedEyeIndex = BaseEyeIndex;
+            } else if (IsExplicitNonFacial(BaseEyeIndex)) {
+                ResolvedEyeIndex = -1; // Candidate points to body/armor/etc. Re-scan required!
+            } else {
+                ResolvedEyeIndex = BaseEyeIndex;
+            }
+        }
+
+        if (ResolvedEyeIndex == -1) {
+            for (int32 i = 0; i < NumMaterials; ++i) {
+                if (IsEyeSlot(i)) {
+                    ResolvedEyeIndex = i;
+                    DP_LOG(Default, "[Facial] Realigned eye slot index for Pal '{}': {} ('{}' / '{}')",
+                        Character->GetName(), i, SlotNames[i], MatNames[i]);
+                    break;
+                }
+            }
+        }
+
+        // 9. Align Mouth & Brow Indices
+        int32 ResolvedMouthIndex = -1;
+        if (BaseMouthIndex >= 0 && BaseMouthIndex < NumMaterials) {
+            if (IsMouthSlot(BaseMouthIndex)) {
+                ResolvedMouthIndex = BaseMouthIndex;
+            } else if (IsExplicitNonFacial(BaseMouthIndex)) {
+                ResolvedMouthIndex = -1;
+            } else {
+                ResolvedMouthIndex = BaseMouthIndex;
+            }
+        }
+        if (ResolvedMouthIndex == -1) {
+            for (int32 i = 0; i < NumMaterials; ++i) {
+                if (i != ResolvedEyeIndex && IsMouthSlot(i)) {
+                    ResolvedMouthIndex = i;
+                    break;
+                }
+            }
+        }
+
+        int32 ResolvedBrowIndex = -1;
+        if (BaseBrowIndex >= 0 && BaseBrowIndex < NumMaterials) {
+            if (IsBrowSlot(BaseBrowIndex)) {
+                ResolvedBrowIndex = BaseBrowIndex;
+            } else if (IsExplicitNonFacial(BaseBrowIndex)) {
+                ResolvedBrowIndex = -1;
+            } else {
+                ResolvedBrowIndex = BaseBrowIndex;
+            }
+        }
+        if (ResolvedBrowIndex == -1) {
+            for (int32 i = 0; i < NumMaterials; ++i) {
+                if (i != ResolvedEyeIndex && i != ResolvedMouthIndex && IsBrowSlot(i)) {
+                    ResolvedBrowIndex = i;
+                    break;
+                }
+            }
+        }
+
+        // 10. Check if MatReplace overrides the eye slot with a non-blinking material
+        bool bEyeReplacedWithNonBlink = false;
+        if (CurrentSwap && ResolvedEyeIndex >= 0) {
+            std::string eyeIndexStr = std::to_string(ResolvedEyeIndex);
+            for (const auto& matRep : CurrentSwap->MatReplaceList) {
+                if (matRep.index == eyeIndexStr) {
+                    std::wstring repPath = ToLowerW(matRep.matPath);
+                    bool bRepIsEye = ContainsAny(repPath, { L"eye", L"pupil", L"hitomi", L"iris" });
+                    if (!bRepIsEye) {
+                        bEyeReplacedWithNonBlink = true;
+                        DP_LOG(Default, "[Facial] Eye slot {} overridden by non-eye material '{}'. Disabling blink.", ResolvedEyeIndex, matRep.matPath);
+                        break;
+                    }
+                }
+            }
+        }
+        if (bEyeReplacedWithNonBlink) {
+            ResolvedEyeIndex = -1;
+        }
+
+        // 11. Check JSON Extra flags for explicit blink disabling
+        bool bDisableBlinkConfig = false;
+        if (CurrentSwap && !CurrentSwap->Extra.empty() && CurrentSwap->Extra != L"{}") {
+            std::wstring lowerExtra = ToLowerW(CurrentSwap->Extra);
+            if (lowerExtra.find(L"disableblink") != std::wstring::npos || 
+                lowerExtra.find(L"disable_blink") != std::wstring::npos ||
+                lowerExtra.find(L"disablefacial") != std::wstring::npos) {
+                bDisableBlinkConfig = true;
+            }
+        }
+        if (bDisableBlinkConfig) {
+            ResolvedEyeIndex = -1;
+            ResolvedMouthIndex = -1;
+            ResolvedBrowIndex = -1;
+        }
+
+        bool bShouldEnableBlink = (ResolvedEyeIndex >= 0) && bTargetEnableBlink && !bEyeReplacedWithNonBlink && !bDisableBlinkConfig;
+
+        // 12. CLEANUP / DE-SETUP OF DYNAMIC MATERIALS ON NON-FACIAL SLOTS
+        for (int32 i = 0; i < NumMaterials; ++i) {
+            bool bIsActiveFacialSlot = (bShouldEnableBlink && i == ResolvedEyeIndex) || 
+                                       (ResolvedMouthIndex >= 0 && i == ResolvedMouthIndex) || 
+                                       (ResolvedBrowIndex >= 0 && i == ResolvedBrowIndex);
+
+            if (!bIsActiveFacialSlot) {
+                struct { int32 ElementIndex; UObject* ReturnValue; } MatCheck{ i, nullptr };
+                Utils::CallFunction(FaceMeshComp, STR("GetMaterial"), &MatCheck);
+                UObject* CurMat = MatCheck.ReturnValue;
+
+                if (CurMat && Utils::IsObjectValid(CurMat)) {
+                    std::wstring matClassName = CurMat->GetClassPrivate()->GetName();
+                    if (matClassName.find(L"MaterialInstanceDynamic") != std::wstring::npos) {
+                        // Preserve deliberate bRandomHue materials applied by ApplyMaterialOverrides
+                        bool bIsRandomHueSlot = false;
+                        if (CurrentSwap) {
+                            std::string idxStr = std::to_string(i);
+                            for (const auto& mr : CurrentSwap->MatReplaceList) {
+                                if (mr.index == idxStr && mr.bRandomHue) {
+                                    bIsRandomHueSlot = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!bIsRandomHueSlot) {
+                            // De-setup: restore clean material or clear dynamic override
+                            bool bRestored = false;
+                            if (CurrentSwap) {
+                                std::string idxStr = std::to_string(i);
+                                for (const auto& mr : CurrentSwap->MatReplaceList) {
+                                    if (mr.index == idxStr && !mr.matPath.empty() && !mr.bRandomHue) {
+                                        UObject* BaseMat = Utils::LoadAssetSafely(mr.matPath);
+                                        if (BaseMat && Utils::IsObjectValid(BaseMat)) {
+                                            struct { int32 ElementIndex; UObject* Material; } SetMatParams{ i, BaseMat };
+                                            Utils::CallFunction(FaceMeshComp, STR("SetMaterial"), &SetMatParams);
+                                            bRestored = true;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!bRestored) {
+                                struct { int32 ElementIndex; UObject* Material; } ClearMatParams{ i, nullptr };
+                                Utils::CallFunction(FaceMeshComp, STR("SetMaterial"), &ClearMatParams);
+                            }
+                            DP_LOG(Default, "[Facial] De-setup slot {}: Cleared active dynamic material.", i);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 13. Update MainModule slot indices & clear cached dynamic material pointers
+        Utils::SetPropertyValue<int32>(MainModule, STR("EyeMaterialIndex"), ResolvedEyeIndex, true);
+        Utils::SetPropertyValue<int32>(MainModule, STR("MouthMaterialIndex"), ResolvedMouthIndex, true);
+        Utils::SetPropertyValue<int32>(MainModule, STR("BrowMaterialIndex"), ResolvedBrowIndex, true);
+
+        for (FProperty* Prop = (FProperty*)MainModule->GetClassPrivate()->GetChildProperties(); Prop; Prop = (FProperty*)Utils::GetNextField(Prop)) {
+            if (FObjectProperty* ObjProp = CastField<FObjectProperty>(Prop)) {
+                std::wstring propName = Prop->GetName();
+                if (propName.find(L"Material") != std::wstring::npos || propName.find(L"MID") != std::wstring::npos || propName.find(L"Instance") != std::wstring::npos) {
+                    void* ContainerPtr = ObjProp->ContainerPtrToValuePtr<void>(MainModule);
+                    if (ContainerPtr) {
+                        UObject* ExistingObj = *reinterpret_cast<UObject**>(ContainerPtr);
+                        if (ExistingObj && Utils::IsObjectValid(ExistingObj)) {
+                            if (ExistingObj->GetClassPrivate()->GetName().find(L"MaterialInstanceDynamic") != std::wstring::npos) {
+                                *reinterpret_cast<UObject**>(ContainerPtr) = nullptr;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 14. Update FacialComponent blink and notify state
+        Utils::SetPropertyValue<bool>(FacialComp, STR("bIsEnableEyeBlink"), bShouldEnableBlink, true);
+        struct { bool Disable; } DisableNotifyParams{ !bShouldEnableBlink };
+        Utils::CallFunction(FacialComp, STR("SetDisableNotify"), &DisableNotifyParams);
+
+        if (!bShouldEnableBlink) {
+            Utils::CallFunction(FacialComp, STR("StopNPCTalkMouth"));
+            Utils::CallFunction(FacialComp, STR("ChangeDefaultFacial"));
+            DP_LOG(Default, "[Facial] Pal '{}' eye blink disabled (ResolvedEyeIndex: {}).", Character->GetName(), ResolvedEyeIndex);
+        } else {
+            // 15. Execute Setup_FacialModule on FaceMeshComp & reset eyes to default open
+            UFunction* SetupFunc = MainModule->GetFunctionByNameInChain(STR("Setup_FacialModule"));
+            if (SetupFunc) {
+                struct { UObject* SkeletalMeshComponent; } SetupParams{ FaceMeshComp };
+                Utils::SafeProcessEvent(MainModule, SetupFunc, &SetupParams);
+                DP_LOG(Default, "[Facial] Executed Setup_FacialModule for Pal '{}' on slot {} (FaceMesh: '{}').",
+                    Character->GetName(), ResolvedEyeIndex, FaceMeshComp->GetName());
+            }
+
+            UFunction* SetUpTestMeshFunc = FacialComp->GetFunctionByNameInChain(STR("SetUpTestMesh"));
+            if (SetUpTestMeshFunc) {
+                struct { UObject* SkeletalMeshComponent; } TestParams{ FaceMeshComp };
+                Utils::SafeProcessEvent(FacialComp, SetUpTestMeshFunc, &TestParams);
+            }
+
+            Utils::CallFunction(FacialComp, STR("ChangeDefaultFacial"));
+            struct { uint8_t Eye; } EyeParam{ 1 }; // EPalFacialEyeType::Default
+            Utils::CallFunction(FacialComp, STR("ChangeEyeAndMouthMesh"), &EyeParam);
         }
     }
 
@@ -950,6 +1422,30 @@ namespace DynPals {
     static void ApplyMeshAndAnim(const FMeshApplyParams& Params, bool bNeedsAnimRebuild) {
         if (!Params.MeshComp || !Utils::IsObjectValid(Params.MeshComp)) return;
 
+        // Pre-capture active monster implementation class before InitAnim teardown
+        UClass* CapturedImplClass = nullptr;
+        if (!bNeedsAnimRebuild) {
+            FProperty* LinkedProp = Utils::GetProperty(Params.MeshComp, STR("LinkedInstances"), true);
+            if (LinkedProp) {
+                TArray<UObject*>* LinkedArray = LinkedProp->ContainerPtrToValuePtr<TArray<UObject*>>(Params.MeshComp);
+                if (LinkedArray) {
+                    for (int32_t i = 0; i < LinkedArray->Num(); ++i) {
+                        UObject* LayerInst = (*LinkedArray)[i];
+                        if (LayerInst && Utils::IsObjectValid(LayerInst)) {
+                            UClass* LayerCls = LayerInst->GetClassPrivate();
+                            if (LayerCls) {
+                                std::wstring clsName = LayerCls->GetName();
+                                if (clsName.find(L"Implementation") != std::wstring::npos) {
+                                    CapturedImplClass = LayerCls;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Utils::SetPropertyValue<bool>(Params.MeshComp, STR("bPauseAnims"), true, false);
         struct { bool bNewDisablePostProcessBlueprint; } EnablePP{ true };
         Utils::CallFunction(Params.MeshComp, STR("SetDisablePostProcessBlueprint"), &EnablePP);
@@ -963,12 +1459,11 @@ namespace DynPals {
         }
 
         if (Params.NewSkelMesh && Utils::IsObjectValid(Params.NewSkelMesh)) {
-            // FORCE the TargetSkeleton onto the new mesh so Root Motion extracts correctly!
+            // Force the TargetSkeleton onto the new mesh so Root Motion extracts correctly
             if (Params.TargetSkeleton && Utils::IsObjectValid(Params.TargetSkeleton)) {
                 Utils::SetPropertyValue<UObject*>(Params.NewSkelMesh, STR("Skeleton"), Params.TargetSkeleton);
             }
 
-            // bReinitPose must be true so that Kawaii Physics maps the new bone indices properly
             struct { UObject* InMesh; bool bReinitPose; } MeshParams{Params.NewSkelMesh, Params.bReinitPose};
             Utils::CallFunction(Params.MeshComp, STR("SetSkinnedAssetAndUpdate"), &MeshParams);
         }
@@ -985,7 +1480,7 @@ namespace DynPals {
             SyncStaticCharacterParams(Params.TargetStaticParam, Params.Character);
         }
 
-        ReLinkAnimLayers(Params.MeshComp, Params.TargetCDO, Params.Character, Params.NewSkelMesh);
+        ReLinkAnimLayers(Params.MeshComp, Params.TargetCDO, Params.Character, Params.NewSkelMesh, CapturedImplClass);
     }
 
     static void SetPalNickname(UObject* IndivParam, const std::wstring& NewNameStr, const std::wstring& InstanceID, bool IsWild, UObject* Character) {
@@ -1687,7 +2182,7 @@ namespace DynPals {
                         struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
                         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
-                        RefreshFacialModule(Character, MeshComp);
+                        RefreshFacialModule(Character, MeshComp, VanillaCDO, nullptr);
                         ResetPhysicsAndDynamics(MeshComp);
                     }
                     
@@ -1863,7 +2358,7 @@ namespace DynPals {
         struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
         Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
-        RefreshFacialModule(Character, MeshComp);
+        RefreshFacialModule(Character, MeshComp, TargetCDO, &swap);
         ProfileStep(L"Trace 11: PalFacialComponent Setup");
 
         ApplySizeMultiplier(MeshComp, swap, persist, vanillaDefs);
@@ -1954,7 +2449,7 @@ namespace DynPals {
             struct { bool bNewDisablePostProcessBlueprint; } DisablePP_False{ false };
             Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
-            RefreshFacialModule(TargetPalObj, MeshComp);
+            RefreshFacialModule(TargetPalObj, MeshComp, VanillaCDO, nullptr);
             ResetPhysicsAndDynamics(MeshComp);
         }
 
