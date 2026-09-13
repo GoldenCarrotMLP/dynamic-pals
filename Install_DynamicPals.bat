@@ -14,8 +14,9 @@ exit /b %errorlevel%
 # UE4SS Version Hashes mapped to their display name and color
 $UE4SS_Hashes = @{
     "8AC18FBFFC1EF96B0662D4A2D537B3F224C26D65CAABA7989A9404C566102B26" = @{ Text = "Experimental latest"; Color = "Green" }
-    "D0107F63E567313CB6A15C505B5DB2BDBA38130964A04E019BDA7611C6178022" = @{ Text = "Palworld outdated/stable"; Color = "Yellow" }
-    "2D76EEE05CD3DE480539F1D96DA7366BF8FE445EF6B85A5C9DDD38BD503E508E" = @{ Text = "Palworld latest"; Color = "Green" }
+    "D0107F63E567313CB6A15C505B5DB2BDBA38130964A04E019BDA7611C6178022" = @{ Text = "Palworld outdated"; Color = "Red" }
+    "2D76EEE05CD3DE480539F1D96DA7366BF8FE445EF6B85A5C9DDD38BD503E508E" = @{ Text = "Palworld outdated"; Color = "Yellow" }
+    "21B691A69A20C0801F465369D4FCBCA7D7444764022FAC2A7E8EDC7709EF92B8" = @{ Text = "Palworld latest"; Color = "Green" }
 }
 
 function Find-Palworld {
@@ -254,7 +255,7 @@ $Ue4ssRoot = $ManualUe4ss
 $IsWorkshopLocation = $false
 
 # 1. Check if Palworld/Mods/NativeMods/UE4SS physically exists
-if (Test-Path (Join-Path $WorkshopNativeUe4ss "UE4SS.dll") -or (Test-Path $WorkshopNativeUe4ss)) {
+if ((Test-Path (Join-Path $WorkshopNativeUe4ss "UE4SS.dll")) -or (Test-Path $WorkshopNativeUe4ss)) {
     $Ue4ssRoot = $WorkshopNativeUe4ss
     $IsWorkshopLocation = $true
 } else {
