@@ -23,6 +23,7 @@ set(COMMON_SRC_FILES
     "src/VFXManager.cpp"
     "src/FileWatcher.cpp"
     "src/safetyhook.cpp" 
+    "src/InputManager.cpp" 
     
     "src/UI/UIBase.cpp"       
     "src/UI/UIRegistry.cpp"   

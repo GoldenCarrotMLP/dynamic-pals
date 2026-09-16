@@ -22,6 +22,7 @@
 #include "Updater.hpp"
 #include "Utils.hpp"
 #include "VFXManager.hpp"
+#include "InputManager.hpp" // <--- Add to top includes
 #include "../include/NativeAsyncLoader.hpp" 
 
 using namespace RC;
@@ -288,11 +289,11 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context, void*
   }
 
   // 4. Hotkey Polling (runs strictly ONCE per frame)
-  if (CachedPlayerController && Utils::IsGameWindowFocused()) {
+  if (Utils::IsGameWindowFocused()) {
       auto& Settings = SaveManager::Get().Settings;
 
       static bool bMenuKeyPressed = false;
-      if (Utils::CheckHotkeyTriggered(CachedPlayerController, Settings.MenuModifier, Settings.MenuKey)) {
+      if (InputManager::Get().IsHotkeyDown(CachedPlayerController, Settings.MenuModifier, Settings.MenuKey)) {
           if (!bMenuKeyPressed) {
               bMenuKeyPressed = true;
               DP_LOG(Default, "[Hotkey] Main Menu hotkey triggered!");
@@ -303,7 +304,7 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context, void*
       }
 
       static bool bTestMenuKeyPressed = false;
-      if (Utils::CheckHotkeyTriggered(CachedPlayerController, Settings.TestMenuModifier, Settings.TestMenuKey)) {
+      if (InputManager::Get().IsHotkeyDown(CachedPlayerController, Settings.TestMenuModifier, Settings.TestMenuKey)) {
           if (!bTestMenuKeyPressed) {
               bTestMenuKeyPressed = true;
               DP_LOG(Default, "[Hotkey] Test Menu hotkey triggered!");
@@ -311,6 +312,7 @@ static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context, void*
           }
       } else {
           bTestMenuKeyPressed = false;
+
       }
   }
 

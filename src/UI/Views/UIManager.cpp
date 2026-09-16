@@ -1,6 +1,5 @@
 #define NOMINMAX 
 #include <Windows.h>
-#include <Xinput.h>
 
 #include "UI/Views/UIManager.hpp"
 #include "UI/Components/WindowFrame.hpp"
@@ -9,6 +8,7 @@
 #include "ConfigManager.hpp"
 #include "SaveManager.hpp"
 #include "PalProcessor.hpp"
+#include "InputManager.hpp"
 #include "Utils.hpp"
 #include "DataTypes.hpp"
 #include <cmath>
@@ -22,18 +22,7 @@ using namespace RC::Unreal;
 namespace DynPals {
 
 
-    static const std::vector<std::wstring> PollableKeys = {
-        L"A", L"B", L"C", L"D", L"E", L"F", L"G", L"H", L"I", L"J", L"K", L"L", L"M", 
-        L"N", L"O", L"P", L"Q", L"R", L"S", L"T", L"U", L"V", L"W", L"X", L"Y", L"Z",
-        L"Zero", L"One", L"Two", L"Three", L"Four", L"Five", L"Six", L"Seven", L"Eight", L"Nine",
-        L"F1", L"F2", L"F3", L"F4", L"F5", L"F6", L"F7", L"F8", L"F9", L"F10", L"F11", L"F12",
-        L"SpaceBar", L"Enter", L"Tab", L"Escape",
-        L"Gamepad_FaceButton_Bottom", L"Gamepad_FaceButton_Right", L"Gamepad_FaceButton_Left", L"Gamepad_FaceButton_Top", 
-        L"Gamepad_LeftShoulder", L"Gamepad_RightShoulder", L"Gamepad_LeftTrigger", L"Gamepad_RightTrigger", 
-        L"Gamepad_DPad_Up", L"Gamepad_DPad_Down", L"Gamepad_DPad_Left", L"Gamepad_DPad_Right",
-        L"Gamepad_Special_Left", L"Gamepad_Special_Right", L"Gamepad_LeftThumbstick", L"Gamepad_RightThumbstick",
-        L"LeftAlt", L"LeftControl", L"LeftShift"
-    };
+    
 
     // Set to true for smooth camera interpolation; set to false for instant snapping
     static constexpr bool bEnableCameraSmoothing = false;
@@ -130,6 +119,19 @@ namespace DynPals {
         }
     }
 
+    // Struct to remember vanilla camera settings when closing the menu
+    struct FCachedCameraState {
+        float WalkArmLength = 300.0f;
+        float TargetArmLength = 300.0f;
+        FVector WalkOffset{ 0.0, 0.0, 0.0 };
+        FVector SocketOffset{ 0.0, 0.0, 0.0 };
+        FVector TargetOffset{ 0.0, 0.0, 0.0 };
+        bool bCollisionTest = true;
+        float ProbeSize = 12.0f;
+        bool bValid = false;
+    };
+    static FCachedCameraState GCachedCamState;
+
     void UIManager::EnablePalCamera() {
         if (!CurrentPlayerController || !TargetPal || bIsPalCameraActive) return;
 
@@ -137,7 +139,7 @@ namespace DynPals {
             OriginalViewTarget = nullptr;
         }
 
-        // 1. Locate and Force-Activate FollowCamera
+        // 1. Force-Activate FollowCamera
         UObject* FollowCameraObj = nullptr;
         if (!Utils::GetPropertyValue<UObject*>(TargetPal, STR("FollowCamera"), FollowCameraObj, true) || !FollowCameraObj) {
             UClass* CameraClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Engine.CameraComponent"));
@@ -157,16 +159,40 @@ namespace DynPals {
         // 2. Configure CameraBoom
         UObject* CameraBoomObj = GetCameraBoom(TargetPal);
         if (CameraBoomObj) {
-            Utils::SetPropertyValue<float>(CameraBoomObj, STR("TargetArmLength"), 2000.0f);
-            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bUsePawnControlRotation"), false);
-            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bDoCollisionTest"), false); 
+            // A. Cache existing values so we can restore them cleanly on close
+            Utils::GetPropertyValue<float>(CameraBoomObj, STR("WalkCameraArmLength"), GCachedCamState.WalkArmLength);
+            Utils::GetPropertyValue<float>(CameraBoomObj, STR("TargetArmLength"), GCachedCamState.TargetArmLength);
+            Utils::GetPropertyValue<FVector>(CameraBoomObj, STR("WalkCameraOffset"), GCachedCamState.WalkOffset);
+            Utils::GetPropertyValue<FVector>(CameraBoomObj, STR("SocketOffset"), GCachedCamState.SocketOffset);
+            Utils::GetPropertyValue<FVector>(CameraBoomObj, STR("TargetOffset"), GCachedCamState.TargetOffset);
+            Utils::GetPropertyValue<bool>(CameraBoomObj, STR("bDoCollisionTest"), GCachedCamState.bCollisionTest);
+            Utils::GetPropertyValue<float>(CameraBoomObj, STR("ProbeSize"), GCachedCamState.ProbeSize);
+            GCachedCamState.bValid = true;
 
+            // B. Calculate optimal camera distance based on physical Pal dimensions
+            struct { bool bOnlyCollidingComponents; uint8_t Pad[7]; FVector_UE5 Origin; FVector_UE5 BoxExtent; } BoundsParams{true, {0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+            Utils::CallFunction(TargetPal, STR("GetActorBounds"), &BoundsParams, true);
+            
+            double maxExtent = std::max({ BoundsParams.BoxExtent.X, BoundsParams.BoxExtent.Y, BoundsParams.BoxExtent.Z });
+            float optimalDistance = static_cast<float>(std::clamp(maxExtent * 2.8, 350.0, 3500.0));
+
+            // C. Disable all collision checks
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bDoCollisionTest"), false);
+            Utils::SetPropertyValue<float>(CameraBoomObj, STR("ProbeSize"), 0.0f);
+
+            // D. Zero out sideways shoulder offsets so Pal is perfectly centered
+            FVector ZeroVec{ 0.0, 0.0, 0.0 };
+            Utils::SetPropertyValue<FVector>(CameraBoomObj, STR("WalkCameraOffset"), ZeroVec);
+            Utils::SetPropertyValue<FVector>(CameraBoomObj, STR("SocketOffset"), ZeroVec);
+            Utils::SetPropertyValue<FVector>(CameraBoomObj, STR("TargetOffset"), ZeroVec);
+
+            // E. Override BOTH arm lengths so PalShooterSpringArmComponent's tick doesn't pull it in
+            Utils::SetPropertyValue<float>(CameraBoomObj, STR("WalkCameraArmLength"), optimalDistance);
+            Utils::SetPropertyValue<float>(CameraBoomObj, STR("TargetArmLength"), optimalDistance);
+
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bUsePawnControlRotation"), false);
             Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bEnableCameraLag"), bEnableCameraSmoothing);
             Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bEnableCameraRotationLag"), bEnableCameraSmoothing);
-            if constexpr (bEnableCameraSmoothing) {
-                Utils::SetPropertyValue<float>(CameraBoomObj, STR("CameraLagSpeed"), 10.0f);
-                Utils::SetPropertyValue<float>(CameraBoomObj, STR("CameraRotationLagSpeed"), 15.0f);
-            }
 
             UpdatePalCameraRotation(SaveManager::Get().Settings.CameraRotation, true);
         }
@@ -189,16 +215,24 @@ namespace DynPals {
             OriginalViewTarget = nullptr;
         }
 
-        // Restore CameraBoom settings
+        // Restore CameraBoom settings back to vanilla defaults
         UObject* CameraBoomObj = GetCameraBoom(TargetPal);
-        if (CameraBoomObj) {
+        if (CameraBoomObj && GCachedCamState.bValid) {
+            Utils::SetPropertyValue<float>(CameraBoomObj, STR("WalkCameraArmLength"), GCachedCamState.WalkArmLength);
+            Utils::SetPropertyValue<float>(CameraBoomObj, STR("TargetArmLength"), GCachedCamState.TargetArmLength);
+            Utils::SetPropertyValue<FVector>(CameraBoomObj, STR("WalkCameraOffset"), GCachedCamState.WalkOffset);
+            Utils::SetPropertyValue<FVector>(CameraBoomObj, STR("SocketOffset"), GCachedCamState.SocketOffset);
+            Utils::SetPropertyValue<FVector>(CameraBoomObj, STR("TargetOffset"), GCachedCamState.TargetOffset);
+            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bDoCollisionTest"), GCachedCamState.bCollisionTest);
+            Utils::SetPropertyValue<float>(CameraBoomObj, STR("ProbeSize"), GCachedCamState.ProbeSize);
+
             UFunction* SetAbsFunc = CameraBoomObj->GetFunctionByNameInChain(STR("SetAbsolute"));
             if (SetAbsFunc) {
                 struct { bool bNewAbsoluteLocation; bool bNewAbsoluteRotation; bool bNewAbsoluteScale; } AbsParams{ false, false, false };
                 Utils::SafeProcessEvent(CameraBoomObj, SetAbsFunc, &AbsParams);
             }
             Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bInheritYaw"), true);
-            Utils::SetPropertyValue<bool>(CameraBoomObj, STR("bDoCollisionTest"), true);
+            GCachedCamState.bValid = false;
         }
 
         UFunction* SetViewTargetFunc = CurrentPlayerController->GetFunctionByNameInChain(STR("SetViewTargetWithBlend"));
@@ -360,8 +394,8 @@ namespace DynPals {
     }
 
     void UIManager::OnInvalidate() {
-        if (bIsCapturingKey) {
-            CancelKeyCapture();
+        if (InputManager::Get().IsCapturing()) {
+            InputManager::Get().CancelCapture();
         }
         FlushPendingSave();
         TargetPal = nullptr;
@@ -405,13 +439,18 @@ namespace DynPals {
     }
 
     void UIManager::OnOpen() {
-        RefreshUI();
+        SwitchTab(ActiveTab);
     }
 
     void UIManager::OnClose() {
-        if (bIsCapturingKey) {
-            CancelKeyCapture();
+        if (InputManager::Get().IsCapturing()) {
+            InputManager::Get().CancelCapture();
         }
+        if (CaptureOverlay) {
+            struct { uint8_t Vis; } VisParams{ 1 };
+            Utils::CallFunction(CaptureOverlay, STR("SetVisibility"), &VisParams);
+        }
+        bCloseOnEscape = true;
         FlushPendingSave();
 
         if (SkinDropdown) SkinDropdown->ClosePopup();
@@ -419,13 +458,13 @@ namespace DynPals {
         TargetPal = nullptr;
         TargetInstanceID = L"";
         TargetCharID = L"";
-
         LastScrollOffset = 0.0f;
         bNeedsRefresh = false;
 
         DisablePalCamera();
         OriginalViewTarget = nullptr;
     }
+
 
     std::wstring UIManager::FormatKeybindText(const std::wstring& Modifier, const std::wstring& Key) {
         std::wstring result = L"[ ";
@@ -434,97 +473,74 @@ namespace DynPals {
         return result;
     }
 
+    void UIManager::SwitchTab(int32_t NewTab) {
+        ActiveTab = NewTab;
+        if (SkinDropdown) SkinDropdown->ClosePopup();
 
-    // Helper: Polls Gamepad/Steam Deck inputs directly via XInput (immune to UI mode locks)
-    static bool PollGamepadInput(std::wstring& OutKey) {
-        typedef DWORD(WINAPI* PFN_XInputGetState)(DWORD, XINPUT_STATE*);
-        static PFN_XInputGetState pfnXInputGetState = nullptr;
-        static bool bTriedLoad = false;
-        if (!bTriedLoad) {
-            bTriedLoad = true;
-            HMODULE hXInput = LoadLibraryA("xinput1_4.dll");
-            if (!hXInput) hXInput = LoadLibraryA("xinput9_1_0.dll");
-            if (!hXInput) hXInput = LoadLibraryA("xinput1_3.dll");
-            if (hXInput) {
-                pfnXInputGetState = (PFN_XInputGetState)GetProcAddress(hXInput, "XInputGetState");
-            }
-        }
-        if (!pfnXInputGetState) return false;
+        struct { uint8_t Vis; } VisibleParam{ 0 };
+        struct { uint8_t Vis; } CollapsedParam{ 1 };
 
-        XINPUT_STATE state;
-        ZeroMemory(&state, sizeof(XINPUT_STATE));
-        for (DWORD i = 0; i < 4; ++i) {
-            if (pfnXInputGetState(i, &state) == ERROR_SUCCESS) {
-                WORD b = state.Gamepad.wButtons;
-                if (b & XINPUT_GAMEPAD_A) { OutKey = L"Gamepad_FaceButton_Bottom"; return true; }
-                if (b & XINPUT_GAMEPAD_B) { OutKey = L"Gamepad_FaceButton_Right"; return true; }
-                if (b & XINPUT_GAMEPAD_X) { OutKey = L"Gamepad_FaceButton_Left"; return true; }
-                if (b & XINPUT_GAMEPAD_Y) { OutKey = L"Gamepad_FaceButton_Top"; return true; }
-                if (b & XINPUT_GAMEPAD_START) { OutKey = L"Gamepad_Special_Right"; return true; }
-                if (b & XINPUT_GAMEPAD_BACK) { OutKey = L"Gamepad_Special_Left"; return true; }
-                if (b & XINPUT_GAMEPAD_LEFT_SHOULDER) { OutKey = L"Gamepad_LeftShoulder"; return true; }
-                if (b & XINPUT_GAMEPAD_RIGHT_SHOULDER) { OutKey = L"Gamepad_RightShoulder"; return true; }
-                if (b & XINPUT_GAMEPAD_LEFT_THUMB) { OutKey = L"Gamepad_LeftThumbstick"; return true; }
-                if (b & XINPUT_GAMEPAD_RIGHT_THUMB) { OutKey = L"Gamepad_RightThumbstick"; return true; }
-                if (b & XINPUT_GAMEPAD_DPAD_UP) { OutKey = L"Gamepad_DPad_Up"; return true; }
-                if (b & XINPUT_GAMEPAD_DPAD_DOWN) { OutKey = L"Gamepad_DPad_Down"; return true; }
-                if (b & XINPUT_GAMEPAD_DPAD_LEFT) { OutKey = L"Gamepad_DPad_Left"; return true; }
-                if (b & XINPUT_GAMEPAD_DPAD_RIGHT) { OutKey = L"Gamepad_DPad_Right"; return true; }
-                if (state.Gamepad.bLeftTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD) { OutKey = L"Gamepad_LeftTrigger"; return true; }
-                if (state.Gamepad.bRightTrigger > XINPUT_GAMEPAD_TRIGGER_THRESHOLD) { OutKey = L"Gamepad_RightTrigger"; return true; }
-            }
+        if (ActiveTab == 0) {
+            if (SettingsTabContainer) Utils::CallFunction(SettingsTabContainer, STR("SetVisibility"), &VisibleParam);
+            if (PreferencesTabContainer) Utils::CallFunction(PreferencesTabContainer, STR("SetVisibility"), &CollapsedParam);
+            RefreshUI();
+        } else {
+            if (SettingsTabContainer) Utils::CallFunction(SettingsTabContainer, STR("SetVisibility"), &CollapsedParam);
+            if (PreferencesTabContainer) Utils::CallFunction(PreferencesTabContainer, STR("SetVisibility"), &VisibleParam);
         }
-        return false;
+
+        struct { bool bActive; } Tab1Params{ ActiveTab == 0 };
+        struct { bool bActive; } Tab2Params{ ActiveTab == 1 };
+        if (Tab1Widget) Utils::CallFunction(Tab1Widget, STR("SetTabActive"), &Tab1Params);
+        if (Tab2Widget) Utils::CallFunction(Tab2Widget, STR("SetTabActive"), &Tab2Params);
     }
 
-    void UIManager::CancelKeyCapture() {
-        bIsCapturingKey = false;
-        bCloseOnEscape = true; // Restore normal ESC-to-close menu behavior
-        if (CaptureOverlay && Utils::IsObjectValid(CaptureOverlay)) {
-            Utils::CallFunction(CaptureOverlay, STR("RemoveFromParent"));
-        }
-        CaptureOverlay = nullptr;
-        DP_LOG(Default, "[Keybind] Key capture cancelled.");
-    }
+
+    
+    
 
     void UIManager::StartKeyCapture(int Target) {
-        bIsCapturingKey = true;
-        bCloseOnEscape = false; // Prevent UIBase from closing the menu on ESC!
-        CapturingTarget = Target;
-        CaptureDebounceFrames = 10; // 10-frame buffer so the mouse-up click isn't captured
+        bCloseOnEscape = false; // Prevent UIBase from closing menu while capturing
 
-        RC::Unreal::UObject* PalFontCache = Utils::LoadAssetSafely(UI::Assets::Fonts::PalDefault);
-        
-        auto OverlayBuilder = UI::Canvas(MyWidget)
-            .AddToCanvas(
-                UI::Border(MyWidget).BrushColor({0.0f, 0.0f, 0.0f, 0.90f}),
-                [](CanvasSlotBuilder& Slot) { Slot.Anchors(0.0, 0.0, 1.0, 1.0).Offsets(0, 0, 0, 0); }
-            )
-            .AddToCanvas(
-                UI::Text(MyWidget)
-                .Text(L"Press Any Key or Button...\n(Press ESC to cancel)")
-                .Font(PalFontCache, L"Bold", 32)
-                .TextColor({1.0f, 1.0f, 1.0f, 1.0f}),
-                [](CanvasSlotBuilder& Slot) { Slot.Anchors(0.5, 0.5, 0.5, 0.5).Alignment(0.5, 0.5).AutoSize(true); }
-            );
-
-        CaptureOverlay = OverlayBuilder.Build();
-        
-        RC::Unreal::UObject* WidgetTree = nullptr;
-        RC::Unreal::UObject* RootCanvas = nullptr;
-        if (Utils::GetPropertyValue(MyWidget, STR("WidgetTree"), WidgetTree, true) && WidgetTree) {
-            Utils::GetPropertyValue(WidgetTree, STR("RootWidget"), RootCanvas, true);
+        if (CaptureOverlay) {
+            struct { uint8_t Vis; } VisParams{ 0 }; // Visible
+            Utils::CallFunction(CaptureOverlay, STR("SetVisibility"), &VisParams);
         }
 
-        if (RootCanvas && CaptureOverlay) {
-            struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddParams{CaptureOverlay, nullptr};
-            Utils::CallFunction(RootCanvas, STR("AddChild"), &AddParams);
-            if (AddParams.ReturnValue) {
-                struct { int32_t ZOrder; } ZParams{99999};
-                Utils::CallFunction(AddParams.ReturnValue, STR("SetZOrder"), &ZParams);
+        InputManager::Get().StartCapture(
+            [this, Target](const std::wstring& Key, const std::wstring& Mod) {
+                auto& Settings = SaveManager::Get().Settings;
+                if (Target == 0) {
+                    Settings.MenuKey = Key;
+                    Settings.MenuModifier = Mod;
+                    if (BindMenuBtn && BindMenuBtn->GetWidget()) {
+                        Utils::SetTextSafely(BindMenuBtn->GetWidget(), STR("SetText"), FormatKeybindText(Mod, Key));
+                    }
+                } else if (Target == 1) {
+                    Settings.TestMenuKey = Key;
+                    Settings.TestMenuModifier = Mod;
+                    if (BindTestMenuBtn && BindTestMenuBtn->GetWidget()) {
+                        Utils::SetTextSafely(BindTestMenuBtn->GetWidget(), STR("SetText"), FormatKeybindText(Mod, Key));
+                    }
+                }
+                SaveManager::Get().SaveWorldData();
+
+                if (CaptureOverlay) {
+                    struct { uint8_t Vis; } VisParams{ 1 }; // Collapsed
+                    Utils::CallFunction(CaptureOverlay, STR("SetVisibility"), &VisParams);
+                }
+                bCloseOnEscape = true;
+            },
+            [this]() {
+                if (CaptureOverlay) {
+                    struct { uint8_t Vis; } VisParams{ 1 }; // Collapsed
+                    Utils::CallFunction(CaptureOverlay, STR("SetVisibility"), &VisParams);
+                }
+                bCloseOnEscape = true;
             }
-        }
+        );
     }
+
 
 
     void UIManager::PreloadUI(RC::Unreal::UObject* PC) {
@@ -598,10 +614,6 @@ namespace DynPals {
         LogTextPool.clear();
         MorphSliderPool.clear();
         ActiveMorphSlidersCount = 0;
-        TabBtn1 = nullptr;
-        TabBtn2 = nullptr;
-        BindMenuBtn = nullptr;
-        BindTestMenuBtn = nullptr;
 
         UObject* WBL = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetBlueprintLibrary"));
         UClass* WidgetClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/UMG.UserWidget"));
@@ -625,119 +637,152 @@ namespace DynPals {
             .AddToHorizontalBox(UI::Image(MyWidget).ImageFromAsset(UI::Assets::Common::NoticeMark).ImageColor(PalBlue).ImageSize(24, 24), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); }) 
             .AddToHorizontalBox(DynPals::WidgetBuilder(HeaderTextObj));
 
-        // --- TABS ---
+        // --- 1. TABS (SWITCH ON VISIBILITY) ---
         auto TabLayout = UI::HorizontalBox(MyWidget);
         auto Tab1Builder = UI::OptionTab(MyWidget).SetupTab(L"Settings", 0);
         auto Tab2Builder = UI::OptionTab(MyWidget).SetupTab(L"Preferences", 1);
-        UObject* Tab1Widget = Tab1Builder.Build();
-        UObject* Tab2Widget = Tab2Builder.Build();
+        Tab1Widget = Tab1Builder.Build();
+        Tab2Widget = Tab2Builder.Build();
 
         TabBtn1 = std::make_unique<UI::Button>(Tab1Widget);
-        TabBtn1->OnClicked([this]() { if (ActiveTab != 0) { ActiveTab = 0; if (SkinDropdown) SkinDropdown->ClosePopup(); RequestRebuild(); } });
+        TabBtn1->OnClicked([this]() { SwitchTab(0); });
         TabBtn2 = std::make_unique<UI::Button>(Tab2Widget);
-        TabBtn2->OnClicked([this]() { if (ActiveTab != 1) { ActiveTab = 1; if (SkinDropdown) SkinDropdown->ClosePopup(); RequestRebuild(); } });
+        TabBtn2->OnClicked([this]() { SwitchTab(1); });
 
-        TabLayout.AddToHorizontalBox(Tab1Builder, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); }).AddToHorizontalBox(Tab2Builder);
+        TabLayout.AddToHorizontalBox(Tab1Builder, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); })
+                 .AddToHorizontalBox(Tab2Builder);
 
-        // --- MAIN CONTENT ---
-        auto InnerContentBox = UI::VerticalBox(MyWidget);
+        // --- 2. BUILD TAB 0 CONTENT (SETTINGS) ---
+        DynamicMorphBox = UI::VerticalBox(MyWidget).Build();
+        DynamicLogBox = UI::VerticalBox(MyWidget).Build();
+        CameraRotationContainer = UI::VerticalBox(MyWidget).Build();
+        SizeSliderContainer = UI::VerticalBox(MyWidget).Build();
+
+        WidgetTrashBin = UI::VerticalBox(MyWidget).Build();
+        struct { uint8_t InVisibility; } TrashVis{ 1 };
+        Utils::CallFunction(WidgetTrashBin, STR("SetVisibility"), &TrashVis);
+
+        if (!SkinDropdown) { SkinDropdown = std::make_unique<UI::Dropdown>(std::vector<std::wstring>{}, 0); }
+        SkinDropdown->SetTrashBin(WidgetTrashBin);
+
+        SkinDropdown->OnChanged([this](int Index, std::wstring Choice) {
+            if (Index >= 0 && Index < static_cast<int>(DropdownConfigIndices.size())) {
+                int TargetConfig = DropdownConfigIndices[Index];
+                if (TargetConfig != -1) PalProcessor::Get().ForceSwap(TargetPal, TargetConfig);
+                CacheScrollOffset();
+            }
+        });
+
+        HideInvalidSwitch = std::make_unique<UI::Switch>(MyWidget, bHideInvalidSwaps);
+        HideInvalidSwitch->OnChanged([this](bool bState) { bHideInvalidSwaps = bState; CacheScrollOffset(); bNeedsRefresh = true; });
+
+        FocusPalSwitch = std::make_unique<UI::Switch>(MyWidget, SaveManager::Get().Settings.bFocusPal);
+        FocusPalSwitch->OnChanged([this](bool bState) {
+            SaveManager::Get().Settings.bFocusPal = bState; SaveManager::Get().SaveWorldData();
+            if (bState) EnablePalCamera(); else DisablePalCamera();
+            CacheScrollOffset(); bNeedsRefresh = true; 
+        });
+
+        UObject* RerollBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(L"      Reroll Pal      ").BackgroundColor(PalBlue).DesiredSizeOverride(300.0f, 45.0f).UnlockButtonSize(300.0f).Build();
+        RerollButton = std::make_unique<UI::Button>(RerollBtnObj);
+        RerollButton->OnClicked([this]() { PalProcessor::Get().ProcessPal(TargetPal, true); CacheScrollOffset(); bNeedsRefresh = true; });
+
+        UObject* ResetBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(L"      Reset Pal      ").BackgroundColor(FLinearColor_UE5{0.85f, 0.25f, 0.25f, 1.0f}).DesiredSizeOverride(300.0f, 45.0f).UnlockButtonSize(300.0f).Build();
+        ResetButton = std::make_unique<UI::Button>(ResetBtnObj);
+        ResetButton->OnClicked([this]() { if (TargetPal && Utils::IsObjectValid(TargetPal)) { PalProcessor::Get().ResetPal(TargetPal); CacheScrollOffset(); bNeedsRefresh = true; } });
+
+        auto SettingsBuilder = UI::VerticalBox(MyWidget);
+        SettingsBuilder.AddToVerticalBox(UI::HorizontalBox(MyWidget).AddToHorizontalBox(UI::Text(MyWidget).Text(L"Current Swap:").Font(PalFontCache, L"Medium", 20).TextColor(Emerald), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); }));
+        SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(L"/Script/UMG.SizeBox", MyWidget).AddChild(DynPals::WidgetBuilder(SkinDropdown->Build(MyWidget, CurrentPlayerController))), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 20); });
+        SettingsBuilder.AddToVerticalBox(WidgetBuilder(RerollBtnObj), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(20.0f, 0.0f, 20.0f, 10.0f).HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); });
+        SettingsBuilder.AddToVerticalBox(WidgetBuilder(ResetBtnObj), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(20.0f, 0.0f, 20.0f, 15.0f).HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); });
+
+        auto FilterRow = UI::HorizontalBox(MyWidget)
+            .AddToHorizontalBox(DynPals::WidgetBuilder(HideInvalidSwitch->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); })
+            .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Hide Invalid").Font(PalFontCache, L"Medium", 18).TextColor(White), [](DynPals::BoxSlotBuilder& Slot) { Slot.VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); });
+        SettingsBuilder.AddToVerticalBox(FilterRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 25); });
+
+        auto CameraSettingsRow = UI::HorizontalBox(MyWidget)
+            .AddToHorizontalBox(DynPals::WidgetBuilder(FocusPalSwitch->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); })
+            .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Focus Pal Camera").Font(PalFontCache, L"Medium", 18).TextColor(White), [](DynPals::BoxSlotBuilder& Slot) { Slot.VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); });
+        SettingsBuilder.AddToVerticalBox(CameraSettingsRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
+
+        SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(CameraRotationContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
+        SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(SizeSliderContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
+        SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(DynamicMorphBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
+        SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(DynamicLogBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 10, 0, 10); });
+        SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(WidgetTrashBin));
+        SettingsTabContainer = SettingsBuilder.Build();
+
+        // --- 3. BUILD TAB 1 CONTENT (PREFERENCES) ---
+        auto& Settings = SaveManager::Get().Settings;
+        UObject* MenuBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(FormatKeybindText(Settings.MenuModifier, Settings.MenuKey)).DesiredSizeOverride(200.0f, 45.0f).UnlockButtonSize(200.0f).Build();
+        BindMenuBtn = std::make_unique<UI::Button>(MenuBtnObj);
+        BindMenuBtn->OnClicked([this]() { StartKeyCapture(0); });
+
+        UObject* TestMenuBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(FormatKeybindText(Settings.TestMenuModifier, Settings.TestMenuKey)).DesiredSizeOverride(200.0f, 45.0f).UnlockButtonSize(200.0f).Build();
+        BindTestMenuBtn = std::make_unique<UI::Button>(TestMenuBtnObj);
+        BindTestMenuBtn->OnClicked([this]() { StartKeyCapture(1); });
+
+        auto PrefsBuilder = UI::VerticalBox(MyWidget);
+        PrefsBuilder.AddToVerticalBox(UI::Text(MyWidget).Text(L"Global Keybinds").Font(PalFontCache, L"Bold", 20).TextColor(Emerald), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
         
-        if (ActiveTab == 0) {
-            DynamicMorphBox = UI::VerticalBox(MyWidget).Build();
-            DynamicLogBox = UI::VerticalBox(MyWidget).Build();
-            CameraRotationContainer = UI::VerticalBox(MyWidget).Build();
-            SizeSliderContainer = UI::VerticalBox(MyWidget).Build();
+        auto BindRow1 = UI::HorizontalBox(MyWidget)
+            .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Main Menu Toggle").Font(PalFontCache, L"Medium", 18).TextColor(White), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 20, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
+            .AddToHorizontalBox(DynPals::WidgetBuilder(MenuBtnObj));
+        auto BindRow2 = UI::HorizontalBox(MyWidget)
+            .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Test Menu Toggle").Font(PalFontCache, L"Medium", 18).TextColor(White), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 20, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
+            .AddToHorizontalBox(DynPals::WidgetBuilder(TestMenuBtnObj));
 
-            WidgetTrashBin = UI::VerticalBox(MyWidget).Build();
-            struct { uint8_t InVisibility; } VisParams{ 1 };
-            Utils::CallFunction(WidgetTrashBin, STR("SetVisibility"), &VisParams);
+        PrefsBuilder.AddToVerticalBox(BindRow1, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
+        PrefsBuilder.AddToVerticalBox(BindRow2, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
+        PreferencesTabContainer = PrefsBuilder.Build();
 
-            if (!SkinDropdown) { SkinDropdown = std::make_unique<UI::Dropdown>(std::vector<std::wstring>{}, 0); }
-            SkinDropdown->SetTrashBin(WidgetTrashBin);
+        // --- 4. COMBINE INTO MAIN SCROLL BOX ---
+        auto CombinedContent = UI::VerticalBox(MyWidget)
+            .AddToVerticalBox(DynPals::WidgetBuilder(SettingsTabContainer))
+            .AddToVerticalBox(DynPals::WidgetBuilder(PreferencesTabContainer));
 
-            SkinDropdown->OnChanged([this](int Index, std::wstring Choice) {
-                if (Index >= 0 && Index < static_cast<int>(DropdownConfigIndices.size())) {
-                    int TargetConfig = DropdownConfigIndices[Index];
-                    if (TargetConfig != -1) PalProcessor::Get().ForceSwap(TargetPal, TargetConfig);
-                    CacheScrollOffset();
-                }
-            });
-
-            HideInvalidSwitch = std::make_unique<UI::Switch>(MyWidget, bHideInvalidSwaps);
-            HideInvalidSwitch->OnChanged([this](bool bState) { bHideInvalidSwaps = bState; CacheScrollOffset(); bNeedsRefresh = true; });
-
-            FocusPalSwitch = std::make_unique<UI::Switch>(MyWidget, SaveManager::Get().Settings.bFocusPal);
-            FocusPalSwitch->OnChanged([this](bool bState) {
-                SaveManager::Get().Settings.bFocusPal = bState; SaveManager::Get().SaveWorldData();
-                if (bState) EnablePalCamera(); else DisablePalCamera();
-                CacheScrollOffset(); bNeedsRefresh = true; 
-            });
-
-            UObject* RerollBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(L"      Reroll Pal      ").BackgroundColor(PalBlue).DesiredSizeOverride(300.0f, 45.0f).UnlockButtonSize(300.0f).Build();
-            RerollButton = std::make_unique<UI::Button>(RerollBtnObj);
-            RerollButton->OnClicked([this]() { PalProcessor::Get().ProcessPal(TargetPal, true); CacheScrollOffset(); bNeedsRefresh = true; });
-
-            UObject* ResetBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(L"      Reset Pal      ").BackgroundColor(FLinearColor_UE5{0.85f, 0.25f, 0.25f, 1.0f}).DesiredSizeOverride(300.0f, 45.0f).UnlockButtonSize(300.0f).Build();
-            ResetButton = std::make_unique<UI::Button>(ResetBtnObj);
-            ResetButton->OnClicked([this]() { if (TargetPal && Utils::IsObjectValid(TargetPal)) { PalProcessor::Get().ResetPal(TargetPal); CacheScrollOffset(); bNeedsRefresh = true; } });
-
-            InnerContentBox.AddToVerticalBox(UI::HorizontalBox(MyWidget).AddToHorizontalBox(UI::Text(MyWidget).Text(L"Current Swap:").Font(PalFontCache, L"Medium", 20).TextColor(Emerald), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); }));
-            InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(L"/Script/UMG.SizeBox", MyWidget).AddChild(DynPals::WidgetBuilder(SkinDropdown->Build(MyWidget, CurrentPlayerController))), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 20); });
-            InnerContentBox.AddToVerticalBox(WidgetBuilder(RerollBtnObj), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(20.0f, 0.0f, 20.0f, 10.0f).HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); });
-            InnerContentBox.AddToVerticalBox(WidgetBuilder(ResetBtnObj), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(20.0f, 0.0f, 20.0f, 15.0f).HorizontalAlignment(DynPals::EBuilderHorizontalAlignment::HAlign_Center); });
-
-            auto FilterRow = UI::HorizontalBox(MyWidget)
-                .AddToHorizontalBox(DynPals::WidgetBuilder(HideInvalidSwitch->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); })
-                .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Hide Invalid").Font(PalFontCache, L"Medium", 18).TextColor(White), [](DynPals::BoxSlotBuilder& Slot) { Slot.VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); });
-            InnerContentBox.AddToVerticalBox(FilterRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 25); });
-
-            auto CameraSettingsRow = UI::HorizontalBox(MyWidget)
-                .AddToHorizontalBox(DynPals::WidgetBuilder(FocusPalSwitch->GetWidget()), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 10, 0); })
-                .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Focus Pal Camera").Font(PalFontCache, L"Medium", 18).TextColor(White), [](DynPals::BoxSlotBuilder& Slot) { Slot.VerticalAlignment(DynPals::EBuilderVerticalAlignment::VAlign_Center); });
-            InnerContentBox.AddToVerticalBox(CameraSettingsRow, [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
-
-            InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(CameraRotationContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
-            InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(SizeSliderContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
-            InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(DynamicMorphBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
-            InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(DynamicLogBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 10, 0, 10); });
-            InnerContentBox.AddToVerticalBox(DynPals::WidgetBuilder(WidgetTrashBin));
-        } 
-        else if (ActiveTab == 1) { // --- PREFERENCES TAB ---
-            auto& Settings = SaveManager::Get().Settings;
-            
-            UObject* MenuBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(FormatKeybindText(Settings.MenuModifier, Settings.MenuKey)).DesiredSizeOverride(200.0f, 45.0f).UnlockButtonSize(200.0f).Build();
-            BindMenuBtn = std::make_unique<UI::Button>(MenuBtnObj);
-            BindMenuBtn->OnClicked([this]() { StartKeyCapture(0); });
-
-            UObject* TestMenuBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(FormatKeybindText(Settings.TestMenuModifier, Settings.TestMenuKey)).DesiredSizeOverride(200.0f, 45.0f).UnlockButtonSize(200.0f).Build();
-            BindTestMenuBtn = std::make_unique<UI::Button>(TestMenuBtnObj);
-            BindTestMenuBtn->OnClicked([this]() { StartKeyCapture(1); });
-
-            auto BindRow1 = UI::HorizontalBox(MyWidget)
-                .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Main Menu Toggle").Font(PalFontCache, L"Medium", 18).TextColor(White), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 20, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
-                .AddToHorizontalBox(DynPals::WidgetBuilder(MenuBtnObj));
-
-            auto BindRow2 = UI::HorizontalBox(MyWidget)
-                .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Test Menu Toggle").Font(PalFontCache, L"Medium", 18).TextColor(White), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 20, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
-                .AddToHorizontalBox(DynPals::WidgetBuilder(TestMenuBtnObj));
-
-            InnerContentBox.AddToVerticalBox(UI::Text(MyWidget).Text(L"Global Keybinds").Font(PalFontCache, L"Bold", 20).TextColor(Emerald), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
-            InnerContentBox.AddToVerticalBox(BindRow1, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
-            InnerContentBox.AddToVerticalBox(BindRow2, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
-        }
-
-        auto MainScrollBoxBuilder = UI::ScrollBox(MyWidget).AddChild(InnerContentBox);
+        auto MainScrollBoxBuilder = UI::ScrollBox(MyWidget).AddChild(CombinedContent);
         MainScrollBoxObj = MainScrollBoxBuilder.Build();
         if (MainScrollBoxObj) GetScrollOffsetFunc = MainScrollBoxObj->GetFunctionByNameInChain(STR("GetScrollOffset"));
 
         auto MainContentConstrained = UI::SizeBox(MyWidget).HeightOverride(560.0f).AddChild(MainScrollBoxBuilder);
 
+        // --- 5. FULLSCREEN INPUT CAPTURE OVERLAY (ANCHORED PROPERLY) ---
+        auto OverlayBuilder = UI::Canvas(MyWidget)
+            .AddToCanvas(
+                UI::Border(MyWidget).BrushColor({0.0f, 0.0f, 0.0f, 0.90f}),
+                [](CanvasSlotBuilder& Slot) { Slot.Anchors(0.0, 0.0, 1.0, 1.0).Offsets(0, 0, 0, 0); }
+            )
+            .AddToCanvas(
+                UI::Text(MyWidget)
+                .Text(L"Press Any Key or Button...\n(Press ESC to cancel)")
+                .Font(PalFontCache, L"Bold", 28)
+                .TextColor({1.0f, 1.0f, 1.0f, 1.0f}),
+                [](CanvasSlotBuilder& Slot) { Slot.Anchors(0.5, 0.5, 0.5, 0.5).Alignment(0.5, 0.5).AutoSize(true); }
+            );
+        CaptureOverlay = OverlayBuilder.Build();
+        struct { uint8_t Vis; } OverlayInitialVis{ 1 }; // Starts Collapsed!
+        Utils::CallFunction(CaptureOverlay, STR("SetVisibility"), &OverlayInitialVis);
+
+        // Build Master WindowFrame
         UObject* Canvas = UI::WindowFrame(MyWidget, 650.0f)
             .SetHeader(HeaderBox)
             .AddAutoScaledRow(TabLayout, 20.0f)
             .AddContent(MainContentConstrained) 
             .SetFooter(UI::ActionBar(MyWidget))
             .Build(0.05, 0.5, 0.05, 0.5, 0.0, 0.5); 
+
+        // Attach Fullscreen Overlay to Canvas
+        struct { RC::Unreal::UObject* Content; RC::Unreal::UObject* ReturnValue; } AddOverlayParams{CaptureOverlay, nullptr};
+        Utils::CallFunction(Canvas, STR("AddChild"), &AddOverlayParams);
+        if (AddOverlayParams.ReturnValue) {
+            CanvasSlotBuilder Slot(AddOverlayParams.ReturnValue);
+            Slot.Anchors(0.0, 0.0, 1.0, 1.0).Offsets(0.0f, 0.0f, 0.0f, 0.0f).Alignment(0.0, 0.0);
+            struct { int32_t ZOrder; } ZParams{99999};
+            Utils::CallFunction(AddOverlayParams.ReturnValue, STR("SetZOrder"), &ZParams);
+        }
 
         UObject* WidgetTree = nullptr;
         if (Utils::GetPropertyValue(MyWidget, STR("WidgetTree"), WidgetTree) && WidgetTree) {
@@ -748,18 +793,21 @@ namespace DynPals {
         struct { int32_t ZOrder; } ViewportParams{9999};
         Utils::CallFunction(MyWidget, STR("AddToViewport"), &ViewportParams);
 
-        struct { bool bActive; } Tab1ActiveParams{ ActiveTab == 0 };
-        struct { bool bActive; } Tab2ActiveParams{ ActiveTab == 1 };
-        Utils::CallFunction(Tab1Widget, STR("SetTabActive"), &Tab1ActiveParams);
-        Utils::CallFunction(Tab2Widget, STR("SetTabActive"), &Tab2ActiveParams);
+        // Initialize active tab visibility cleanly
+        SwitchTab(ActiveTab);
     }
 
+
     RC::Unreal::UObject* UIManager::GetDesiredFocusTarget() const {
-        if (RerollButton && RerollButton->GetWidget()) {
+        if (ActiveTab == 0 && RerollButton && RerollButton->GetWidget()) {
             return RerollButton->GetWidget();
+        }
+        if (ActiveTab == 1 && BindMenuBtn && BindMenuBtn->GetWidget()) {
+            return BindMenuBtn->GetWidget();
         }
         return MyWidget;
     }
+
 
     void UIManager::RefreshUI() {
         if (!TargetPal || !DynamicLogBox || !DynamicMorphBox || !CameraRotationContainer) return;
@@ -1318,110 +1366,13 @@ namespace DynPals {
             return;
         }
 
-        // --- NEW: Keybind Capturing ---
-        if (bIsCapturingKey) {
-            if (CaptureDebounceFrames > 0) {
-                CaptureDebounceFrames--;
-                return;
-            }
-
-            // 1. ESC cancels the capture overlay without closing the menu
-            if ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0) {
-                CancelKeyCapture();
-                RequestRebuild();
-                return;
-            }
-
-            // 2. Controller / Steam Deck support via direct XInput
-            std::wstring gamepadKey;
-            if (PollGamepadInput(gamepadKey)) {
-                // Gamepad Back (Select) button cancels capture
-                if (gamepadKey == L"Gamepad_Special_Left") {
-                    CancelKeyCapture();
-                    RequestRebuild();
-                    return;
-                }
-
-                auto& Settings = SaveManager::Get().Settings;
-                if (CapturingTarget == 0) {
-                    Settings.MenuKey = gamepadKey;
-                    Settings.MenuModifier = L""; // Gamepads do not use Alt/Ctrl modifiers
-                } else if (CapturingTarget == 1) {
-                    Settings.TestMenuKey = gamepadKey;
-                    Settings.TestMenuModifier = L"";
-                }
-                SaveManager::Get().SaveWorldData();
-                DP_LOG(Default, "[Keybind] Rebound Target {} to Gamepad: {}", CapturingTarget, gamepadKey);
-
-                CancelKeyCapture();
-                RequestRebuild();
-                return;
-            }
-
-            // 3. Keyboard support via Win32 (bypasses Slate UI-only input lock)
-            std::wstring detectedKey = L"";
-            
-            // Check Letters A-Z
-            for (int vk = 'A'; vk <= 'Z'; ++vk) {
-                if ((GetAsyncKeyState(vk) & 0x8000) != 0) {
-                    detectedKey = std::wstring(1, static_cast<wchar_t>(vk));
-                    break;
-                }
-            }
-            // Check Numbers 0-9
-            if (detectedKey.empty()) {
-                for (int vk = '0'; vk <= '9'; ++vk) {
-                    if ((GetAsyncKeyState(vk) & 0x8000) != 0) {
-                        detectedKey = std::wstring(1, static_cast<wchar_t>(vk));
-                        break;
-                    }
-                }
-            }
-            // Check Function Keys F1-F12
-            if (detectedKey.empty()) {
-                for (int vk = VK_F1; vk <= VK_F12; ++vk) {
-                    if ((GetAsyncKeyState(vk) & 0x8000) != 0) {
-                        detectedKey = L"F" + std::to_wstring(vk - VK_F1 + 1);
-                        break;
-                    }
-                }
-            }
-            // Check Special / Navigation Keys
-            if (detectedKey.empty()) {
-                if ((GetAsyncKeyState(VK_SPACE) & 0x8000) != 0) detectedKey = L"SpaceBar";
-                else if ((GetAsyncKeyState(VK_RETURN) & 0x8000) != 0) detectedKey = L"Enter";
-                else if ((GetAsyncKeyState(VK_TAB) & 0x8000) != 0) detectedKey = L"Tab";
-                else if ((GetAsyncKeyState(VK_OEM_3) & 0x8000) != 0) detectedKey = L"Tilde";
-            }
-
-            if (!detectedKey.empty()) {
-                // Detect any held modifiers
-                std::wstring mod = L"";
-                if ((GetAsyncKeyState(VK_MENU) & 0x8000) != 0) mod = L"LeftAlt";
-                else if ((GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0) mod = L"LeftControl";
-                else if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0) mod = L"LeftShift";
-
-                auto& Settings = SaveManager::Get().Settings;
-                if (CapturingTarget == 0) {
-                    Settings.MenuKey = detectedKey;
-                    Settings.MenuModifier = mod;
-                } else if (CapturingTarget == 1) {
-                    Settings.TestMenuKey = detectedKey;
-                    Settings.TestMenuModifier = mod;
-                }
-                SaveManager::Get().SaveWorldData();
-                DP_LOG(Default, "[Keybind] Rebound Target {} to Keyboard: {} + {}", CapturingTarget, mod, detectedKey);
-
-                CancelKeyCapture();
-                RequestRebuild();
-                return;
-            }
-
-            return; // Block background interaction while overlay is active
+        // 1. Tick the standalone InputManager if in capture mode
+        if (InputManager::Get().IsCapturing()) {
+            InputManager::Get().Tick(CurrentPlayerController);
+            return; // Suppress normal clicks while listening
         }
-        // ------------------------------
 
-        // --- DEBOUNCED DISK SAVE CHECK ---
+        // 2. Debounced save
         if (bPendingDiskSave) {
             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - LastSliderChangeTime).count();
             if (elapsed >= 500) { 
@@ -1430,7 +1381,7 @@ namespace DynPals {
             }
         }
 
-        // --- AUTO-DETECT BACKGROUND SWAP & SIZE UPDATES ---
+        // 3. Auto-detect background size updates on Pal
         PalPersistData* p = SaveManager::Get().GetPersistData(TargetInstanceID);
         if (p) {
             if (p->SizeMultiplier != LastObservedSize || p->SwapLabel != LastObservedLabel) {
@@ -1440,12 +1391,14 @@ namespace DynPals {
             }
         }
         
-        if (bNeedsRefresh) { bNeedsRefresh = false; RefreshUI(); }
+        if (bNeedsRefresh && ActiveTab == 0) { 
+            bNeedsRefresh = false; 
+            RefreshUI(); 
+        }
 
+        // 4. Tick tabs and visible components
         if (TabBtn1) TabBtn1->Tick();
         if (TabBtn2) TabBtn2->Tick();
-        if (BindMenuBtn) BindMenuBtn->Tick();
-        if (BindTestMenuBtn) BindTestMenuBtn->Tick();
 
         if (ActiveTab == 0) {
             if (SkinDropdown)         SkinDropdown->Tick();
@@ -1460,9 +1413,13 @@ namespace DynPals {
             for (int i = 0; i < ActiveMorphSlidersCount; ++i) {
                 if (i < static_cast<int>(MorphSliderPool.size())) MorphSliderPool[i]->Tick();
             }
+        } else if (ActiveTab == 1) {
+            if (BindMenuBtn)     BindMenuBtn->Tick();
+            if (BindTestMenuBtn) BindTestMenuBtn->Tick();
         }
         
         CacheScrollOffset();
+
 
     }
 }

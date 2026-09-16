@@ -40,21 +40,22 @@ namespace DynPals {
     private:
         UIManager() { bCloseOnEscape = true; }
         
-        // --- NEW: Tab & Keybind Variables ---
+        // --- Persistent Tab Architecture (No Destructive Rebuilds) ---
         int32_t ActiveTab = 0;
+        RC::Unreal::UObject* Tab1Widget = nullptr;
+        RC::Unreal::UObject* Tab2Widget = nullptr;
         std::unique_ptr<class DynPals::UI::Button> TabBtn1;
         std::unique_ptr<class DynPals::UI::Button> TabBtn2;
-        
+
+        RC::Unreal::UObject* SettingsTabContainer = nullptr;
+        RC::Unreal::UObject* PreferencesTabContainer = nullptr;
+        RC::Unreal::UObject* CaptureOverlay = nullptr;
+
         std::unique_ptr<class DynPals::UI::Button> BindMenuBtn;
         std::unique_ptr<class DynPals::UI::Button> BindTestMenuBtn;
 
-        bool bIsCapturingKey = false;
-        int CapturingTarget = 0; 
-        int CaptureDebounceFrames = 0;
-        RC::Unreal::UObject* CaptureOverlay = nullptr;
-
+        void SwitchTab(int32_t NewTab);
         void StartKeyCapture(int Target);
-        void CancelKeyCapture(); // <--- ADD THIS LINE
         std::wstring FormatKeybindText(const std::wstring& Modifier, const std::wstring& Key);
 
         
