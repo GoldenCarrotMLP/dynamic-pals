@@ -549,7 +549,7 @@ namespace DynPals {
                     DP_LOG(Default, "[ReLinkAnimLayers] Skipped linking vanilla AnimLayerClass because custom mesh provides PostProcessAnimBlueprint.");
                 }
             } else {
-                DP_LOG(Warning, "[ReLinkAnimLayers] Human NPC TargetCDO has null or invalid AnimLayerClass.");
+                DP_LOG(Verbose, "[ReLinkAnimLayers] Human NPC TargetCDO has null or invalid AnimLayerClass.");
             }
 
           

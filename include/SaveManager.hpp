@@ -12,6 +12,11 @@ namespace DynPals {
         bool bFocusPal = true;
         double CameraRotation = 180.0;
         bool bRelativeCamera = true;
+        
+        std::wstring MenuKey = L"N";
+        std::wstring MenuModifier = L"LeftAlt"; 
+        std::wstring TestMenuKey = L"G";
+        std::wstring TestMenuModifier = L"LeftAlt"; 
     };
 
     class SaveManager {

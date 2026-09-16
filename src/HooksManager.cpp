@@ -17,6 +17,7 @@
 #include "PalProcessor.hpp"
 #include "SaveManager.hpp"
 #include "UI/UIRegistry.hpp"
+#include "UI/Views/TestUI.hpp" 
 #include "UI/Views/UIManager.hpp"
 #include "Updater.hpp"
 #include "Utils.hpp"
@@ -251,71 +252,74 @@ struct FReentrantGuard {
     ~FReentrantGuard() { bFlag = false; }
 };
 
-static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context,
-                             void*) {
+static void OnGameThreadTick(UnrealScriptFunctionCallableContext& Context, void*) {
   static bool bIsReentrant = false;
-
   if (bIsReentrant) return;
   FReentrantGuard Guard(bIsReentrant);
 
-  VFXManager::Get().Tick();
-
-  NativeAsyncLoader::Tick(); // Triggers Watchdog
-
-  // Spaced-out queue processing restored!
-  static auto LastSwapTime = std::chrono::steady_clock::now();
-  static int VirtualFrameCount = 0; // Restored variable
+  // =========================================================================
+  // CRITICAL PERFORMANCE GATE: Global 16ms Throttle (~60 Hz)
+  // K2_GetActorRotation is called THOUSANDS of times per frame with 200 Pals!
+  // This gate guarantees all mod logic executes strictly ONCE per visual frame.
+  // =========================================================================
+  static auto LastGlobalTickTime = std::chrono::steady_clock::now();
   auto Now = std::chrono::steady_clock::now();
-  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastSwapTime).count() >= 16) {
-      LastSwapTime = Now;
-      VirtualFrameCount++;
-      if (VirtualFrameCount >= 6) { // ADJUST THIS TO CONTROL SPACING (e.g. 16, 30, etc.)
-          VirtualFrameCount = 0;
-          PalProcessor::Get().Tick();
+  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastGlobalTickTime).count() < 16) {
+      return; // Instantly rejects the other 3,999 calls this frame
+  }
+  LastGlobalTickTime = Now;
+
+  // 1. Tick sub-systems once per frame
+  VFXManager::Get().Tick();
+  NativeAsyncLoader::Tick();
+
+  // 2. Spaced-out Pal swap queue processing
+  static int VirtualFrameCount = 0;
+  VirtualFrameCount++;
+  if (VirtualFrameCount >= 6) {
+      VirtualFrameCount = 0;
+      PalProcessor::Get().Tick();
+  }
+
+  // 3. Resolve and CACHE the PlayerController (avoids scanning 100,000 UObjects)
+  static UObject* CachedPlayerController = nullptr;
+  if (!CachedPlayerController || !Utils::IsObjectValid(CachedPlayerController)) {
+      CachedPlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
+  }
+
+  // 4. Hotkey Polling (runs strictly ONCE per frame)
+  if (CachedPlayerController && Utils::IsGameWindowFocused()) {
+      auto& Settings = SaveManager::Get().Settings;
+
+      static bool bMenuKeyPressed = false;
+      if (Utils::CheckHotkeyTriggered(CachedPlayerController, Settings.MenuModifier, Settings.MenuKey)) {
+          if (!bMenuKeyPressed) {
+              bMenuKeyPressed = true;
+              DP_LOG(Default, "[Hotkey] Main Menu hotkey triggered!");
+              UIManager::Get().RequestToggle();
+          }
+      } else {
+          bMenuKeyPressed = false;
+      }
+
+      static bool bTestMenuKeyPressed = false;
+      if (Utils::CheckHotkeyTriggered(CachedPlayerController, Settings.TestMenuModifier, Settings.TestMenuKey)) {
+          if (!bTestMenuKeyPressed) {
+              bTestMenuKeyPressed = true;
+              DP_LOG(Default, "[Hotkey] Test Menu hotkey triggered!");
+              TestUI::Get().RequestToggle();
+          }
+      } else {
+          bTestMenuKeyPressed = false;
       }
   }
 
-  if (!UIRegistry::Get().RequiresTick()) {
-    return;
-  }
-
-  static auto LastUITickTime = std::chrono::steady_clock::now();
-  if (std::chrono::duration_cast<std::chrono::milliseconds>(Now - LastUITickTime).count() >= 16) {
-    LastUITickTime = Now;
-
-    UObject* ActorContext = Context.Context;
-
-    if (ActorContext) {
-      UObject* Level = ActorContext->GetOuterPrivate();
-
-      UObject* World = Level ? Level->GetOuterPrivate() : nullptr;
-
-      if (World && World == LastWorld) {
-        UObject* PlayerController = nullptr;
-
-        UObject* GameplayStatics = UObjectGlobals::StaticFindObject<UObject*>(
-            nullptr, nullptr, STR("/Script/Engine.Default__GameplayStatics"));
-
-        if (GameplayStatics) {
-          struct {
-            UObject* WorldContextObject;
-            int32_t PlayerIndex;
-            UObject* ReturnValue;
-          } GSParams{ActorContext, 0, nullptr};
-
-          Utils::CallFunction(GameplayStatics, STR("GetPlayerController"),
-                              &GSParams);
-
-          PlayerController = GSParams.ReturnValue;
-        }
-
-        if (PlayerController) {
-          UIRegistry::Get().TickAll(PlayerController);
-        }
-      }
-    }
+  // 5. Tick active UIs only when a menu is open
+  if (UIRegistry::Get().RequiresTick() && CachedPlayerController) {
+      UIRegistry::Get().TickAll(CachedPlayerController);
   }
 }
+
 
 static void OnWidgetAddedToViewport(
     UnrealScriptFunctionCallableContext& Context, void*) {

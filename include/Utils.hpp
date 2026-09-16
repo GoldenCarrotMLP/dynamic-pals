@@ -403,6 +403,108 @@ inline bool IsGameWindowFocused() {
         return foregroundProcId == GetCurrentProcessId();
     }
 
+    // Safely asks Unreal Engine if a Key/Gamepad Button was pressed this frame
+    // 1. Safely asks Unreal Engine if a Key/Gamepad Button was pressed this frame
+    inline bool WasKeyJustPressed(RC::Unreal::UObject* PlayerController, const std::wstring& KeyName) {
+        if (!PlayerController || KeyName.empty() || KeyName == L"None") return false;
+        RC::Unreal::UFunction* Func = PlayerController->GetFunctionByNameInChain(STR("WasInputKeyJustPressed"));
+        if (!Func) return false;
+        
+        alignas(8) uint8_t Params[64] = {0};
+        RC::Unreal::FProperty* KeyProp = Func->GetPropertyByNameInChain(STR("Key"));
+        if (KeyProp) {
+            KeyProp->InitializeValue_InContainer(Params);
+            RC::Unreal::FName* NamePtr = KeyProp->ContainerPtrToValuePtr<RC::Unreal::FName>(Params);
+            if (NamePtr) *NamePtr = RC::Unreal::FName(KeyName.c_str(), RC::Unreal::FNAME_Add);
+        }
+
+        SafeProcessEvent(PlayerController, Func, Params);
+        
+        bool Result = false;
+        RC::Unreal::FProperty* RetProp = Func->GetPropertyByNameInChain(STR("ReturnValue"));
+        if (RetProp) {
+            bool* RetPtr = RetProp->ContainerPtrToValuePtr<bool>(Params);
+            if (RetPtr) Result = *RetPtr;
+        }
+
+        if (KeyProp) KeyProp->DestroyValue_InContainer(Params);
+        return Result;
+    }
+
+    // 2. Safely asks Unreal Engine if a Key/Gamepad Button is currently held down
+    inline bool IsKeyDown(RC::Unreal::UObject* PlayerController, const std::wstring& KeyName) {
+        if (!PlayerController || KeyName.empty() || KeyName == L"None") return false;
+        RC::Unreal::UFunction* Func = PlayerController->GetFunctionByNameInChain(STR("IsInputKeyDown"));
+        if (!Func) return false;
+        
+        alignas(8) uint8_t Params[64] = {0};
+        RC::Unreal::FProperty* KeyProp = Func->GetPropertyByNameInChain(STR("Key"));
+        if (KeyProp) {
+            KeyProp->InitializeValue_InContainer(Params);
+            RC::Unreal::FName* NamePtr = KeyProp->ContainerPtrToValuePtr<RC::Unreal::FName>(Params);
+            if (NamePtr) *NamePtr = RC::Unreal::FName(KeyName.c_str(), RC::Unreal::FNAME_Add);
+        }
+
+        SafeProcessEvent(PlayerController, Func, Params);
+        
+        bool Result = false;
+        RC::Unreal::FProperty* RetProp = Func->GetPropertyByNameInChain(STR("ReturnValue"));
+        if (RetProp) {
+            bool* RetPtr = RetProp->ContainerPtrToValuePtr<bool>(Params);
+            if (RetPtr) Result = *RetPtr;
+        }
+
+        if (KeyProp) KeyProp->DestroyValue_InContainer(Params);
+        return Result;
+    }
+
+    // 3. Converts common key strings to Win32 Virtual Key codes
+    inline int KeyNameToVK(const std::wstring& KeyName) {
+        if (KeyName.empty()) return 0;
+        if (KeyName.length() == 1) {
+            wchar_t c = std::towupper(KeyName[0]);
+            if ((c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9')) return static_cast<int>(c);
+        }
+        if (KeyName == L"LeftAlt" || KeyName == L"RightAlt" || KeyName == L"Alt") return VK_MENU;
+        if (KeyName == L"LeftControl" || KeyName == L"RightControl" || KeyName == L"Control") return VK_CONTROL;
+        if (KeyName == L"LeftShift" || KeyName == L"RightShift" || KeyName == L"Shift") return VK_SHIFT;
+        if (KeyName == L"SpaceBar") return VK_SPACE;
+        if (KeyName == L"Enter") return VK_RETURN;
+        if (KeyName == L"Tab") return VK_TAB;
+        if (KeyName == L"Escape") return VK_ESCAPE;
+        if (KeyName.rfind(L"F", 0) == 0 && KeyName.length() <= 3) {
+            try {
+                int fNum = std::stoi(KeyName.substr(1));
+                if (fNum >= 1 && fNum <= 12) return VK_F1 + (fNum - 1);
+            } catch (...) {}
+        }
+        return 0;
+    }
+
+    // 4. Evaluates both Win32 (Keyboard) and Unreal (Gamepad/Steam Deck)
+    inline bool CheckHotkeyTriggered(RC::Unreal::UObject* PlayerController, const std::wstring& Modifier, const std::wstring& Key) {
+        if (Key.empty() || Key == L"None") return false;
+
+        bool bIsGamepad = (Key.rfind(L"Gamepad_", 0) == 0);
+
+        if (!bIsGamepad) {
+            // Keyboard path via Win32
+            int vkKey = KeyNameToVK(Key);
+            int vkMod = KeyNameToVK(Modifier);
+
+            bool modDown = (vkMod == 0) || ((GetAsyncKeyState(vkMod) & 0x8000) != 0);
+            bool keyDown = (vkKey != 0) && ((GetAsyncKeyState(vkKey) & 0x8000) != 0);
+
+            return modDown && keyDown;
+        } else {
+            // Gamepad path via Unreal Engine
+            if (!PlayerController) return false;
+            bool modDown = Modifier.empty() || IsKeyDown(PlayerController, Modifier);
+            bool keyDown = WasKeyJustPressed(PlayerController, Key);
+            return modDown && keyDown;
+        }
+    }
+
 
 
     // ==========================================

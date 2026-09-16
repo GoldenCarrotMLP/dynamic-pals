@@ -34,14 +34,13 @@ public:
 
     auto on_update() -> void override
     {
-
          if (!DynPals::Utils::IsGameWindowFocused()) {
             return;
         }
         static bool bPrevKeyPressed = false;
         static bool bNextKeyPressed = false;
 
-        // 1. Check hotkey triggers
+        // VFX Hotkeys (Alt + Left/Right)
         if (GetAsyncKeyState(VK_MENU) & 0x8000) {
             if (GetAsyncKeyState(VK_LEFT) & 0x8000) { 
                 if (!bPrevKeyPressed) {
@@ -59,30 +58,6 @@ public:
         } else {
             bPrevKeyPressed = false;
             bNextKeyPressed = false;
-        }
-
-        static bool bMenuKeyPressed = false;
-        if ((GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(0x4E) & 0x8000)) {
-            if (!bMenuKeyPressed) {
-                bMenuKeyPressed = true;
-                DynPals::AsyncHelper::AsyncTask(DynPals::ENamedThreads::GameThread, [](){
-                    DynPals::UIManager::Get().RequestToggle(); 
-                });
-            }
-        } else {
-            bMenuKeyPressed = false;
-        }
-
-        static bool bTestMenuKeyPressed = false;
-        if ((GetAsyncKeyState(VK_MENU) & 0x8000) && (GetAsyncKeyState(0x47) & 0x8000)) { 
-            if (!bTestMenuKeyPressed) {
-                bTestMenuKeyPressed = true;
-                DynPals::AsyncHelper::AsyncTask(DynPals::ENamedThreads::GameThread, [](){
-                    DynPals::TestUI::Get().RequestToggle();
-                });
-            }
-        } else {
-            bTestMenuKeyPressed = false;
         }
     }
     

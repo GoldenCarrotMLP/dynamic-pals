@@ -75,11 +75,23 @@ namespace DynPals {
             if (data.contains("Settings") && data.at("Settings").is_object()) {
                 Settings.bFocusPal = data.at("Settings").value("FocusPal", true);
                 Settings.CameraRotation = data.at("Settings").value("CameraRotation", 180.0);
+                Settings.bRelativeCamera = data.at("Settings").value("RelativeCamera", true);
+                
+                // NEW: Load Hotkeys
+                Settings.MenuKey = Utils::StringToWString(data.at("Settings").value("MenuKey", "N"));
+                Settings.MenuModifier = Utils::StringToWString(data.at("Settings").value("MenuModifier", "LeftAlt"));
+                Settings.TestMenuKey = Utils::StringToWString(data.at("Settings").value("TestMenuKey", "G"));
+                Settings.TestMenuModifier = Utils::StringToWString(data.at("Settings").value("TestMenuModifier", "LeftAlt"));
             } else {
                 Settings.bFocusPal = true;
                 Settings.CameraRotation = 180.0;
                 Settings.bRelativeCamera = true;
+                Settings.MenuKey = L"N";
+                Settings.MenuModifier = L"LeftAlt";
+                Settings.TestMenuKey = L"G";
+                Settings.TestMenuModifier = L"LeftAlt";
             }
+
 
             if (data.contains("PersistencePals") && data.at("PersistencePals").is_object()) {
                 for (auto& [instanceIdStr, palNode] : data.at("PersistencePals").items()) {
@@ -136,6 +148,13 @@ namespace DynPals {
         settingsObj["FocusPal"] = Settings.bFocusPal;
         settingsObj["CameraRotation"] = Settings.CameraRotation;
         settingsObj["RelativeCamera"] = Settings.bRelativeCamera;
+        
+        // NEW: Save Hotkeys
+        settingsObj["MenuKey"] = Utils::WStringToString(Settings.MenuKey);
+        settingsObj["MenuModifier"] = Utils::WStringToString(Settings.MenuModifier);
+        settingsObj["TestMenuKey"] = Utils::WStringToString(Settings.TestMenuKey);
+        settingsObj["TestMenuModifier"] = Utils::WStringToString(Settings.TestMenuModifier);
+
         out["Settings"] = settingsObj;
         
         nlohmann::ordered_json palsObj;
