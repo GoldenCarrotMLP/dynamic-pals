@@ -420,6 +420,8 @@ namespace DynPals {
         MainScrollBoxObj = nullptr;
         GetScrollOffsetFunc = nullptr;
         
+        PalFontCache = nullptr;
+        
         DynamicMorphBox = nullptr;
         DynamicLogBox = nullptr;
         CameraRotationContainer = nullptr;
@@ -436,6 +438,33 @@ namespace DynPals {
 
         OriginalViewTarget = nullptr;
         bIsPalCameraActive = false;
+    }
+
+    bool UIManager::OnUObjectDeleted(RC::Unreal::UObject* Obj) {
+        bool bFound = UIBase::OnUObjectDeleted(Obj);
+        if (TargetPal == Obj) { TargetPal = nullptr; bFound = true; }
+        if (OriginalViewTarget == Obj) { OriginalViewTarget = nullptr; bFound = true; }
+        if (MainScrollBoxObj == Obj) { MainScrollBoxObj = nullptr; bFound = true; }
+        if (DynamicMorphBox == Obj) { DynamicMorphBox = nullptr; bFound = true; }
+        if (DynamicLogBox == Obj) { DynamicLogBox = nullptr; bFound = true; }
+        if (CameraRotationContainer == Obj) { CameraRotationContainer = nullptr; bFound = true; }
+        if (SizeSliderContainer == Obj) { SizeSliderContainer = nullptr; bFound = true; }
+        if (HeaderTextObj == Obj) { HeaderTextObj = nullptr; bFound = true; }
+        if (WidgetTrashBin == Obj) { WidgetTrashBin = nullptr; bFound = true; }
+        if (CaptureOverlay == Obj) { CaptureOverlay = nullptr; bFound = true; }
+        if (Tab1Widget == Obj) { Tab1Widget = nullptr; bFound = true; }
+        if (Tab2Widget == Obj) { Tab2Widget = nullptr; bFound = true; }
+        if (PreloadContainer == Obj) { PreloadContainer = nullptr; bFound = true; }
+        if (SettingsTabContainer == Obj) { SettingsTabContainer = nullptr; bFound = true; }
+        if (PreferencesTabContainer == Obj) { PreferencesTabContainer = nullptr; bFound = true; }
+        if (PalFontCache == Obj) { PalFontCache = nullptr; bFound = true; }
+
+        auto it = std::remove(LogTextPool.begin(), LogTextPool.end(), Obj);
+        if (it != LogTextPool.end()) {
+            LogTextPool.erase(it, LogTextPool.end());
+            bFound = true;
+        }
+        return bFound;
     }
 
     void UIManager::OnOpen() {
@@ -500,10 +529,10 @@ namespace DynPals {
     
 
     void UIManager::StartKeyCapture(int Target) {
-        bCloseOnEscape = false; // Prevent UIBase from closing menu while capturing
+        bCloseOnEscape = false;
 
         if (CaptureOverlay) {
-            struct { uint8_t Vis; } VisParams{ 0 }; // Visible
+            struct { uint8_t Vis; } VisParams{ 0 };
             Utils::CallFunction(CaptureOverlay, STR("SetVisibility"), &VisParams);
         }
 
@@ -523,24 +552,24 @@ namespace DynPals {
                         Utils::SetTextSafely(BindTestMenuBtn->GetWidget(), STR("SetText"), FormatKeybindText(Mod, Key));
                     }
                 }
+                Settings.CacheKeybinds(); // Instantly update cached integer VK codes
                 SaveManager::Get().SaveWorldData();
 
                 if (CaptureOverlay) {
-                    struct { uint8_t Vis; } VisParams{ 1 }; // Collapsed
+                    struct { uint8_t Vis; } VisParams{ 1 };
                     Utils::CallFunction(CaptureOverlay, STR("SetVisibility"), &VisParams);
                 }
                 bCloseOnEscape = true;
             },
             [this]() {
                 if (CaptureOverlay) {
-                    struct { uint8_t Vis; } VisParams{ 1 }; // Collapsed
+                    struct { uint8_t Vis; } VisParams{ 1 };
                     Utils::CallFunction(CaptureOverlay, STR("SetVisibility"), &VisParams);
                 }
                 bCloseOnEscape = true;
             }
         );
     }
-
 
 
     void UIManager::PreloadUI(RC::Unreal::UObject* PC) {
@@ -555,7 +584,8 @@ namespace DynPals {
             UI::Assets::Blueprints::PalActionBar,
             UI::Assets::Fonts::PalDefault,
             UI::Assets::Borders::Frame1px,
-            UI::Assets::Borders::WhiteSolid
+            UI::Assets::Borders::WhiteSolid,
+            L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal" 
         };
         for (const auto& AssetPath : AssetsToCache) {
             Utils::LoadAssetSafely(AssetPath);

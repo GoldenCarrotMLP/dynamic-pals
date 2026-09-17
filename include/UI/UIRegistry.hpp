@@ -12,6 +12,7 @@ namespace DynPals {
             return instance;
         }
 
+        bool OnUObjectDeleted(RC::Unreal::UObject* Obj);
         void RegisterUI(UIBase* UI);
         void UnregisterUI(UIBase* UI);
         

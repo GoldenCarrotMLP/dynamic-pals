@@ -9,42 +9,32 @@ namespace DynPals {
         static void Initialize();
         static void Tick(); 
 
-        // Verifies whether DynamicPals.pak physically exists on disk or in the engine
         static bool IsPakInstalled();
-        
-        // Checks if the physical DynamicPals.pak file exists on disk
         static bool IsPakOnDisk();
         
-        // Parallel Batch Loader
         static bool RequestBatchAsyncLoad(const std::vector<std::wstring>& AssetPaths, RC::Unreal::UObject* Requester, int ExplicitSwapIndex = -1, bool ForceReroll = false, bool IsCompanionSync = false, bool IsEvolutionEnd = false);
         
-        // Callback routed from HooksManager's SetOwner hook
         static void OnAsyncLoadComplete(RC::Unreal::UObject* ModActor, RC::Unreal::UObject* Requester);
-        
-        // Safe Casing Resolver
         static std::wstring ResolveCasing(const std::wstring& Path);
 
-        // Active Requester Context
         static void SetActiveRequester(RC::Unreal::UObject* Requester);
         static RC::Unreal::UObject* GetLoadedPointer(const std::wstring& Path);
         static void ClearTemporaryPointers(RC::Unreal::UObject* Requester);
 
-        // --- GLOBAL CACHE & RECYCLING VERIFICATION ---
         static RC::Unreal::UObject* GetGlobalPointer(const std::wstring& Path);
         static RC::Unreal::UObject* FetchFromBPMasterArray(const std::wstring& Path);
         static void RegisterGlobalPointer(const std::wstring& Path, RC::Unreal::UObject* Asset);
 
-        // State Machine Queries
         static bool IsPending(const std::wstring& AssetPath);
         static bool IsFailed(const std::wstring& AssetPath);
         static void MarkAsLoaded(const std::wstring& AssetPath);
         static void MarkAsFailed(const std::wstring& AssetPath);
         
-        // Parallel Tracker Methods
         static int GetPendingCount(RC::Unreal::UObject* Requester);
         static void RegisterPendingRequests(RC::Unreal::UObject* Requester, int Count);
         static void DecrementPendingCount(RC::Unreal::UObject* Requester);
         
         static void ClearCache();
+        static bool OnUObjectDeleted(RC::Unreal::UObject* Obj);
     };
 }

@@ -15,6 +15,15 @@ void UIRegistry::RegisterUI(UIBase* UI) {
 
   UpdateTickState();
 }
+bool UIRegistry::OnUObjectDeleted(UObject* Obj) {
+        bool bFound = false;
+        for (UIBase* UI : RegisteredUIs) {
+            if (UI && UI->OnUObjectDeleted(Obj)) {
+                bFound = true;
+            }
+        }
+        return bFound;
+    }
 
 void UIRegistry::UnregisterUI(UIBase* UI) {
   RegisteredUIs.erase(

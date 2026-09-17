@@ -197,6 +197,23 @@ namespace DynPals {
         Utils::CallFunction(Tab1Widget, STR("SetTabActive"), &Tab1ActiveParams);
         Utils::CallFunction(Tab2Widget, STR("SetTabActive"), &Tab2ActiveParams);
     }
+    bool TestUI::OnUObjectDeleted(RC::Unreal::UObject* Obj) {
+        bool bFound = UIBase::OnUObjectDeleted(Obj);
+        
+        auto itTxt = std::remove(TextBlocks.begin(), TextBlocks.end(), Obj);
+        if (itTxt != TextBlocks.end()) {
+            TextBlocks.erase(itTxt, TextBlocks.end());
+            bFound = true;
+        }
+
+        auto itIco = std::remove(RowIcons.begin(), RowIcons.end(), Obj);
+        if (itIco != RowIcons.end()) {
+            RowIcons.erase(itIco, RowIcons.end());
+            bFound = true;
+        }
+
+        return bFound;
+    }
 
     void TestUI::OnTickUI() {
         if (TabBtn1) TabBtn1->Tick();

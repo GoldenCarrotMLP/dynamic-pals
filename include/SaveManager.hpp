@@ -1,8 +1,7 @@
-// --- START OF FILE include/SaveManager.hpp ---
 #pragma once
 #include <string>
 #include <map>
-#include <list> // Required for LRU Queue
+#include <list>
 #include <Unreal/UObjectGlobals.hpp>
 #include "DataTypes.hpp"
 
@@ -16,7 +15,18 @@ namespace DynPals {
         std::wstring MenuKey = L"N";
         std::wstring MenuModifier = L"LeftAlt"; 
         std::wstring TestMenuKey = L"G";
-        std::wstring TestMenuModifier = L"LeftAlt"; 
+        std::wstring TestMenuModifier = L"LeftAlt";
+
+        // Pre-cached hotkey data for 0.001ms integer checks on the engine tick
+        int MenuKeyVK = 'N';
+        int MenuModVK = 0x12; // VK_MENU
+        bool bMenuIsGamepad = false;
+
+        int TestKeyVK = 'G';
+        int TestModVK = 0x12; // VK_MENU
+        bool bTestIsGamepad = false;
+
+        void CacheKeybinds();
     };
 
     class SaveManager {
@@ -33,7 +43,6 @@ namespace DynPals {
         PalPersistData* GetPersistData(const std::wstring& InstanceID);
         void SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data, bool bWriteToDisk = false);
 
-        // Clears cached save IDs and states on world transition
         void Reset();
 
         DynPalsSettings Settings;
@@ -43,7 +52,6 @@ namespace DynPals {
         SaveManager(const SaveManager&) = delete;
         SaveManager& operator=(const SaveManager&) = delete;
 
-        // Bumps accessed Pals to the front of our LRU queue
         void MarkAccessed(const std::wstring& InstanceID);
 
         std::wstring ConfigPath;
@@ -51,7 +59,7 @@ namespace DynPals {
         std::wstring CurrentWorldSaveID = L"";
         
         std::map<std::wstring, PalPersistData> PersistedSwaps;
-        std::list<std::wstring> AccessOrder; // Tracks recency (front = newest, back = oldest)
-        const size_t MaxSaveEntries = 1000;  // Hard-capped limit
+        std::list<std::wstring> AccessOrder;
+        const size_t MaxSaveEntries = 1000;
     };
 }

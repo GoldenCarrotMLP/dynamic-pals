@@ -47,13 +47,16 @@ namespace DynPals {
         void CycleNext();
         void CyclePrevious();
         void Tick();
-
+        
+        bool OnUObjectDeleted(RC::Unreal::UObject* Obj);
         float PlayAnimMontage(RC::Unreal::UObject* Character, RC::Unreal::UObject* MontageAsset, float PlayRate = 1.0f);
         void AddComposerTask(RC::Unreal::UObject* PalActor, const std::vector<VFXTimelineEvent>& Events);
         float PlayComposition(RC::Unreal::UObject* PalActor, const std::wstring& CompName);
 
         void PlaySwapEffect(RC::Unreal::UObject* PalActor, const std::wstring& VfxPath, float ZOffset = -1.0f);
         RC::Unreal::UObject* AttachVFXToPal(RC::Unreal::UObject* PalActor, const std::wstring& VfxPath, const std::wstring& SocketName = L"None", float ScaleMult = 1.0f, float ZOffsetMult = 0.0f);
+
+        
 
         std::vector<std::wstring> GetCompositionAssets(const std::wstring& CompName) {
             std::vector<std::wstring> assets;

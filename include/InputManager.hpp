@@ -15,6 +15,9 @@ namespace DynPals {
 
         // Key identification helpers
         int KeyNameToVK(const std::wstring& KeyName) const;
+        
+        // Fast integer path for 0.001ms frame polling
+        bool IsHotkeyDownFast(RC::Unreal::UObject* PlayerController, int vkMod, int vkKey, bool bIsGamepad, const std::wstring& Modifier, const std::wstring& Key) const;
         bool IsHotkeyDown(RC::Unreal::UObject* PlayerController, const std::wstring& Modifier, const std::wstring& Key) const;
 
         // Key capture workflow
@@ -25,7 +28,6 @@ namespace DynPals {
         void CancelCapture();
         bool IsCapturing() const { return bIsCapturing; }
 
-        // Ticked to poll active input
         void Tick(RC::Unreal::UObject* PlayerController);
 
     private:

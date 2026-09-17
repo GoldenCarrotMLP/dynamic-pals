@@ -202,6 +202,9 @@ namespace DynPals {
         ModsPath = GetVfxFolderPath();
         LoadCompositions();
 
+        // Pre-warm the level-up swap effect into memory to eliminate the 35ms stall during manual swaps
+        //Utils::LoadAssetSafely(L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
+
         std::wstring ListPath = ModsPath + L"vfx_list.txt";
         std::string fileContent = Utils::ReadFileToString(ListPath);
         if (!fileContent.empty()) {
@@ -320,6 +323,19 @@ namespace DynPals {
         if (LastSlash != std::wstring::npos) BaseName = BaseName.substr(LastSlash + 1);
     }
 
+    bool VFXManager::OnUObjectDeleted(RC::Unreal::UObject* Obj) {
+        bool bFound = false;
+        if (ActivePreviewComponent == Obj) { ActivePreviewComponent = nullptr; bFound = true; }
+        
+        auto it = std::remove_if(ActiveTasks.begin(), ActiveTasks.end(),
+            [Obj](const VFXComposerTask& t) { return t.TargetPal == Obj; });
+        if (it != ActiveTasks.end()) {
+            ActiveTasks.erase(it, ActiveTasks.end());
+            bFound = true;
+        }
+        return bFound;
+    }
+    
     void VFXManager::CycleNext() {
         if (VFXList.empty()) return;
         CurrentIndex = (CurrentIndex + 1) % VFXList.size();

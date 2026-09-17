@@ -50,14 +50,14 @@ namespace DynPals {
         void ProcessPlayerParty(RC::Unreal::UObject* WorldContext);
         void Tick();
 
-        // Active Live Reversion to Vanilla / Default
         void ResetPal(RC::Unreal::UObject* Character);
 
         void ClearAllSwappedStatus();
         void ClearSwappedStatus(const std::wstring& InstanceID, RC::Unreal::UObject* Character);
 
-        // Helper to locate natively linked actors (Funnels, Owners, Party members)
         std::vector<RC::Unreal::UObject*> GetLinkedPals(RC::Unreal::UObject* Character);
+
+        bool OnUObjectDeleted(RC::Unreal::UObject* Obj);
 
     private:
         PalProcessor() = default;
@@ -74,7 +74,6 @@ namespace DynPals {
 
         std::set<RC::Unreal::UObject*> ProcessedPals; 
         std::vector<QueuedPal> ProcessingQueue; 
-        std::chrono::steady_clock::time_point LastScanTime = std::chrono::steady_clock::now();
 
         std::deque<QueuedSwap> SwapQueue;
         std::mutex QueueMutex;

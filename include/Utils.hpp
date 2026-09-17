@@ -1,13 +1,14 @@
-// --- START OF FILE include/Utils.hpp ---
 #pragma once
 #define NOMINMAX
+#define DP_PROFILE(Name, ThresholdMs) \
+    DynPals::Utils::ScopedProfiler profiler_##__LINE__(Name, ThresholdMs)
+
 #include <Windows.h>
 #include "DataTypes.hpp"
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/Core/Containers/Array.hpp>
 #include <Unreal/CoreUObject/UObject/Class.hpp>
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp> 
-#include <Unreal/FWeakObjectPtr.hpp>
 
 #include <Unreal/FString.hpp>
 #include <Unreal/FText.hpp> 
@@ -22,6 +23,28 @@
 #include "../include/NativeAsyncLoader.hpp"
 
 namespace DynPals::Utils {
+
+    struct ScopedProfiler {
+        std::string Name;
+        double ThresholdMs;
+        std::chrono::high_resolution_clock::time_point Start;
+
+        ScopedProfiler(std::string InName, double InThresholdMs = 1.0)
+            : Name(std::move(InName)), ThresholdMs(InThresholdMs) {
+            Start = std::chrono::high_resolution_clock::now();
+        }
+
+        ~ScopedProfiler() {
+            auto end = std::chrono::high_resolution_clock::now();
+            double ms = std::chrono::duration<double, std::milli>(end - Start).count();
+            if (ms >= ThresholdMs) {
+                // Bypass DP_LOG so we don't trigger in-game toast notifications for performance logs
+                std::wstring wName(Name.begin(), Name.end());
+                RC::Output::send<RC::LogLevel::Warning>(STR("[Profiler] {} took {:.3f} ms\n"), wName, ms);
+            }
+        }
+    };
+
     using namespace RC::Unreal;
 
     inline UObject* GetKismetSystemLibrary();
@@ -68,12 +91,8 @@ namespace DynPals::Utils {
         inline std::map<std::wstring, std::vector<std::wstring>> FolderCache;
         inline std::shared_mutex FolderMutex;
         
-        // --- NEW: Tracks automatically discovered asset folders ---
         inline std::set<std::wstring> ScannedFolders;
         inline std::shared_mutex ScannedFoldersMutex;
-
-        inline UObject* CachedKSL = nullptr;
-        inline UFunction* CachedIsValidFunc = nullptr;
 
         inline void ClearAll() {
             std::unique_lock<std::shared_mutex> lock1(PropMutex);
@@ -88,7 +107,6 @@ namespace DynPals::Utils {
             PropCache.clear(); FuncCache.clear(); LibraryCache.clear();
             LibFuncCache.clear(); ClassCache.clear(); KismetFuncCache.clear(); FolderCache.clear();
             ScannedFolders.clear();
-            CachedKSL = nullptr; CachedIsValidFunc = nullptr;
         }
     }
 
@@ -137,47 +155,23 @@ namespace DynPals::Utils {
         return Caches::KismetFuncCache[FunctionName] = Func;
     }
 
-    inline bool IsMemoryReadable(const void* ptr, size_t size) {
-        if (!ptr) return false;
-        __try {
-            volatile const char* p = reinterpret_cast<volatile const char*>(ptr);
-            char dummy1 = p[0]; char dummy2 = p[size - 1];
-            (void)dummy1; (void)dummy2; 
-            return true;
-        }
-        __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER : EXCEPTION_CONTINUE_SEARCH) {
-            return false;
-        }
-    }
-
+    // High-performance direct validity check (Replaces Reflection / Exceptions)
     inline bool IsObjectValid(UObject* Obj) {
         if (!Obj) return false;
-        uintptr_t addr = reinterpret_cast<uintptr_t>(Obj);
-        if (addr < 0x10000ULL || (addr % 8) != 0) return false;
-        if (!IsMemoryReadable(Obj, 0x18)) return false;
-        void* vtable = *reinterpret_cast<void**>(Obj);
-        if (!IsMemoryReadable(vtable, 8)) return false;
-
-        if (!Caches::CachedKSL || !Caches::CachedIsValidFunc) {
-            Caches::CachedKSL = GetKismetSystemLibrary();
-            Caches::CachedIsValidFunc = GetKismetFunction(STR("IsValid"));
-        }
-        if (!Caches::CachedKSL || !Caches::CachedIsValidFunc) return false; 
-
-        struct { UObject* Object; bool ReturnValue; } Params{ Obj, false };
-        SafeProcessEvent(Caches::CachedKSL, Caches::CachedIsValidFunc, &Params);
-        return Params.ReturnValue;
+        
+        // Native bitmask check for Unreachable/PendingKill
+        // 0x00008000 = RF_BeginDestroyed
+        // 0x00010000 = RF_FinishDestroyed
+        // 0x08000000 = RF_Unreachable
+        uint32_t flags = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(Obj) + 0x8);
+        if (flags & (0x00008000 | 0x00010000 | 0x08000000)) return false;
+        
+        return true;
     }
 
     inline bool IsObjectTracked(UObject* TargetObj) {
-    if (!TargetObj) return false;
-    uintptr_t addr = reinterpret_cast<uintptr_t>(TargetObj);
-    
-    // FIX: Changed 0x100000000ULL (4GB) to 0x10000ULL (64KB)
-    if (addr < 0x10000ULL || (addr % 8) != 0) return false;
-    
-    return IsObjectValid(TargetObj);
-}
+        return IsObjectValid(TargetObj); // Fallback wrapper
+    }
 
     inline FField* GetNextField(FField* Field) {
         if (!Field) return nullptr;
@@ -312,7 +306,6 @@ namespace DynPals::Utils {
     inline UObject* GetKSL() { return GetLibrary(STR("/Script/Engine.Default__KismetSystemLibrary")); }
     inline UFunction* GetKSLFunction(const wchar_t* FunctionName) { return GetLibraryFunction(STR("/Script/Engine.Default__KismetSystemLibrary"), FunctionName); }
 
-
     inline void AssignStringToTextProperty(const std::wstring& Str, void* DestContainer, FProperty* DestTextProp) {
         UObject* KTL = GetKTL();
         UFunction* ConvFunc = GetKTLFunction(STR("Conv_StringToText"));
@@ -320,7 +313,6 @@ namespace DynPals::Utils {
 
         alignas(8) uint8_t ConvParams[256] = {0};
         
-        // Safely initialize ALL parameters of the conversion function
         for (FProperty* Prop = (FProperty*)ConvFunc->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
             Prop->InitializeValue_InContainer(ConvParams);
         }
@@ -337,14 +329,12 @@ namespace DynPals::Utils {
         SafeProcessEvent(KTL, ConvFunc, ConvParams);
 
         if (OutTextProp) {
-            // Copy the result into the destination. We assume DestContainer is already initialized!
             DestTextProp->CopyCompleteValue(
                 DestTextProp->ContainerPtrToValuePtr<void>(DestContainer),
                 OutTextProp->ContainerPtrToValuePtr<void>(ConvParams)
             );
         }
 
-        // Safely destroy ALL parameters to prevent memory leaks
         for (FProperty* Prop = (FProperty*)ConvFunc->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
             Prop->DestroyValue_InContainer(ConvParams);
         }
@@ -353,7 +343,6 @@ namespace DynPals::Utils {
     inline void SetTextSafely(UObject* Target, const wchar_t* FuncName, const std::wstring& Str) {
         if (!Target || !IsObjectValid(Target)) return;
 
-        // If target is a CommonButton wrapper, forward SetText directly to its inner Text_Main component!
         UObject* TextMainObj = nullptr;
         if (GetPropertyValue<UObject*>(Target, STR("Text_Main"), TextMainObj, true) && TextMainObj && IsObjectValid(TextMainObj)) {
             SetTextSafely(TextMainObj, FuncName, Str);
@@ -365,7 +354,6 @@ namespace DynPals::Utils {
 
         alignas(8) uint8_t Params[256] = {0};
         
-        // Safely initialize ALL parameters of the target function
         for (FProperty* Prop = (FProperty*)Func->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
             Prop->InitializeValue_InContainer(Params);
         }
@@ -388,23 +376,30 @@ namespace DynPals::Utils {
             SafeProcessEvent(Target, Func, Params);
         }
 
-        // Safely destroy ALL parameters
         for (FProperty* Prop = (FProperty*)Func->GetChildProperties(); Prop; Prop = (FProperty*)GetNextField(Prop)) {
             Prop->DestroyValue_InContainer(Params);
         }
     }
 
-inline bool IsGameWindowFocused() {
-        HWND foregroundWindow = GetForegroundWindow();
-        if (!foregroundWindow) return false;
-
-        DWORD foregroundProcId = 0;
-        GetWindowThreadProcessId(foregroundWindow, &foregroundProcId);
-        return foregroundProcId == GetCurrentProcessId();
+    inline bool IsGameWindowFocused() {
+        static uint64_t lastCheckTick = 0;
+        static bool cachedResult = true;
+        uint64_t currentTick = GetTickCount64();
+        
+        if (currentTick - lastCheckTick > 100) {
+            lastCheckTick = currentTick;
+            HWND foregroundWindow = GetForegroundWindow();
+            if (!foregroundWindow) {
+                cachedResult = false;
+            } else {
+                DWORD foregroundProcId = 0;
+                GetWindowThreadProcessId(foregroundWindow, &foregroundProcId);
+                cachedResult = (foregroundProcId == GetCurrentProcessId());
+            }
+        }
+        return cachedResult;
     }
 
-    // Safely asks Unreal Engine if a Key/Gamepad Button was pressed this frame
-    // 1. Safely asks Unreal Engine if a Key/Gamepad Button was pressed this frame
     inline bool WasKeyJustPressed(RC::Unreal::UObject* PlayerController, const std::wstring& KeyName) {
         if (!PlayerController || KeyName.empty() || KeyName == L"None") return false;
         RC::Unreal::UFunction* Func = PlayerController->GetFunctionByNameInChain(STR("WasInputKeyJustPressed"));
@@ -431,7 +426,6 @@ inline bool IsGameWindowFocused() {
         return Result;
     }
 
-    // 2. Safely asks Unreal Engine if a Key/Gamepad Button is currently held down
     inline bool IsKeyDown(RC::Unreal::UObject* PlayerController, const std::wstring& KeyName) {
         if (!PlayerController || KeyName.empty() || KeyName == L"None") return false;
         RC::Unreal::UFunction* Func = PlayerController->GetFunctionByNameInChain(STR("IsInputKeyDown"));
@@ -458,61 +452,6 @@ inline bool IsGameWindowFocused() {
         return Result;
     }
 
-    // 3. Converts common key strings to Win32 Virtual Key codes
-    inline int KeyNameToVK(const std::wstring& KeyName) {
-        if (KeyName.empty()) return 0;
-        if (KeyName.length() == 1) {
-            wchar_t c = std::towupper(KeyName[0]);
-            if ((c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9')) return static_cast<int>(c);
-        }
-        if (KeyName == L"LeftAlt" || KeyName == L"RightAlt" || KeyName == L"Alt") return VK_MENU;
-        if (KeyName == L"LeftControl" || KeyName == L"RightControl" || KeyName == L"Control") return VK_CONTROL;
-        if (KeyName == L"LeftShift" || KeyName == L"RightShift" || KeyName == L"Shift") return VK_SHIFT;
-        if (KeyName == L"SpaceBar") return VK_SPACE;
-        if (KeyName == L"Enter") return VK_RETURN;
-        if (KeyName == L"Tab") return VK_TAB;
-        if (KeyName == L"Escape") return VK_ESCAPE;
-        if (KeyName.rfind(L"F", 0) == 0 && KeyName.length() <= 3) {
-            try {
-                int fNum = std::stoi(KeyName.substr(1));
-                if (fNum >= 1 && fNum <= 12) return VK_F1 + (fNum - 1);
-            } catch (...) {}
-        }
-        return 0;
-    }
-
-    // 4. Evaluates both Win32 (Keyboard) and Unreal (Gamepad/Steam Deck)
-    inline bool CheckHotkeyTriggered(RC::Unreal::UObject* PlayerController, const std::wstring& Modifier, const std::wstring& Key) {
-        if (Key.empty() || Key == L"None") return false;
-
-        bool bIsGamepad = (Key.rfind(L"Gamepad_", 0) == 0);
-
-        if (!bIsGamepad) {
-            // Keyboard path via Win32
-            int vkKey = KeyNameToVK(Key);
-            int vkMod = KeyNameToVK(Modifier);
-
-            bool modDown = (vkMod == 0) || ((GetAsyncKeyState(vkMod) & 0x8000) != 0);
-            bool keyDown = (vkKey != 0) && ((GetAsyncKeyState(vkKey) & 0x8000) != 0);
-
-            return modDown && keyDown;
-        } else {
-            // Gamepad path via Unreal Engine
-            if (!PlayerController) return false;
-            bool modDown = Modifier.empty() || IsKeyDown(PlayerController, Modifier);
-            bool keyDown = WasKeyJustPressed(PlayerController, Key);
-            return modDown && keyDown;
-        }
-    }
-
-
-
-    // ==========================================
-    // ZERO-STUTTER ASSET MEMORY CHECKS
-    // ==========================================
-
-    // --- THE FIX: JIT FOLDER REGISTRATION ---
-    // This forces the Engine to discover exact-path materials hidden inside unmounted Mod .pak files!
     inline void RegisterAssetFolder(const std::wstring& AssetPath) {
         if (AssetPath.empty()) return;
         size_t lastSlash = AssetPath.find_last_of(L'/');
@@ -521,7 +460,7 @@ inline bool IsGameWindowFocused() {
 
         {
             std::shared_lock<std::shared_mutex> read_lock(Caches::ScannedFoldersMutex);
-            if (Caches::ScannedFolders.count(FolderPath)) return; // Already scanned
+            if (Caches::ScannedFolders.count(FolderPath)) return;
         }
 
         UObject* ARH = GetLibrary(STR("/Script/AssetRegistry.Default__AssetRegistryHelpers"));
@@ -548,7 +487,6 @@ inline bool IsGameWindowFocused() {
             FBoolProperty* ForceRescanProp = CastField<FBoolProperty>(ScanFunc->GetPropertyByNameInChain(STR("bForceRescan")));
             if (ForceRescanProp) ForceRescanProp->SetPropertyValue(ForceRescanProp->ContainerPtrToValuePtr<void>(ScanBuffer), true);
             
-            DP_LOG(Default, "[Asset Scanner] Forcing synchronous rescan of folder to discover exact path asset: '{}'", FolderPath);
             SafeProcessEvent(AssetRegistry, ScanFunc, ScanBuffer);
         }
 
@@ -556,29 +494,15 @@ inline bool IsGameWindowFocused() {
         Caches::ScannedFolders.insert(FolderPath);
     }
 
-    // Core O(1) Fetch Function
-    inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBlocking = true) {
+inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBlocking = true) {
         if (AssetPath.empty()) return nullptr;
 
-        // TIER 1: Check Requester-Specific Cache (0.001 ms)
         UObject* DirectPtr = NativeAsyncLoader::GetLoadedPointer(AssetPath);
-        if (DirectPtr && IsObjectValid(DirectPtr)) {
-            return DirectPtr;
-        }
+        if (DirectPtr && IsObjectValid(DirectPtr)) return DirectPtr;
 
-        // TIER 2: Check Global C++ Cache with Pointer Recycling Verification (0.001 ms)
         UObject* GlobalPtr = NativeAsyncLoader::GetGlobalPointer(AssetPath);
-        if (GlobalPtr && IsObjectValid(GlobalPtr)) {
-            return GlobalPtr;
-        }
+        if (GlobalPtr && IsObjectValid(GlobalPtr)) return GlobalPtr;
 
-        // TIER 3: Check Blueprint Master Array (1.0 ms Failsafe)
-        UObject* BPArrayPtr = NativeAsyncLoader::FetchFromBPMasterArray(AssetPath);
-        if (BPArrayPtr && IsObjectValid(BPArrayPtr)) {
-            return BPArrayPtr;
-        }
-
-        // TIER 4: Slow Native Engine Search (47.0 ms Last Resort)
         std::wstring resolvedPath = NativeAsyncLoader::ResolveCasing(AssetPath);
         std::wstring formatted = FormatAssetPath(resolvedPath); 
         
@@ -601,16 +525,12 @@ inline bool IsGameWindowFocused() {
                         return Dest;
                     }
                 }
-                DP_LOG(Default, "[Utils] Asset '{}' resolved via SLOW StaticFindObject. Re-caching globally.", AssetPath);
                 NativeAsyncLoader::RegisterGlobalPointer(AssetPath, ExistingObj);
                 return ExistingObj;
             }
         }
 
-        // TIER 5: Blocking Disk Load (Only if permitted)
         if (!bAllowBlocking) return nullptr;
-
-        DP_LOG(Default, "[Utils] Executing SLOW BLOCKING LOAD for '{}' (This causes a game hitch!)", AssetPath);
 
         std::wstring package, asset;
         size_t dot = formatted.find(L'.');
@@ -654,6 +574,7 @@ inline bool IsGameWindowFocused() {
         
         return nullptr;
     }
+
     inline bool IsAssetLoaded(const std::wstring& AssetPath) {
         if (AssetPath.empty()) return true;
         return LoadAssetInternal(AssetPath, false) != nullptr;
@@ -720,6 +641,9 @@ inline bool IsGameWindowFocused() {
         return nullptr;
     }
 
+    // =========================================================================================
+    // FIX: Safely initializes and destroys TArray memory to prevent 0xffffffffffffffff crashes!
+    // =========================================================================================
     inline std::vector<std::wstring> GetAssetsInVirtualFolder(const std::wstring& FolderPath) {
         {
             std::shared_lock<std::shared_mutex> read_lock(Caches::FolderMutex);
@@ -728,39 +652,46 @@ inline bool IsGameWindowFocused() {
 
         std::vector<std::wstring> Results;
         UObject* ARH = GetLibrary(STR("/Script/AssetRegistry.Default__AssetRegistryHelpers"));
-        if (!ARH) {
-            DP_LOG(Error, "[Asset Scanner] Failed: AssetRegistryHelpers CDO not found.");
-            return Results;
-        }
+        if (!ARH) return Results;
 
         struct { UObject* ReturnValue; } GetARParams{nullptr};
         CallFunction(ARH, STR("GetAssetRegistry"), &GetARParams);
         UObject* AssetRegistry = GetARParams.ReturnValue;
         if (!AssetRegistry) return Results;
 
+        // --- SCAN PATH ---
         UFunction* ScanFunc = AssetRegistry->GetFunctionByNameInChain(STR("ScanPathsSynchronous"));
         if (ScanFunc) {
             alignas(8) uint8_t ScanBuffer[512] = {0}; 
-            FString Src(FolderPath.c_str()); 
-            TArray<FString> LocalPaths;
-            LocalPaths.Add(Src); 
-            
+            for (FProperty* P = (FProperty*)ScanFunc->GetChildProperties(); P; P = (FProperty*)GetNextField(P)) {
+                P->InitializeValue_InContainer(ScanBuffer);
+            }
+
             FArrayProperty* InPathsProp = CastField<FArrayProperty>(ScanFunc->GetPropertyByNameInChain(STR("InPaths")));
             if (InPathsProp) {
-                void* Dest = InPathsProp->ContainerPtrToValuePtr<void>(ScanBuffer);
-                if (Dest) memcpy(Dest, &LocalPaths, sizeof(TArray<FString>));
+                TArray<FString>* Arr = static_cast<TArray<FString>*>(InPathsProp->ContainerPtrToValuePtr<void>(ScanBuffer));
+                if (Arr) Arr->Add(FString(FolderPath.c_str()));
             }
             
             FBoolProperty* ForceRescanProp = CastField<FBoolProperty>(ScanFunc->GetPropertyByNameInChain(STR("bForceRescan")));
             if (ForceRescanProp) ForceRescanProp->SetPropertyValue(ForceRescanProp->ContainerPtrToValuePtr<void>(ScanBuffer), true);
             
             SafeProcessEvent(AssetRegistry, ScanFunc, ScanBuffer);
+
+            for (FProperty* P = (FProperty*)ScanFunc->GetChildProperties(); P; P = (FProperty*)GetNextField(P)) {
+                P->DestroyValue_InContainer(ScanBuffer);
+            }
         }
 
+        // --- GET ASSETS BY PATH ---
         UFunction* GetAssetsFunc = AssetRegistry->GetFunctionByNameInChain(STR("GetAssetsByPath"));
         if (!GetAssetsFunc) return Results;
 
         alignas(8) uint8_t ParamsBuffer[512] = {0}; 
+        for (FProperty* P = (FProperty*)GetAssetsFunc->GetChildProperties(); P; P = (FProperty*)GetNextField(P)) {
+            P->InitializeValue_InContainer(ParamsBuffer);
+        }
+
         FProperty* PackagePathProp = GetAssetsFunc->GetPropertyByNameInChain(STR("PackagePath"));
         if (PackagePathProp) {
             FName* Dest = static_cast<FName*>(PackagePathProp->ContainerPtrToValuePtr<void>(ParamsBuffer));
@@ -790,11 +721,16 @@ inline bool IsGameWindowFocused() {
                 for (int32_t i = 0; i < NumAssets; ++i) {
                     if (GetFullNameFunc) {
                         alignas(8) uint8_t FNParams[512] = {0}; 
+                        for (FProperty* P = (FProperty*)GetFullNameFunc->GetChildProperties(); P; P = (FProperty*)GetNextField(P)) {
+                            P->InitializeValue_InContainer(FNParams);
+                        }
                         
                         FProperty* InAssetDataProp = GetFullNameFunc->GetPropertyByNameInChain(STR("InAssetData"));
                         if (InAssetDataProp && ArrayData) {
                             void* Dest = InAssetDataProp->ContainerPtrToValuePtr<void>(FNParams);
-                            if (Dest) memcpy(Dest, ArrayData + (i * ElementSize), InAssetDataProp->GetSize());
+                            if (Dest) {
+                                InAssetDataProp->CopyCompleteValue(Dest, ArrayData + (i * ElementSize));
+                            }
                         }
 
                         SafeProcessEvent(ARH, GetFullNameFunc, FNParams);
@@ -817,14 +753,20 @@ inline bool IsGameWindowFocused() {
                                 }
                             }
                         }
+
+                        for (FProperty* P = (FProperty*)GetFullNameFunc->GetChildProperties(); P; P = (FProperty*)GetNextField(P)) {
+                            P->DestroyValue_InContainer(FNParams);
+                        }
                     }
                 }
             } 
         }
 
+        for (FProperty* P = (FProperty*)GetAssetsFunc->GetChildProperties(); P; P = (FProperty*)GetNextField(P)) {
+            P->DestroyValue_InContainer(ParamsBuffer);
+        }
+
         std::unique_lock<std::shared_mutex> write_lock(Caches::FolderMutex);
-        
-        // --- ADD TO SCANNED FOLDERS CACHE AUTOMATICALLY ---
         {
             std::unique_lock<std::shared_mutex> scan_lock(Caches::ScannedFoldersMutex);
             Caches::ScannedFolders.insert(FolderPath);
@@ -833,5 +775,5 @@ inline bool IsGameWindowFocused() {
         return Caches::FolderCache[FolderPath] = Results;
     }
 
+
 }
-// --- END OF FILE include/Utils.hpp ---

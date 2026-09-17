@@ -142,6 +142,7 @@ namespace DynPals {
     }
 
     static void LogAllPhysicsLayers(UObject* MeshComp, const std::wstring& StageLabel) {
+        //return; // <--- ADD THIS RETURN to disable heavy synchronous disk logging during base loading!
         if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
 
         // 1. Main AnimInstance
@@ -171,12 +172,10 @@ namespace DynPals {
     // GLOBAL VALIDATOR
     // =========================================================================
     static bool IsValidPalActor(UObject* Obj) {
-        if (!Obj) return false;
-        if (!Utils::IsMemoryReadable(Obj, sizeof(void*))) return false;
         if (!Utils::IsObjectValid(Obj)) return false;
 
         UClass* Cls = Obj->GetClassPrivate();
-        if (!Cls || !Utils::IsMemoryReadable(Cls, sizeof(void*))) return false;
+        if (!Cls || !Utils::IsObjectValid(Cls)) return false;
 
         UClass* PalCharClass = Utils::GetClassCached(STR("/Script/Pal.PalCharacter"));
         if (!PalCharClass) PalCharClass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, STR("/Script/Pal.PalCharacter"));
@@ -198,6 +197,7 @@ namespace DynPals {
         if (!World || !Utils::IsObjectValid(World) || World->GetClassPrivate()->GetName() != L"World") return false;
 
         return true;
+
     }
 
     // =========================================================================
@@ -516,6 +516,41 @@ namespace DynPals {
             return;
         }
 
+        // =========================================================================
+        // FIX: THE ANIM INSTANCE LEAK (Clean slate before linking)
+        // =========================================================================
+        if (UnlinkFunc) {
+            FProperty* CurrentLinkedProp = Utils::GetProperty(MeshComp, STR("LinkedInstances"), true);
+            if (CurrentLinkedProp) {
+                TArray<UObject*>* CurrentLinkedArray = CurrentLinkedProp->ContainerPtrToValuePtr<TArray<UObject*>>(MeshComp);
+                if (CurrentLinkedArray) {
+                    std::vector<UClass*> StaleClasses;
+                    
+                    // 1. Collect classes to a local vector (Unlink modifies the TArray dynamically, so we can't iterate and unlink simultaneously)
+                    for (int32_t i = 0; i < CurrentLinkedArray->Num(); ++i) {
+                        UObject* LinkedInst = (*CurrentLinkedArray)[i];
+                        if (LinkedInst && Utils::IsObjectValid(LinkedInst)) {
+                            UClass* LinkedCls = LinkedInst->GetClassPrivate();
+                            if (LinkedCls) {
+                                std::wstring name = LinkedCls->GetName();
+                                // Identify both Implementation and Physics layers
+                                if (name.find(L"Implementation") != std::wstring::npos || name.find(L"Physics") != std::wstring::npos) {
+                                    StaleClasses.push_back(LinkedCls);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 2. Unlink all collected stale classes
+                    for (UClass* StaleCls : StaleClasses) {
+                        struct { UClass* InClass; } UnlinkParams{ StaleCls };
+                        Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &UnlinkParams);
+                    }
+                }
+            }
+        }
+        // =========================================================================
+
         UClass* MainAnimClass = AnimInst->GetClassPrivate();
         DP_LOG(Default, "[ReLinkAnimLayers] Processing AnimInstance '{}' (Class: '{}') on Character '{}'",
             AnimInst->GetName(), MainAnimClass ? MainAnimClass->GetName() : L"None",
@@ -557,74 +592,100 @@ namespace DynPals {
             DP_LOG(Default, "[ReLinkAnimLayers] Character identified as Monster Pal.");
 
             // 1. Resolve Monster Implementation Anim Layer (contains Foot IK Control Rig & Virtual Bones)
-            UClass* ImplClass = nullptr;
+        UClass* ImplClass = nullptr;
 
-            // Priority A: Use captured pre-existing implementation layer if valid
-            if (PreExistingImplClass && Utils::IsObjectValid(PreExistingImplClass)) {
-                ImplClass = PreExistingImplClass;
-                DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Using captured pre-existing implementation layer: '{}'", ImplClass->GetName());
-            }
+        // Cache of resolved implementation layers per CharacterID (stores nullptr for Pals that have none)
+        static std::map<std::wstring, UClass*> GPalImplClassCache;
 
-            // Priority B: Derive from MainAnimClass path (.../PalActorBP/<Pal>/ABP_<Pal>.ABP_<Pal>_C -> .../ABP_<Pal>_Implementation.ABP_<Pal>_Implementation_C)
-            if (!ImplClass && MainAnimClass && Utils::IsObjectValid(MainAnimClass)) {
-                std::wstring animPath = MainAnimClass->GetPathName();
-                size_t dotPos = animPath.find(L'.');
-                size_t slashPos = animPath.find_last_of(L'/');
-                if (slashPos != std::wstring::npos) {
-                    std::wstring dir = animPath.substr(0, slashPos + 1);
-                    std::wstring leaf = (dotPos != std::wstring::npos) ? animPath.substr(slashPos + 1, dotPos - slashPos - 1) : animPath.substr(slashPos + 1);
-                    
-                    if (leaf.length() > 2 && leaf.substr(leaf.length() - 2) == L"_C") {
-                        leaf = leaf.substr(0, leaf.length() - 2);
-                    }
+        // Resolve CharID once up front
+        std::wstring CharID = L"";
+        if (Character && Utils::IsObjectValid(Character)) {
+            UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+            struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
+            if (PalUtil) Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetCharacterIDFromCharacter")), &CharIDParams);
+            CharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams.RetVal.ToString());
+        }
 
-                    std::wstring candidatePath = dir + leaf + L"_Implementation." + leaf + L"_Implementation_C";
-                    DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Probing derived implementation path: '{}'", candidatePath);
+        // FIX: Force lowercase to ensure cache hits across different sessions!
+        std::wstring LowerCharID = CharID;
+        std::transform(LowerCharID.begin(), LowerCharID.end(), LowerCharID.begin(), ::towlower);
 
-                    UClass* LoadedClass = static_cast<UClass*>(Utils::LoadAssetInternal(candidatePath, false));
-                    if (LoadedClass && Utils::IsObjectValid(LoadedClass)) {
-                        ImplClass = LoadedClass;
-                        DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Successfully resolved derived implementation layer: '{}'", ImplClass->GetName());
-                    }
-                }
-            }
+        // Priority A: Use captured pre-existing implementation layer if valid
+        if (PreExistingImplClass && Utils::IsObjectValid(PreExistingImplClass)) {
+            ImplClass = PreExistingImplClass;
+            DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Using captured pre-existing implementation layer: '{}'", ImplClass->GetName());
+        }
 
-            // Priority C: Probe based on Pal CharacterID
-            if (!ImplClass && Character && Utils::IsObjectValid(Character)) {
-                UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
-                struct { UObject* Char; FName RetVal; } CharIDParams{Character, FName()};
-                if (PalUtil) Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetCharacterIDFromCharacter")), &CharIDParams);
+        // Fast Path: If we already probed this Pal species before, reuse the result (0.000ms)
+        if (!ImplClass && !LowerCharID.empty()) {
+            auto cacheIt = GPalImplClassCache.find(LowerCharID);
+            if (cacheIt != GPalImplClassCache.end()) {
                 
-                std::wstring CharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams.RetVal.ToString());
+                // Ensure the engine didn't garbage collect the class between map loads!
+                if (cacheIt->second && !Utils::IsObjectValid(cacheIt->second)) {
+                    GPalImplClassCache.erase(cacheIt);
+                } else {
+                    ImplClass = cacheIt->second;
+                }
+                
+            }
+        }
 
-                std::vector<std::wstring> ProbePaths = {
-                    L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + CharID + L"/ABP_" + CharID + L"_Implementation.ABP_" + CharID + L"_Implementation_C",
-                    L"/Game/Pal/Blueprint/Character/Monster/" + CharID + L"/ABP_" + CharID + L"_Implementation.ABP_" + CharID + L"_Implementation_C"
-                };
+        bool bNeedsProbe = (!ImplClass && (LowerCharID.empty() || GPalImplClassCache.find(LowerCharID) == GPalImplClassCache.end()));
 
-                for (const auto& probe : ProbePaths) {
-                    DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Probing CharID fallback path: '{}'", probe);
-                    UClass* LoadedClass = static_cast<UClass*>(Utils::LoadAssetInternal(probe, false));
-                    if (LoadedClass && Utils::IsObjectValid(LoadedClass)) {
-                        ImplClass = LoadedClass;
-                        DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Resolved CharID fallback implementation layer: '{}'", ImplClass->GetName());
-                        break;
-                    }
+        // Priority B: Derive from MainAnimClass path
+        if (bNeedsProbe && MainAnimClass && Utils::IsObjectValid(MainAnimClass)) {
+            std::wstring animPath = MainAnimClass->GetPathName();
+            size_t dotPos = animPath.find(L'.');
+            size_t slashPos = animPath.find_last_of(L'/');
+            if (slashPos != std::wstring::npos) {
+                std::wstring dir = animPath.substr(0, slashPos + 1);
+                std::wstring leaf = (dotPos != std::wstring::npos) ? animPath.substr(slashPos + 1, dotPos - slashPos - 1) : animPath.substr(slashPos + 1);
+                
+                if (leaf.length() > 2 && leaf.substr(leaf.length() - 2) == L"_C") {
+                    leaf = leaf.substr(0, leaf.length() - 2);
+                }
+
+                std::wstring candidatePath = dir + leaf + L"_Implementation." + leaf + L"_Implementation_C";
+                UClass* LoadedClass = static_cast<UClass*>(Utils::LoadAssetInternal(candidatePath, false));
+                if (LoadedClass && Utils::IsObjectValid(LoadedClass)) {
+                    ImplClass = LoadedClass;
                 }
             }
+        }
 
-            // 2. Link the Implementation Layer (Foot IK Control Rig & Virtual Bones)
-            if (ImplClass && Utils::IsObjectValid(ImplClass)) {
-                struct { UClass* InClass; } ImplParams{ ImplClass };
-                if (UnlinkFunc) Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &ImplParams);
-                Utils::SafeProcessEvent(AnimInst, LinkFunc, &ImplParams);
-                DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] LINK SUCCESS: Linked monster implementation layer '{}' to AnimInstance '{}'.",
-                    ImplClass->GetName(), AnimInst->GetName());
-            } else {
-                DP_LOG(Verbose, "[ReLinkAnimLayers] [FootIK] LINK FAILED: Could not resolve any implementation AnimBlueprint for Pal '{}'. Foot IK will be inactive!",
-                    Character ? Character->GetName() : L"Unknown");
+        // Priority C: Probe based on Pal CharacterID
+        if (!ImplClass && bNeedsProbe && !CharID.empty()) {
+            std::vector<std::wstring> ProbePaths = {
+                L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + CharID + L"/ABP_" + CharID + L"_Implementation.ABP_" + CharID + L"_Implementation_C",
+                L"/Game/Pal/Blueprint/Character/Monster/" + CharID + L"/ABP_" + CharID + L"_Implementation.ABP_" + CharID + L"_Implementation_C"
+            };
+
+            for (const auto& probe : ProbePaths) {
+                UClass* LoadedClass = static_cast<UClass*>(Utils::LoadAssetInternal(probe, false));
+                if (LoadedClass && Utils::IsObjectValid(LoadedClass)) {
+                    ImplClass = LoadedClass;
+                    break;
+                }
             }
+        }
 
+        // Cache the probe result for this Pal species so probes never run again
+        if (!LowerCharID.empty() && GPalImplClassCache.find(LowerCharID) == GPalImplClassCache.end()) {
+            GPalImplClassCache[LowerCharID] = ImplClass;
+        }
+
+        // 2. Link the Implementation Layer (Foot IK Control Rig & Virtual Bones)
+        if (ImplClass && Utils::IsObjectValid(ImplClass)) {
+            struct { UClass* InClass; } ImplParams{ ImplClass };
+            if (UnlinkFunc) Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &ImplParams);
+            Utils::SafeProcessEvent(AnimInst, LinkFunc, &ImplParams);
+            DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] LINK SUCCESS: Linked monster implementation layer '{}' to AnimInstance '{}'.",
+                ImplClass->GetName(), AnimInst->GetName());
+        } else {
+            DP_LOG(Verbose, "[ReLinkAnimLayers] [FootIK] LINK FAILED: Could not resolve any implementation AnimBlueprint for Pal '{}'. Foot IK will be inactive!",
+                Character ? Character->GetName() : L"Unknown");
+        }
             // 3. Link Secondary Monster Physics Layer (ALI_MonsterPhysics_C)
             if (!bHasCustomPhysics) {
                 std::wstring PhysicsLayerPath = L"/Game/Pal/Blueprint/Character/Monster/ALI_MonsterPhysics.ALI_MonsterPhysics_C";
@@ -658,16 +719,16 @@ namespace DynPals {
             }
 
             
-       // Force inject cached pointers back into the AnimBPs so head-tracking and logic resumes
-       if (IsValidPalActor(Character)) {
-           RestoreAnimInstanceCaches(Character, AnimInst);
-           
-           UObject* PostProcessInst = nullptr;
-          Utils::CallFunction(MeshComp, STR("GetPostProcessInstance"), &PostProcessInst);
-           if (PostProcessInst && Utils::IsObjectValid(PostProcessInst)) {
-               RestoreAnimInstanceCaches(Character, PostProcessInst);
-           }
-        }
+           // Force inject cached pointers back into the AnimBPs so head-tracking and logic resumes
+           if (IsValidPalActor(Character)) {
+               RestoreAnimInstanceCaches(Character, AnimInst);
+               
+               UObject* PostProcessInst = nullptr;
+              Utils::CallFunction(MeshComp, STR("GetPostProcessInstance"), &PostProcessInst);
+               if (PostProcessInst && Utils::IsObjectValid(PostProcessInst)) {
+                   RestoreAnimInstanceCaches(Character, PostProcessInst);
+               }
+            }
         }
 
         UFunction* SetAdditiveFunc = AnimInst->GetFunctionByNameInChain(STR("SetAdditiveAnimationRate"));
@@ -677,7 +738,6 @@ namespace DynPals {
             DP_LOG(Default, "[ReLinkAnimLayers] Initialized AdditiveAnimationRate to 1.0.");
         }
     }
-
     static void RefreshFacialModule(UObject* Character, UObject* MeshComp, UObject* TargetCDO = nullptr, const SwapConfig* CurrentSwap = nullptr) {
         if (!IsValidPalActor(Character) || !MeshComp || !Utils::IsObjectValid(MeshComp)) return;
 
@@ -1440,11 +1500,31 @@ namespace DynPals {
         RuntimeStatsCache.erase(InstanceID);
     }
 
-    void PalProcessor::Tick() {
-        UObject* KSL = Utils::GetKismetSystemLibrary();
-        static UFunction* IsValidFunc = Utils::GetKismetFunction(STR("IsValid"));
-        if (!KSL || !IsValidFunc) return;
+    bool PalProcessor::OnUObjectDeleted(RC::Unreal::UObject* Obj) {
+        std::lock_guard<std::mutex> lock(QueueMutex);
+        bool bFound = false;
 
+        if (SwappedInstances.erase(Obj) > 0) bFound = true;
+        if (ProcessedPals.erase(Obj) > 0) bFound = true;
+
+        auto itSwap = std::remove_if(SwapQueue.begin(), SwapQueue.end(),
+            [Obj](const QueuedSwap& q) { return q.Character == Obj; });
+        if (itSwap != SwapQueue.end()) {
+            SwapQueue.erase(itSwap, SwapQueue.end());
+            bFound = true;
+        }
+
+        auto itProc = std::remove_if(ProcessingQueue.begin(), ProcessingQueue.end(),
+            [Obj](const QueuedPal& q) { return q.Character == Obj; });
+        if (itProc != ProcessingQueue.end()) {
+            ProcessingQueue.erase(itProc, ProcessingQueue.end());
+            bFound = true;
+        }
+
+        return bFound;
+    }
+    
+    void PalProcessor::Tick() {
         std::vector<QueuedSwap> pendingSwaps;
         {
             std::lock_guard<std::mutex> lock(QueueMutex);
@@ -1453,6 +1533,8 @@ namespace DynPals {
             pendingSwaps.assign(SwapQueue.begin(), SwapQueue.end());
             SwapQueue.clear();
         }
+
+        int ProcessedThisFrame = 0;
 
         for (const auto& req : pendingSwaps) {
             UObject* TargetChar = req.Character;
@@ -1464,10 +1546,21 @@ namespace DynPals {
 
                 NativeAsyncLoader::ClearTemporaryPointers(TargetChar);
                 NativeAsyncLoader::SetActiveRequester(nullptr);
+                
+                // TIME-SLICE: Only process 2 Pals per frame to prevent stuttering
+                ProcessedThisFrame++;
+                if (ProcessedThisFrame >= 2) break; 
+            } else {
+                ProcessedThisFrame++; // Discard invalid actors
             }
         }
+
+        // Put the remaining unprocessed Pals back at the front of the queue for the next frame
+        if (ProcessedThisFrame < pendingSwaps.size()) {
+            std::lock_guard<std::mutex> lock(QueueMutex);
+            SwapQueue.insert(SwapQueue.begin(), pendingSwaps.begin() + ProcessedThisFrame, pendingSwaps.end());
+        }
     }
-    
     // =========================================================================
     // MODULAR PIPELINE HELPER FUNCTIONS
     // =========================================================================
@@ -1806,6 +1899,9 @@ namespace DynPals {
     // CORE SWAP PIPELINE 
     // =========================================================================
     bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int ExplicitSwapIndex, bool IsCompanionSync, bool IsEvolutionEnd) {
+        
+        // Warn if a single Pal evaluation + Swap takes more than 5ms
+        DP_PROFILE("ExecuteSwap", 5.0);
         if (!IsValidPalActor(Character)) return false;
         
         FPalIdentity id = ResolvePalIdentity(Character);
@@ -2274,7 +2370,7 @@ namespace DynPals {
         auto ProfileStep = [&](const std::wstring& stepName) {
             auto now = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::microseconds>(now - step_start).count();
-            //DP_LOG(Default, "[Profile] [ApplySwap] {} took {:.3f} ms", stepName, duration / 1000.0f);
+            DP_LOG(Default, "[Profile] [ApplySwap] {} took {:.3f} ms", stepName, duration / 1000.0f);
             step_start = now;
         };
 

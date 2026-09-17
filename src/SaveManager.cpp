@@ -1,6 +1,7 @@
 #include "SaveManager.hpp"
 #include "ConfigManager.hpp"
 #include "PalProcessor.hpp"
+#include "InputManager.hpp"
 #include "Utils.hpp"
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <fstream>
@@ -14,8 +15,19 @@ using namespace RC::Unreal;
 
 namespace DynPals {
 
+    void DynPalsSettings::CacheKeybinds() {
+        bMenuIsGamepad = (MenuKey.rfind(L"Gamepad_", 0) == 0);
+        MenuKeyVK = InputManager::Get().KeyNameToVK(MenuKey);
+        MenuModVK = InputManager::Get().KeyNameToVK(MenuModifier);
+
+        bTestIsGamepad = (TestMenuKey.rfind(L"Gamepad_", 0) == 0);
+        TestKeyVK = InputManager::Get().KeyNameToVK(TestMenuKey);
+        TestModVK = InputManager::Get().KeyNameToVK(TestMenuModifier);
+    }
+
     void SaveManager::Initialize(const std::wstring& BasePath) {
         ConfigPath = BasePath + L"Paks/~mods/"; 
+        Settings.CacheKeybinds();
     }
 
     void SaveManager::Reset() {
@@ -23,21 +35,17 @@ namespace DynPals {
         PersistedSwaps.clear();
         AccessOrder.clear(); 
         Settings = DynPalsSettings{};
+        Settings.CacheKeybinds();
     }
 
-
     void SaveManager::MarkAccessed(const std::wstring& InstanceID) {
-        // 1. Remove from its current position in the queue (if it exists)
         AccessOrder.remove(InstanceID);
-        
-        // 2. Push to the front (making it the most recently used) [1]
         AccessOrder.push_front(InstanceID);
         
-        // 3. If we exceed the 1000-entry limit, evict the oldest forgotten ones! [1, 4]
         while (AccessOrder.size() > MaxSaveEntries) {
             std::wstring oldestID = AccessOrder.back();
-            AccessOrder.pop_back(); // Remove from queue [1]
-            PersistedSwaps.erase(oldestID); // Erase from database memory [4]
+            AccessOrder.pop_back();
+            PersistedSwaps.erase(oldestID);
         }
     }
 
@@ -66,18 +74,19 @@ namespace DynPals {
         std::wstring persistPath = ConfigPath + PersistFileName + CurrentWorldSaveID + L".json";
         std::string content = Utils::ReadFileToString(persistPath);
 
-        if (content.empty()) return;
+        if (content.empty()) {
+            Settings.CacheKeybinds();
+            return;
+        }
 
         try {
             auto data = nlohmann::ordered_json::parse(content);
             
-            // --- NEW: Parse Config Settings ---
             if (data.contains("Settings") && data.at("Settings").is_object()) {
                 Settings.bFocusPal = data.at("Settings").value("FocusPal", true);
                 Settings.CameraRotation = data.at("Settings").value("CameraRotation", 180.0);
                 Settings.bRelativeCamera = data.at("Settings").value("RelativeCamera", true);
                 
-                // NEW: Load Hotkeys
                 Settings.MenuKey = Utils::StringToWString(data.at("Settings").value("MenuKey", "N"));
                 Settings.MenuModifier = Utils::StringToWString(data.at("Settings").value("MenuModifier", "LeftAlt"));
                 Settings.TestMenuKey = Utils::StringToWString(data.at("Settings").value("TestMenuKey", "G"));
@@ -91,7 +100,7 @@ namespace DynPals {
                 Settings.TestMenuKey = L"G";
                 Settings.TestMenuModifier = L"LeftAlt";
             }
-
+            Settings.CacheKeybinds();
 
             if (data.contains("PersistencePals") && data.at("PersistencePals").is_object()) {
                 for (auto& [instanceIdStr, palNode] : data.at("PersistencePals").items()) {
@@ -127,90 +136,97 @@ namespace DynPals {
             }
         } catch (...) {
             DP_LOG(Error, "Failed to parse world persistence data. File might be corrupted.\n");
+            Settings.CacheKeybinds();
         }
     }
-
 
     void SaveManager::SaveWorldData() {
         if (CurrentWorldSaveID.empty()) return;
         
         std::wstring persistPath = ConfigPath + PersistFileName + CurrentWorldSaveID + L".json";
         
-        nlohmann::ordered_json out;
-        
-        nlohmann::ordered_json systemObj;
-        systemObj["ModVersion"] = "1.1.0";
-        systemObj["WorldID"] = Utils::WStringToString(CurrentWorldSaveID);
-        out["System"] = systemObj;
-        
-        // --- NEW: Write Config Settings ---
-        nlohmann::ordered_json settingsObj;
-        settingsObj["FocusPal"] = Settings.bFocusPal;
-        settingsObj["CameraRotation"] = Settings.CameraRotation;
-        settingsObj["RelativeCamera"] = Settings.bRelativeCamera;
-        
-        // NEW: Save Hotkeys
-        settingsObj["MenuKey"] = Utils::WStringToString(Settings.MenuKey);
-        settingsObj["MenuModifier"] = Utils::WStringToString(Settings.MenuModifier);
-        settingsObj["TestMenuKey"] = Utils::WStringToString(Settings.TestMenuKey);
-        settingsObj["TestMenuModifier"] = Utils::WStringToString(Settings.TestMenuModifier);
+        // Fast snapshot on Game Thread (<0.05ms)
+        auto palsCopy = PersistedSwaps;
+        auto accessOrderCopy = AccessOrder;
+        auto settingsCopy = Settings;
+        std::wstring worldIdCopy = CurrentWorldSaveID;
 
-        out["Settings"] = settingsObj;
-        
-        nlohmann::ordered_json palsObj;
-        
-        for (const auto& id : AccessOrder) {
-            auto it = PersistedSwaps.find(id);
-            if (it != PersistedSwaps.end()) {
-                auto& data = it->second;
-                if (!data.ShouldSave()) continue; // <--- Changed from HasSavedSwap()
+        // Offload JSON stringification and disk I/O to background thread
+        std::thread([persistPath, palsCopy = std::move(palsCopy), accessOrderCopy = std::move(accessOrderCopy), 
+                     settingsCopy = std::move(settingsCopy), worldIdCopy = std::move(worldIdCopy)]() {
+            static std::mutex fileWriteMutex;
+            std::lock_guard<std::mutex> lock(fileWriteMutex);
 
-                nlohmann::ordered_json palNode;
-                palNode["PackName"] = Utils::WStringToString(data.PackName);
-                palNode["SkinName"] = Utils::WStringToString(data.SkinName);
-                palNode["SwapLabel"] = Utils::WStringToString(data.SwapLabel); 
-                palNode["SkelMeshPath"] = Utils::WStringToString(data.SkelMeshPath);
-                palNode["IsLocked"] = data.bIsManuallyLocked; 
-                if (data.SizeMultiplier > 0.0) palNode["SizeMultiplier"] = data.SizeMultiplier;
-                
-                nlohmann::ordered_json morphsObj;
-                for (const auto& [mName, mVal] : data.MorphSet) {
-                    morphsObj[Utils::WStringToString(mName)] = mVal;
-                }
-                palNode["Morphs"] = morphsObj;
-                
-                nlohmann::ordered_json matsObj;
-                for (const auto& [mIndex, mPath] : data.MatSet) {
-                    matsObj[mIndex] = Utils::WStringToString(mPath);
-                }
-                if (!matsObj.empty()) palNode["Mats"] = matsObj;
-                
-                nlohmann::ordered_json matColorsObj;
-                for (const auto& [mIndex, mColor] : data.MatColorSet) {
-                    matColorsObj[mIndex] = { mColor.R, mColor.G, mColor.B, mColor.A };
-                }
-                if (!matColorsObj.empty()) palNode["MatColors"] = matColorsObj;
-                
-                palsObj[Utils::WStringToString(id)] = palNode;
+            nlohmann::ordered_json out;
+            
+            nlohmann::ordered_json systemObj;
+            systemObj["ModVersion"] = "1.1.0";
+            systemObj["WorldID"] = Utils::WStringToString(worldIdCopy);
+            out["System"] = systemObj;
+            
+            nlohmann::ordered_json settingsObj;
+            settingsObj["FocusPal"] = settingsCopy.bFocusPal;
+            settingsObj["CameraRotation"] = settingsCopy.CameraRotation;
+            settingsObj["RelativeCamera"] = settingsCopy.bRelativeCamera;
+            
+            settingsObj["MenuKey"] = Utils::WStringToString(settingsCopy.MenuKey);
+            settingsObj["MenuModifier"] = Utils::WStringToString(settingsCopy.MenuModifier);
+            settingsObj["TestMenuKey"] = Utils::WStringToString(settingsCopy.TestMenuKey);
+            settingsObj["TestMenuModifier"] = Utils::WStringToString(settingsCopy.TestMenuModifier);
 
+            out["Settings"] = settingsObj;
+            
+            nlohmann::ordered_json palsObj;
+            for (const auto& id : accessOrderCopy) {
+                auto it = palsCopy.find(id);
+                if (it != palsCopy.end()) {
+                    auto& data = it->second;
+                    if (!data.ShouldSave()) continue;
+
+                    nlohmann::ordered_json palNode;
+                    palNode["PackName"] = Utils::WStringToString(data.PackName);
+                    palNode["SkinName"] = Utils::WStringToString(data.SkinName);
+                    palNode["SwapLabel"] = Utils::WStringToString(data.SwapLabel); 
+                    palNode["SkelMeshPath"] = Utils::WStringToString(data.SkelMeshPath);
+                    palNode["IsLocked"] = data.bIsManuallyLocked; 
+                    if (data.SizeMultiplier > 0.0) palNode["SizeMultiplier"] = data.SizeMultiplier;
+                    
+                    nlohmann::ordered_json morphsObj;
+                    for (const auto& [mName, mVal] : data.MorphSet) {
+                        morphsObj[Utils::WStringToString(mName)] = mVal;
+                    }
+                    palNode["Morphs"] = morphsObj;
+                    
+                    nlohmann::ordered_json matsObj;
+                    for (const auto& [mIndex, mPath] : data.MatSet) {
+                        matsObj[mIndex] = Utils::WStringToString(mPath);
+                    }
+                    if (!matsObj.empty()) palNode["Mats"] = matsObj;
+                    
+                    nlohmann::ordered_json matColorsObj;
+                    for (const auto& [mIndex, mColor] : data.MatColorSet) {
+                        matColorsObj[mIndex] = { mColor.R, mColor.G, mColor.B, mColor.A };
+                    }
+                    if (!matColorsObj.empty()) palNode["MatColors"] = matColorsObj;
+                    
+                    palsObj[Utils::WStringToString(id)] = palNode;
+                }
             }
-        }
-        
-        out["PersistencePals"] = palsObj;
+            
+            out["PersistencePals"] = palsObj;
 
-        std::ofstream file(persistPath);
-        if (file.is_open()) {
-            file << out.dump(4);
-            DP_LOG(Default, "Saved world persistence data cleanly to disk.\n");
-        }
+            std::ofstream file(persistPath);
+            if (file.is_open()) {
+                file << out.dump(4);
+                RC::Output::send<RC::LogLevel::Default>(STR("[DynPals] Saved world persistence data cleanly to disk (async).\n"));
+            }
+        }).detach();
     }
 
-    
-   
     PalPersistData* SaveManager::GetPersistData(const std::wstring& InstanceID) {
         auto it = PersistedSwaps.find(InstanceID);
         if (it != PersistedSwaps.end()) {
-            MarkAccessed(InstanceID); // Bump accessed Pal to the front of our LRU queue! [1, 3]
+            MarkAccessed(InstanceID);
             return &it->second;
         }
         return nullptr;
@@ -218,7 +234,7 @@ namespace DynPals {
 
     void SaveManager::SetPersistData(const std::wstring& InstanceID, const PalPersistData& Data, bool bWriteToDisk) {
         PersistedSwaps[InstanceID] = Data;
-        MarkAccessed(InstanceID); // Bump updated Pal and evict the oldest if size > 1000 [1, 3]
+        MarkAccessed(InstanceID);
         
         if (bWriteToDisk) {
             SaveWorldData(); 

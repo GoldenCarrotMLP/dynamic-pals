@@ -29,6 +29,19 @@ namespace DynPals {
         // Deferring execution to the next frame tick prevents Use-After-Free crashes
     }
 
+    bool UIBase::OnUObjectDeleted(RC::Unreal::UObject* Obj) {
+        bool bFound = false;
+        if (MyWidget == Obj) {
+            InvalidateWidget();
+            bFound = true;
+        }
+        if (CurrentPlayerController == Obj) {
+            CurrentPlayerController = nullptr;
+            bFound = true;
+        }
+        return bFound;
+    }
+    
     void UIBase::ProcessTick(UObject* PlayerController) {
         CurrentPlayerController = PlayerController;
         bool bStateChanged = false;

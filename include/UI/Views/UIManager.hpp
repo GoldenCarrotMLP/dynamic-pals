@@ -36,6 +36,7 @@ namespace DynPals {
         virtual void OnInvalidate() override;
         virtual void BuildWidget() override;
         virtual void OnTickUI() override;
+        virtual bool OnUObjectDeleted(RC::Unreal::UObject* Obj) override;
 
     private:
         UIManager() { bCloseOnEscape = true; }

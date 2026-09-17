@@ -27,6 +27,7 @@ namespace DynPals {
         bool RequiresInputLock() const { return bRequiresInputLock; }
         RC::Unreal::UObject* GetWidget() const { return MyWidget; }
         virtual RC::Unreal::UObject* GetDesiredFocusTarget() const { return MyWidget; }
+        virtual bool OnUObjectDeleted(RC::Unreal::UObject* Obj);
 
         void ProcessTick(RC::Unreal::UObject* PlayerController);
 

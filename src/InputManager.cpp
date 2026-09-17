@@ -8,7 +8,7 @@
 namespace DynPals {
 
     int InputManager::KeyNameToVK(const std::wstring& KeyName) const {
-        if (KeyName.empty()) return 0;
+        if (KeyName.empty() || KeyName == L"None") return 0;
         if (KeyName.length() == 1) {
             wchar_t c = std::towupper(KeyName[0]);
             if ((c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9')) return static_cast<int>(c);
@@ -70,29 +70,29 @@ namespace DynPals {
         return false;
     }
 
-    bool InputManager::IsHotkeyDown(RC::Unreal::UObject* PlayerController, const std::wstring& Modifier, const std::wstring& Key) const {
-        if (Key.empty() || Key == L"None") return false;
-
-        bool bIsGamepad = (Key.rfind(L"Gamepad_", 0) == 0);
-
+    bool InputManager::IsHotkeyDownFast(RC::Unreal::UObject* PlayerController, int vkMod, int vkKey, bool bIsGamepad, const std::wstring& Modifier, const std::wstring& Key) const {
         if (!bIsGamepad) {
-            int vkKey = KeyNameToVK(Key);
-            int vkMod = KeyNameToVK(Modifier);
-
+            if (vkKey == 0) return false;
             bool modDown = (vkMod == 0) || ((GetAsyncKeyState(vkMod) & 0x8000) != 0);
-            bool keyDown = (vkKey != 0) && ((GetAsyncKeyState(vkKey) & 0x8000) != 0);
-
+            bool keyDown = ((GetAsyncKeyState(vkKey) & 0x8000) != 0);
             return modDown && keyDown;
         } else {
-            std::wstring pressedGamepad;
-            if (PollGamepad(pressedGamepad)) {
-                return (pressedGamepad == Key);
-            }
-            if (PlayerController) {
-                return Utils::WasKeyJustPressed(PlayerController, Key);
+            if (Key.empty() || Key == L"None") return false;
+            if (PlayerController && Utils::IsObjectValid(PlayerController)) {
+                bool modDown = Modifier.empty() || Utils::IsKeyDown(PlayerController, Modifier);
+                bool keyDown = Utils::WasKeyJustPressed(PlayerController, Key);
+                return modDown && keyDown;
             }
             return false;
         }
+    }
+
+    bool InputManager::IsHotkeyDown(RC::Unreal::UObject* PlayerController, const std::wstring& Modifier, const std::wstring& Key) const {
+        if (Key.empty() || Key == L"None") return false;
+        bool bIsGamepad = (Key.rfind(L"Gamepad_", 0) == 0);
+        int vkKey = KeyNameToVK(Key);
+        int vkMod = KeyNameToVK(Modifier);
+        return IsHotkeyDownFast(PlayerController, vkMod, vkKey, bIsGamepad, Modifier, Key);
     }
 
     void InputManager::StartCapture(CaptureCallback OnCaptured, CancelCallback OnCancelled) {
@@ -118,16 +118,14 @@ namespace DynPals {
             return;
         }
 
-        // 1. ESC to Cancel
         if ((GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0) {
             CancelCapture();
             return;
         }
 
-        // 2. Controller / Steam Deck polling
         std::wstring gamepadKey;
         if (PollGamepad(gamepadKey)) {
-            if (gamepadKey == L"Gamepad_Special_Left") { // Back button cancels
+            if (gamepadKey == L"Gamepad_Special_Left") {
                 CancelCapture();
                 return;
             }
@@ -139,7 +137,6 @@ namespace DynPals {
             return;
         }
 
-        // 3. Keyboard polling
         std::wstring detectedKey = L"";
         for (int vk = 'A'; vk <= 'Z'; ++vk) {
             if ((GetAsyncKeyState(vk) & 0x8000) != 0) { detectedKey = std::wstring(1, static_cast<wchar_t>(vk)); break; }
