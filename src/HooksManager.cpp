@@ -33,7 +33,9 @@ static bool bCompletedInitReady = false;
 static UObject* LastPlayerController = nullptr;
 static UObject* LastWorld = nullptr;
 static bool bIsAtMenu = false;
-static UClass* GCachedModActorClass = nullptr;
+
+// The global cached class pointer we use for 1-cycle comparisons
+static UClass* GCachedModActorClass = nullptr; 
 
 static SafetyHookInline Hook_MasterWazaUpdate;
 static SafetyHookInline Hook_OnUpdateCharacterRank;
@@ -43,6 +45,9 @@ bool HooksManager::OnUObjectDeleted(RC::Unreal::UObject* Obj) {
     bool bFound = false;
     if (LastPlayerController == Obj) { LastPlayerController = nullptr; bFound = true; }
     if (LastWorld == Obj) { LastWorld = nullptr; bFound = true; }
+    
+    // FIX: If the engine deletes the ModActor class, wipe our cache!
+    if (GCachedModActorClass == Obj) { GCachedModActorClass = nullptr; bFound = true; } 
     return bFound;
 }
 
@@ -144,7 +149,6 @@ static void* ResolveNativeFromThunk(void* ThunkAddress) {
     }
 
     if (calls.empty()) return nullptr;
-
     void* lastCallTarget = calls.back();
 
     status = ZydisDecoderDecodeFull(&decoder, lastCallTarget, 16, &instruction, operands);
@@ -179,8 +183,6 @@ static void* GetNativeAddress(const wchar_t* FunctionPath) {
 void __fastcall NativeMasterWazaUpdate_Hook(UObject* This, int32_t AddLevel, int32_t NowLevel) {
     Hook_MasterWazaUpdate.call<void, UObject*, int32_t, int32_t>(This, AddLevel, NowLevel);
     if (This) {
-        std::wstring actorName = This->GetName();
-        DP_LOG(Default, "[Native Hook] Pal {} Leveled Up to {}! Checking evolution...", actorName, NowLevel);
         PalProcessor::Get().ProcessPal(This, false);
     }
 }
@@ -190,8 +192,6 @@ void __fastcall NativeOnUpdateCharacterRank_Hook(UObject* This, int32_t NewRank,
     if (This) {
         UObject* PalActor = This->GetOuterPrivate();
         if (PalActor) {
-            std::wstring actorName = PalActor->GetName();
-            DP_LOG(Default, "[Native Hook] Pal {} Condensation Rank Up to {}! Checking evolution...", actorName, NewRank);
             PalProcessor::Get().ProcessPal(PalActor, false);
         }
     }
@@ -203,8 +203,6 @@ void __fastcall NativeAddFriendshipRankupLog_Hook(UObject* WorldContextObject, U
         UObject* PalActor = nullptr;
         Utils::GetPropertyValue<UObject*>(IndividualParameter, STR("IndividualActor"), PalActor);
         if (PalActor && Utils::IsObjectValid(PalActor)) {
-            std::wstring actorName = PalActor->GetName();
-            DP_LOG(Default, "[Native Hook] Pal {} Friendship Rank Up to {}! Checking evolution...", actorName, NewRank);
             PalProcessor::Get().ProcessPal(PalActor, false);
         }
     }
@@ -228,30 +226,26 @@ static void OnEngineTick(Unreal::Hook::TCallbackIterationData<void>&, Unreal::UE
     if (bIsReentrant) return;
     FReentrantGuard Guard(bIsReentrant);
 
-    // Warn if the total mod logic for this frame exceeds 3 milliseconds
     DP_PROFILE("OnEngineTick_Total", 3.0); 
 
-    // 1. Tick subsystems
     VFXManager::Get().Tick();
     NativeAsyncLoader::Tick();
 
-    // 2. Spaced-out Pal swap queue processing
     static int VirtualFrameCount = 0;
     VirtualFrameCount++;
     if (VirtualFrameCount >= 6) {
         VirtualFrameCount = 0;
-        DP_PROFILE("PalProcessor_Tick", 2.0); // Track Queue Processor
+        DP_PROFILE("PalProcessor_Tick", 2.0);
         PalProcessor::Get().Tick();
     }
 
-    // 3. Resolve PlayerController safely
     UObject* PlayerController = LastPlayerController;
     if (!PlayerController || !Utils::IsObjectValid(PlayerController)) {
         static auto lastSearchTime = std::chrono::steady_clock::now();
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - lastSearchTime).count() >= 2) {
             lastSearchTime = now;
-            DP_PROFILE("PlayerController_GlobalSearch", 1.0); // Track Global Array Scan
+            DP_PROFILE("PlayerController_GlobalSearch", 1.0);
             PlayerController = UObjectGlobals::FindFirstOf(STR("PalPlayerController"));
             if (PlayerController) {
                 LastPlayerController = PlayerController;
@@ -259,7 +253,6 @@ static void OnEngineTick(Unreal::Hook::TCallbackIterationData<void>&, Unreal::UE
         }
     }
 
-    // 4. Hotkey Polling
     if (Utils::IsGameWindowFocused()) {
         auto& Settings = SaveManager::Get().Settings;
 
@@ -310,7 +303,7 @@ static void OnEngineTick(Unreal::Hook::TCallbackIterationData<void>&, Unreal::UE
     }
 
     if (UIRegistry::Get().RequiresTick() && PlayerController) {
-        DP_PROFILE("UIRegistry_TickAll", 2.0); // Track UI Drawing overhead
+        DP_PROFILE("UIRegistry_TickAll", 2.0); 
         UIRegistry::Get().TickAll(PlayerController);
     }
 }
@@ -330,10 +323,18 @@ static void OnWidgetAddedToViewport(UnrealScriptFunctionCallableContext& Context
         WidgetName.find(L"WBP_Login") != std::wstring::npos) {
         bIsAtMenu = true;
         bCompletedInitReady = false;
+        
+        // FIX: Wipe session statics!
+        LastPlayerController = nullptr;
+        LastWorld = nullptr;
+        GCachedModActorClass = nullptr;
+
         SaveManager::Get().Reset();
         NotificationManager::Get().SetReady(false);
         PalProcessor::Get().ClearAllSwappedStatus();
         UIRegistry::Get().InvalidateAllUIs();
+        Utils::Caches::ClearAll(); 
+        NativeAsyncLoader::ClearCache();
 
         DP_LOG(Default, "Transitioned to Main Menu. Mod entering standby mode...");
         std::thread([]() { Updater::CheckForUpdates(); }).detach();
@@ -343,6 +344,8 @@ static void OnWidgetAddedToViewport(UnrealScriptFunctionCallableContext& Context
 static void OnOpenLevel(UnrealScriptFunctionCallableContext& Context, void*) {
     bIsAtMenu = false;
     bCompletedInitReady = false;
+    
+    // FIX: Wipe session statics!
     LastPlayerController = nullptr;
     LastWorld = nullptr;
     GCachedModActorClass = nullptr;
@@ -425,6 +428,10 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context, void*)
 
             if (bIsMenu) {
                 bCompletedInitReady = false;
+                
+                // FIX: Wipe session statics!
+                GCachedModActorClass = nullptr;
+
                 NotificationManager::Get().SetReady(false);
                 SaveManager::Get().Reset();
                 PalProcessor::Get().ClearAllSwappedStatus();
@@ -433,6 +440,9 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context, void*)
             } else {
                 bIsAtMenu = false;
                 bCompletedInitReady = false;
+
+                // FIX: Wipe session statics!
+                GCachedModActorClass = nullptr;
 
                 NotificationManager::Get().SetReady(false);
                 SaveManager::Get().Reset();
@@ -522,19 +532,16 @@ void HooksManager::RegisterHooks() {
     void* MasterWazaUpdateAddr = GetNativeAddress(STR("/Script/Pal.PalNPC:MasterWazaUpdateWhenLevelUp"));
     if (MasterWazaUpdateAddr) {
         Hook_MasterWazaUpdate = safetyhook::create_inline(MasterWazaUpdateAddr, NativeMasterWazaUpdate_Hook);
-        DP_LOG(Default, "[Native Hook] Detoured MasterWazaUpdateWhenLevelUp dynamically!");
     }
 
     void* SetRankAddr = AsyncHelper::FindPattern("40 53 48 83 EC 20 48 8B D9 48 8B 89 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 85 C0 75 ?? 48 8B D0 48 8B CB 48 83 C4 20 5B");
     if (SetRankAddr) {
         Hook_OnUpdateCharacterRank = safetyhook::create_inline(SetRankAddr, NativeOnUpdateCharacterRank_Hook);
-        DP_LOG(Default, "[Native Hook] Detoured OnUpdateCharacterRank via AOB!");
     }
 
     void* FriendshipRankupAddr = GetNativeAddress(STR("/Script/Pal.PalLogUtility:AddFriendshipRankupLog"));
     if (FriendshipRankupAddr) {
         Hook_AddFriendshipRankupLog = safetyhook::create_inline(FriendshipRankupAddr, NativeAddFriendshipRankupLog_Hook);
-        DP_LOG(Default, "[Native Hook] Detoured AddFriendshipRankupLog successfully!");
     }
 
     UFunction* AddToViewportFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/UMG.UserWidget:AddToViewport"));
@@ -552,13 +559,11 @@ void HooksManager::RegisterHooks() {
         OpenLevelFunc->RegisterPreHook(OnOpenLevel, nullptr);
     }
 
-    // Fixed SetOwner hook: 1 CPU cycle pointer check instead of continuous string allocation!
-    static UClass* CachedModActorClass = nullptr;
     UFunction* SetOwnerFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Engine.Actor:SetOwner"));
     if (SetOwnerFunc) {
         SetOwnerFunc->RegisterPreHook([](UnrealScriptFunctionCallableContext& Context, void*) {
             
-            // Check if the cache was wiped by a map load, and resolve the NEW session's class pointer
+            // FIX: Ensure we resolve the correct class pointer for the current game session
             if (!GCachedModActorClass || !Utils::IsObjectValid(GCachedModActorClass)) {
                 GCachedModActorClass = Utils::GetClassCached(STR("/Game/Mods/DynamicPals/ModActor.ModActor_C"));
             }
@@ -581,7 +586,6 @@ void HooksManager::RegisterHooks() {
             }
         }, nullptr);
         DP_LOG(Default, "Successfully registered native callback hook on Actor:SetOwner.");
-
     }
 }
 

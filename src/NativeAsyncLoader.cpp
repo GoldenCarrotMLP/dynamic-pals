@@ -53,6 +53,9 @@ namespace DynPals {
         if (GActiveBatches.erase(Obj) > 0) bFound = true;
         if (GAssetLoaderActor == Obj) { GAssetLoaderActor = nullptr; bFound = true; }
         if (GActiveRequester == Obj) { GActiveRequester = nullptr; bFound = true; }
+        
+        // FIX: Ensure we don't hold a dead ModActor_C class pointer between map loads
+        if (LoaderClass == Obj) { LoaderClass = nullptr; bFound = true; } 
 
         for (auto it = GGlobalPointerCache.begin(); it != GGlobalPointerCache.end();) {
             if (it->second.Ptr == Obj) {
