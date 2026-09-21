@@ -53,7 +53,10 @@ namespace DynPals {
             if (!bIsOpen) {
                 // Try to acquire target/setup view. If false, abort opening.
                 if (OnSetup()) {
-                    if (!MyWidget) {
+                    // Rebuild if no widget exists OR if a hot-reload rebuild was queued while closed
+                    if (!MyWidget || bRebuildRequested) {
+                        if (MyWidget) DestroyWidget();
+                        bRebuildRequested = false;
                         BuildWidget();
                     }
 

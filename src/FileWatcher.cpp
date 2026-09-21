@@ -4,6 +4,7 @@
 #include "AsyncHelper.hpp"
 #include "NotificationManager.hpp"
 #include "DataTypes.hpp"
+#include "UI/Views/UIManager.hpp" 
 #include <Windows.h>
 #include <thread>
 #include <vector>
@@ -75,7 +76,6 @@ namespace DynPals {
                 }
 
                 if (bNeedsReload) {
-                    // Update the timestamp BEFORE the sleep to catch duplicates buffered during the wait
                     lastReloadTime = std::chrono::steady_clock::now();
 
                     // Debounce: Give the OS/Editor 500ms to finish the physical file write
@@ -90,7 +90,10 @@ namespace DynPals {
                         // 2. Reload the JSON database
                         ConfigManager::Get().LoadConfigJSONs();
 
-                        // 3. Refresh all Pals in the world to apply potential new skins
+                        // 3. Refresh the UI immediately (live rebuild if open, queued if closed)
+                        UIManager::Get().RequestRebuild();
+
+                        // 4. Refresh all Pals in the world to apply potential new skins
                         std::vector<UObject*> AllPals;
                         UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
                         for (UObject* Pal : AllPals) {

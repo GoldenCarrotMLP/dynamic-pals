@@ -148,46 +148,107 @@ namespace DynPals {
     }
 
     void NotificationManager::ClearInGameLogs() {
-        std::vector<UObject*> logWidgets;
-        UObjectGlobals::FindAllOf(STR("WBP_PalLogWidget_C"), logWidgets);
+    // 1. Clear any pending toasts in the C++ queue
+    {
+        std::lock_guard<std::mutex> lock(ToastMutex);
+        ToastQueue.clear();
+    }
 
-        for (UObject* LogWidget : logWidgets) {
-            if (!LogWidget || !Utils::IsObjectValid(LogWidget)) continue;
-
-            UObject* NormalScrollBox = nullptr;
-            if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ScrollBox_NormalLog"), NormalScrollBox) && NormalScrollBox) {
-                Utils::CallFunction(NormalScrollBox, STR("ClearChildren"));
-            }
-
-            UObject* ImportantBorder = nullptr;
-            if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ImportantBorder"), ImportantBorder) && ImportantBorder) {
-                Utils::CallFunction(ImportantBorder, STR("ClearChildren"));
-            }
-
-            UObject* VeryImportantBorder = nullptr;
-            if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("VeryImportantBorder"), VeryImportantBorder) && VeryImportantBorder) {
-                Utils::CallFunction(VeryImportantBorder, STR("ClearChildren"));
-            }
-
-            FProperty* NormalListProp = Utils::GetProperty(LogWidget, STR("NormalLogList"));
-            if (NormalListProp) {
-                TArray<UObject*>* NormalList = NormalListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
-                if (NormalList) NormalList->Empty();
-            }
-
-            FProperty* ImportantListProp = Utils::GetProperty(LogWidget, STR("ImportantLogList"));
-            if (ImportantListProp) {
-                TArray<UObject*>* ImportantList = ImportantListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
-                if (ImportantList) ImportantList->Empty();
-            }
-
-            FProperty* VeryImpIDArrayProp = Utils::GetProperty(LogWidget, STR("veryImportantLogIDArray"));
-            if (VeryImpIDArrayProp) {
-                TArray<DynPalsGuid>* VeryImpIDArray = VeryImpIDArrayProp->ContainerPtrToValuePtr<TArray<DynPalsGuid>>(LogWidget);
-                if (VeryImpIDArray) VeryImpIDArray->Empty();
-            }
+    // 2. Remove all VeryImportant logs from the native PalLogManager subsystem
+    UObject* LogManager = GetActiveLogManager();
+    if (LogManager && Utils::IsObjectValid(LogManager)) {
+        UFunction* RemoveVeryImportantFunc = LogManager->GetFunctionByNameInChain(STR("RemoveVeryImportantLog"));
+        
+        // Read veryImportantLogMap from UPalLogManager (TMap<FGuid, FPalLogDataSet> at offset 0x0090)
+        FProperty* VILogMapProp = Utils::GetProperty(LogManager, STR("veryImportantLogMap"));
+        if (VILogMapProp && RemoveVeryImportantFunc) {
+            // Collect GUIDs to remove
+            TArray<FGuid> LogIdsToRemove;
+            auto* MapHelper = VILogMapProp->ContainerPtrToValuePtr<void>(LogManager);
+            
+            // Or safely pull GUIDs via reflection if direct layout isn't bound:
+            // Iterate over widgets to get the IDs currently displayed
         }
     }
+
+    // 3. Clear the active view widgets in WBP_PalLogWidget_C
+    std::vector<UObject*> logWidgets;
+    UObjectGlobals::FindAllOf(STR("WBP_PalLogWidget_C"), logWidgets);
+
+    for (UObject* LogWidget : logWidgets) {
+        if (!LogWidget || !Utils::IsObjectValid(LogWidget)) continue;
+
+        // Collect all active Very Important GUIDs from the widget
+        TArray<FGuid> ActiveVIGuids;
+        FProperty* VeryImpIDArrayProp = Utils::GetProperty(LogWidget, STR("veryImportantLogIDArray"));
+        if (VeryImpIDArrayProp) {
+            TArray<FGuid>* IDArray = VeryImpIDArrayProp->ContainerPtrToValuePtr<TArray<FGuid>>(LogWidget);
+            if (IDArray) {
+                ActiveVIGuids = *IDArray;
+                IDArray->Empty();
+            }
+        }
+
+        // Also check nowDisplayVeryImportantLog
+        FGuid CurrentDisplayedGuid{};
+        if (Utils::GetPropertyValue<FGuid>(LogWidget, STR("nowDisplayVeryImportantLog"), CurrentDisplayedGuid)) {
+            if (CurrentDisplayedGuid.A != 0 || CurrentDisplayedGuid.B != 0) {
+                ActiveVIGuids.Add(CurrentDisplayedGuid);
+                FGuid ZeroGuid{};
+                Utils::SetPropertyValue<FGuid>(LogWidget, STR("nowDisplayVeryImportantLog"), ZeroGuid);
+            }
+        }
+
+        // Notify UPalLogManager to remove each active very important log
+        if (LogManager && Utils::IsObjectValid(LogManager)) {
+            UFunction* RemoveVIFunc = LogManager->GetFunctionByNameInChain(STR("RemoveVeryImportantLog"));
+            if (RemoveVIFunc) {
+                for (const FGuid& id : ActiveVIGuids) {
+                    struct { FGuid targetLogId; bool ReturnValue; } Params{ id, false };
+                    Utils::SafeProcessEvent(LogManager, RemoveVIFunc, &Params);
+                }
+            }
+        }
+
+        // Call widget's native removal function if present
+        UFunction* OnRemovedVIFunc = LogWidget->GetFunctionByNameInChain(STR("OnRemovedVeryImportantLog"));
+        if (OnRemovedVIFunc) {
+            for (const FGuid& id : ActiveVIGuids) {
+                struct { FGuid logId; } Params{ id };
+                Utils::SafeProcessEvent(LogWidget, OnRemovedVIFunc, &Params);
+            }
+        }
+
+        // Clear display containers
+        UObject* NormalScrollBox = nullptr;
+        if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ScrollBox_NormalLog"), NormalScrollBox) && NormalScrollBox) {
+            Utils::CallFunction(NormalScrollBox, STR("ClearChildren"));
+        }
+
+        UObject* ImportantBorder = nullptr;
+        if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("ImportantBorder"), ImportantBorder) && ImportantBorder) {
+            Utils::CallFunction(ImportantBorder, STR("ClearChildren"));
+        }
+
+        UObject* VeryImportantBorder = nullptr;
+        if (Utils::GetPropertyValue<UObject*>(LogWidget, STR("VeryImportantBorder"), VeryImportantBorder) && VeryImportantBorder) {
+            Utils::CallFunction(VeryImportantBorder, STR("ClearChildren"));
+        }
+
+        // Clear tracking lists
+        FProperty* NormalListProp = Utils::GetProperty(LogWidget, STR("NormalLogList"));
+        if (NormalListProp) {
+            TArray<UObject*>* NormalList = NormalListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
+            if (NormalList) NormalList->Empty();
+        }
+
+        FProperty* ImportantListProp = Utils::GetProperty(LogWidget, STR("ImportantLogList"));
+        if (ImportantListProp) {
+            TArray<UObject*>* ImportantList = ImportantListProp->ContainerPtrToValuePtr<TArray<UObject*>>(LogWidget);
+            if (ImportantList) ImportantList->Empty();
+        }
+    }
+}
 
     void NotificationManager::ShowModalDialog(const std::wstring& Message) {
         AsyncHelper::AsyncTask(ENamedThreads::GameThread, [Message]() {
