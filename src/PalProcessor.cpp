@@ -591,11 +591,11 @@ namespace DynPals {
         } else {
             DP_LOG(Default, "[ReLinkAnimLayers] Character identified as Monster Pal.");
 
-            // 1. Resolve Monster Implementation Anim Layer (contains Foot IK Control Rig & Virtual Bones)
+        // 1. Resolve Monster Implementation Anim Layer (contains Foot IK Control Rig & Virtual Bones)
         UClass* ImplClass = nullptr;
 
-        // Cache of resolved implementation layers per CharacterID (stores nullptr for Pals that have none)
-        static std::map<std::wstring, UClass*> GPalImplClassCache;
+        // SAFE: Cache the string path of the resolved class, NOT the raw UClass* pointer!
+        static std::map<std::wstring, std::wstring> GPalImplClassPathCache;
 
         // Resolve CharID once up front
         std::wstring CharID = L"";
@@ -606,7 +606,6 @@ namespace DynPals {
             CharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams.RetVal.ToString());
         }
 
-        // FIX: Force lowercase to ensure cache hits across different sessions!
         std::wstring LowerCharID = CharID;
         std::transform(LowerCharID.begin(), LowerCharID.end(), LowerCharID.begin(), ::towlower);
 
@@ -616,24 +615,21 @@ namespace DynPals {
             DP_LOG(Default, "[ReLinkAnimLayers] [FootIK] Using captured pre-existing implementation layer: '{}'", ImplClass->GetName());
         }
 
-        // Fast Path: If we already probed this Pal species before, reuse the result (0.000ms)
+        // Priority B / Fast Path: Check cached string path from previous lookups
         if (!ImplClass && !LowerCharID.empty()) {
-            auto cacheIt = GPalImplClassCache.find(LowerCharID);
-            if (cacheIt != GPalImplClassCache.end()) {
-                
-                // Ensure the engine didn't garbage collect the class between map loads!
-                if (cacheIt->second && !Utils::IsObjectValid(cacheIt->second)) {
-                    GPalImplClassCache.erase(cacheIt);
-                } else {
-                    ImplClass = cacheIt->second;
+            auto cacheIt = GPalImplClassPathCache.find(LowerCharID);
+            if (cacheIt != GPalImplClassPathCache.end() && !cacheIt->second.empty()) {
+                ImplClass = Utils::GetClassCached(cacheIt->second.c_str(), true);
+                if (!ImplClass || !Utils::IsObjectValid(ImplClass)) {
+                    ImplClass = static_cast<UClass*>(Utils::LoadAssetInternal(cacheIt->second, false));
                 }
-                
             }
         }
 
-        bool bNeedsProbe = (!ImplClass && (LowerCharID.empty() || GPalImplClassCache.find(LowerCharID) == GPalImplClassCache.end()));
+        bool bNeedsProbe = (!ImplClass && (LowerCharID.empty() || GPalImplClassPathCache.find(LowerCharID) == GPalImplClassPathCache.end()));
+        std::wstring ResolvedImplPath = L"";
 
-        // Priority B: Derive from MainAnimClass path
+        // Priority C: Derive from MainAnimClass path
         if (bNeedsProbe && MainAnimClass && Utils::IsObjectValid(MainAnimClass)) {
             std::wstring animPath = MainAnimClass->GetPathName();
             size_t dotPos = animPath.find(L'.');
@@ -650,11 +646,12 @@ namespace DynPals {
                 UClass* LoadedClass = static_cast<UClass*>(Utils::LoadAssetInternal(candidatePath, false));
                 if (LoadedClass && Utils::IsObjectValid(LoadedClass)) {
                     ImplClass = LoadedClass;
+                    ResolvedImplPath = candidatePath;
                 }
             }
         }
 
-        // Priority C: Probe based on Pal CharacterID
+        // Priority D: Probe based on Pal CharacterID
         if (!ImplClass && bNeedsProbe && !CharID.empty()) {
             std::vector<std::wstring> ProbePaths = {
                 L"/Game/Pal/Blueprint/Character/Monster/PalActorBP/" + CharID + L"/ABP_" + CharID + L"_Implementation.ABP_" + CharID + L"_Implementation_C",
@@ -665,17 +662,18 @@ namespace DynPals {
                 UClass* LoadedClass = static_cast<UClass*>(Utils::LoadAssetInternal(probe, false));
                 if (LoadedClass && Utils::IsObjectValid(LoadedClass)) {
                     ImplClass = LoadedClass;
+                    ResolvedImplPath = probe;
                     break;
                 }
             }
         }
 
-        // Cache the probe result for this Pal species so probes never run again
-        if (!LowerCharID.empty() && GPalImplClassCache.find(LowerCharID) == GPalImplClassCache.end()) {
-            GPalImplClassCache[LowerCharID] = ImplClass;
+        // Cache the resolved string path (or empty string if none exists) so probes never repeat
+        if (!LowerCharID.empty() && GPalImplClassPathCache.find(LowerCharID) == GPalImplClassPathCache.end()) {
+            GPalImplClassPathCache[LowerCharID] = ResolvedImplPath;
         }
 
-        // 2. Link the Implementation Layer (Foot IK Control Rig & Virtual Bones)
+        // 2. Link the Implementation Layer
         if (ImplClass && Utils::IsObjectValid(ImplClass)) {
             struct { UClass* InClass; } ImplParams{ ImplClass };
             if (UnlinkFunc) Utils::SafeProcessEvent(AnimInst, UnlinkFunc, &ImplParams);
@@ -2195,7 +2193,7 @@ namespace DynPals {
                 } 
 
                 if (bHasFailedDependency) {
-                    DP_LOG(Error, "[Swap Aborted] Pal '{}' swap failed: Material or Mesh asset does not exist! Path: '{}'", RawCharID, failedPath);
+                    DP_LOG(Error, "[Swap Aborted] '{}'. Asset does not exist on Path: '{}'", RawCharID, failedPath);
                     return false;
                 }
 
