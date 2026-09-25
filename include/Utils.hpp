@@ -38,7 +38,6 @@ namespace DynPals::Utils {
             auto end = std::chrono::high_resolution_clock::now();
             double ms = std::chrono::duration<double, std::milli>(end - Start).count();
             if (ms >= ThresholdMs) {
-                // Bypass DP_LOG so we don't trigger in-game toast notifications for performance logs
                 std::wstring wName(Name.begin(), Name.end());
                 RC::Output::send<RC::LogLevel::Warning>(STR("[Profiler] {} took {:.3f} ms\n"), wName, ms);
             }
@@ -61,7 +60,7 @@ namespace DynPals::Utils {
     namespace Caches {
         struct CacheKey {
             UClass* Cls;
-            std::wstring_view Name;
+            std::wstring Name; // <--- CRITICAL FIX: Retained String Memory
             bool operator<(const CacheKey& o) const {
                 if (Cls != o.Cls) return Cls < o.Cls;
                 return Name < o.Name;
@@ -155,22 +154,15 @@ namespace DynPals::Utils {
         return Caches::KismetFuncCache[FunctionName] = Func;
     }
 
-    // High-performance direct validity check (Replaces Reflection / Exceptions)
     inline bool IsObjectValid(UObject* Obj) {
         if (!Obj) return false;
-        
-        // Native bitmask check for Unreachable/PendingKill
-        // 0x00008000 = RF_BeginDestroyed
-        // 0x00010000 = RF_FinishDestroyed
-        // 0x08000000 = RF_Unreachable
         uint32_t flags = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(Obj) + 0x8);
         if (flags & (0x00008000 | 0x00010000 | 0x08000000)) return false;
-        
         return true;
     }
 
     inline bool IsObjectTracked(UObject* TargetObj) {
-        return IsObjectValid(TargetObj); // Fallback wrapper
+        return IsObjectValid(TargetObj); 
     }
 
     inline FField* GetNextField(FField* Field) {
@@ -208,7 +200,7 @@ namespace DynPals::Utils {
         auto* Class = Object->GetClassPrivate();
         if (!Class || !IsObjectValid(Class)) return nullptr;
 
-        Caches::CacheKey key{Class, std::wstring_view(PropertyName)};
+        Caches::CacheKey key{Class, std::wstring(PropertyName)}; // <--- FIX: std::wstring constructor
         {
             std::shared_lock<std::shared_mutex> read_lock(Caches::PropMutex);
             if (Caches::PropCache.count(key)) return Caches::PropCache[key];
@@ -265,7 +257,7 @@ namespace DynPals::Utils {
         auto* Class = Object->GetClassPrivate();
         if (!Class || !IsObjectValid(Class)) return;
 
-        Caches::CacheKey key{Class, std::wstring_view(FunctionName)};
+        Caches::CacheKey key{Class, std::wstring(FunctionName)}; // <--- FIX: std::wstring constructor
         UFunction* Function = nullptr;
         {
             std::shared_lock<std::shared_mutex> read_lock(Caches::FuncMutex);
@@ -641,9 +633,6 @@ inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBloc
         return nullptr;
     }
 
-    // =========================================================================================
-    // FIX: Safely initializes and destroys TArray memory to prevent 0xffffffffffffffff crashes!
-    // =========================================================================================
     inline std::vector<std::wstring> GetAssetsInVirtualFolder(const std::wstring& FolderPath) {
         {
             std::shared_lock<std::shared_mutex> read_lock(Caches::FolderMutex);
@@ -659,7 +648,6 @@ inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBloc
         UObject* AssetRegistry = GetARParams.ReturnValue;
         if (!AssetRegistry) return Results;
 
-        // --- SCAN PATH ---
         UFunction* ScanFunc = AssetRegistry->GetFunctionByNameInChain(STR("ScanPathsSynchronous"));
         if (ScanFunc) {
             alignas(8) uint8_t ScanBuffer[512] = {0}; 
@@ -683,7 +671,6 @@ inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBloc
             }
         }
 
-        // --- GET ASSETS BY PATH ---
         UFunction* GetAssetsFunc = AssetRegistry->GetFunctionByNameInChain(STR("GetAssetsByPath"));
         if (!GetAssetsFunc) return Results;
 
@@ -774,6 +761,4 @@ inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBloc
         
         return Caches::FolderCache[FolderPath] = Results;
     }
-
-
 }
