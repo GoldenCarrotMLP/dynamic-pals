@@ -346,6 +346,73 @@ static FVanillaDefaults ExtractVanillaDefaults(UObject* Character) {
 	return defs;
 }
 
+
+// =========================================================================
+// ENGINE-SAFE WAZA ACTION INSTANCE UPDATE (Proton / Wine / Steam Deck Safe)
+// =========================================================================
+static void HotSwapWazaActionClasses(UObject* DestStaticParam, const std::wstring& OldCharID, const std::wstring& NewTargetID) {
+    if (!DestStaticParam || OldCharID.empty() || NewTargetID.empty()) return;
+
+    FProperty* RawProp = Utils::GetProperty(DestStaticParam, STR("WazaActionInstancedMap"), true);
+    if (!RawProp) return;
+
+    FMapProperty* InstMapProp = CastField<FMapProperty>(RawProp);
+    if (!InstMapProp) return;
+
+    void* MapContainer = InstMapProp->ContainerPtrToValuePtr<void>(DestStaticParam);
+    if (!MapContainer) return;
+
+    // FScriptMap in 64-bit Unreal Engine:
+    // void* Data;
+    // int32 ArrayNum;
+    // int32 ArrayMax;
+    void** pData = reinterpret_cast<void**>(MapContainer);
+    if (!pData || !*pData) return;
+
+    int32_t* pNum = reinterpret_cast<int32_t*>(reinterpret_cast<uint8_t*>(MapContainer) + sizeof(void*));
+    if (!pNum || *pNum <= 0) return;
+
+    // Query the exact element stride and value offset from Unreal Engine's reflection
+    auto& Layout = InstMapProp->GetMapLayout();
+    int32_t ElementSize = Layout.SetLayout.Size;
+    int32_t ValueOffset = Layout.ValueOffset;
+
+    // Standard fallback if layout size is unpopulated in this build
+    if (ElementSize <= 0) ElementSize = 24; 
+    if (ValueOffset <= 0) ValueOffset = 8;
+
+    int32_t ActiveCount = *pNum;
+    uint8_t* DataPtr = reinterpret_cast<uint8_t*>(*pData);
+
+    // Iterate only the active elements; never touch unallocated or free-list slots
+    for (int32_t i = 0; i < ActiveCount; ++i) {
+        uint8_t* ElementPtr = DataPtr + (i * ElementSize);
+        UClass** ValuePtr = reinterpret_cast<UClass**>(ElementPtr + ValueOffset);
+
+        if (ValuePtr && *ValuePtr && Utils::IsObjectValid(*ValuePtr)) {
+            UClass* CurrentActionClass = *ValuePtr;
+            std::wstring fullPath = CurrentActionClass->GetPathName();
+
+            // If this action belongs to the old Pal, swap to the replacement action class
+            if (fullPath.find(OldCharID) != std::wstring::npos) {
+                std::wstring newPath = fullPath;
+                size_t pos = 0;
+                while ((pos = newPath.find(OldCharID, pos)) != std::wstring::npos) {
+                    newPath.replace(pos, OldCharID.length(), NewTargetID);
+                    pos += NewTargetID.length();
+                }
+
+                UClass* ReplacementClass = static_cast<UClass*>(Utils::LoadAssetSafely(newPath));
+                if (ReplacementClass && Utils::IsObjectValid(ReplacementClass)) {
+                    *ValuePtr = ReplacementClass;
+                    DP_LOG(Default, "[WazaSync] Successfully updated WazaActionInstancedMap: '{}' -> '{}'",
+                           CurrentActionClass->GetName(), ReplacementClass->GetName());
+                }
+            }
+        }
+    }
+}
+
 static void SyncStaticCharacterParams(UObject* SrcStaticParam, UObject* DestCharacter) {
     if (!SrcStaticParam || !DestCharacter || !Utils::IsObjectValid(SrcStaticParam) || !IsValidPalActor(DestCharacter)) return;
 
@@ -353,7 +420,7 @@ static void SyncStaticCharacterParams(UObject* SrcStaticParam, UObject* DestChar
     Utils::GetPropertyValue<UObject*>(DestCharacter, STR("StaticCharacterParameterComponent"), DestStaticParam);
     if (!DestStaticParam || !Utils::IsObjectValid(DestStaticParam)) return;
 
-    // Do NOT copy WazaActionInstancedMap here; CDOs always have an empty instanced map!
+    // 1. Copy animation, sequence, blendspace, and montage maps
     static const wchar_t* const PropNames[] = {
         STR("RandomRestMontageInfos"),
         STR("GeneralAnimSequenceMap"),
@@ -361,11 +428,6 @@ static void SyncStaticCharacterParams(UObject* SrcStaticParam, UObject* DestChar
         STR("GeneralBlendSpaceMap"),
         STR("ActionMontageMap"),
         STR("SleepOnSideAnimMontage"),
-        STR("PettingSize"),
-        STR("PettingStartAddDistance"),
-        STR("PettingEndLeaveDistance"),
-        STR("PettingDistance"),
-        STR("HPGaugeUIOffset"),
         STR("SleepOnSideInfoMapForMapObject"),
         STR("WazaActionDeclarationMap")
     };
@@ -382,31 +444,44 @@ static void SyncStaticCharacterParams(UObject* SrcStaticParam, UObject* DestChar
         }
     }
 
-    // Reset WazaActionInstancedMap using FProperty's container lifecycle methods
-    FProperty* InstancedMapProp = Utils::GetProperty(DestStaticParam, STR("WazaActionInstancedMap"), true);
-    if (InstancedMapProp) {
-        InstancedMapProp->DestroyValue_InContainer(DestStaticParam);
-        InstancedMapProp->InitializeValue_InContainer(DestStaticParam);
-        DP_LOG(Default, "[WazaSync] Cleared WazaActionInstancedMap to purge stale action instances.");
+    // 2. Resolve OldCharID and NewTargetID to hot-swap the AI classes in WazaActionInstancedMap
+    std::wstring OldCharID = L"";
+    UObject* PalUtil = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/Pal.Default__PalUtility"));
+    if (PalUtil) {
+        struct { UObject* Char; FName RetVal; } CharIDParams{ DestCharacter, FName() };
+        Utils::SafeProcessEvent(PalUtil, PalUtil->GetFunctionByNameInChain(STR("GetCharacterIDFromCharacter")), &CharIDParams);
+        OldCharID = PalProcessor::Get().StripCharacterPrefix(CharIDParams.RetVal.ToString());
     }
 
-    // Re-initialize the ActionComponent to natively build and instance fresh attack classes
+    std::wstring NewTargetID = L"";
+    UClass* SrcClass = SrcStaticParam->GetOuterPrivate() ? SrcStaticParam->GetOuterPrivate()->GetClassPrivate() : nullptr;
+    if (SrcClass) {
+        std::wstring srcName = SrcClass->GetName();
+        if (srcName.rfind(L"BP_", 0) == 0) srcName = srcName.substr(3);
+        if (srcName.length() > 2 && srcName.substr(srcName.length() - 2) == L"_C") {
+            srcName = srcName.substr(0, srcName.length() - 2);
+        }
+        NewTargetID = srcName;
+    }
+
+    if (!OldCharID.empty() && !NewTargetID.empty() && OldCharID != NewTargetID) {
+        HotSwapWazaActionClasses(DestStaticParam, OldCharID, NewTargetID);
+    }
+
+    // 3. Re-initialize ActionComponent common actions
     UObject* ActionComp = nullptr;
     Utils::GetPropertyValue<UObject*>(DestCharacter, STR("ActionComponent"), ActionComp, true);
     if (ActionComp && Utils::IsObjectValid(ActionComp)) {
         UFunction* OnCompleteCharFunc = ActionComp->GetFunctionByNameInChain(STR("OnCompleteCharacter"));
         if (OnCompleteCharFunc) {
-            struct {
-                UObject* InCharacter;
-            } CompParams{ DestCharacter };
+            struct { UObject* InCharacter; } CompParams{ DestCharacter };
             Utils::SafeProcessEvent(ActionComp, OnCompleteCharFunc, &CompParams);
         }
     }
 
     Utils::CallFunction(DestCharacter, STR("MasterWazaSetup"));
-    DP_LOG(Default, "[WazaSync] Synced Waza maps from CDO and executed MasterWazaSetup for Pal: '{}'", DestCharacter->GetName());
+    DP_LOG(Default, "[WazaSync] Synced animation/montage maps and verified WazaActionInstancedMap for Pal: '{}'", DestCharacter->GetName());
 }
-
 static void ClearMaterialOverrides(UObject* MeshComp) {
 	if (!MeshComp || !Utils::IsObjectValid(MeshComp)) return;
 	struct {
@@ -421,20 +496,33 @@ static void ClearMaterialOverrides(UObject* MeshComp) {
 		Utils::CallFunction(MeshComp, STR("SetMaterial"), &ClearMatParams);
 	}
 }
-
+// =========================================================================
+// ANIMATION STATE & NOTIFY DELEGATE BACKUP
+// =========================================================================
 struct FAnimStateCache {
-        bool bIsRiding = false;
-        bool bShouldBeUseRiderComponent = false;
-        bool bShouldBeUseShooterComponent = false;
-        bool bIsAiming = false;
-        bool bIsShooting = false;
-        bool bIsFlying = false;
-        bool bIsFloating = false;
-        bool bIsJumpPreliminary = false;
-        bool bIsSkipJumpStart = false;
-    };
+    bool bIsRiding = false;
+    bool bShouldBeUseRiderComponent = false;
+    bool bShouldBeUseShooterComponent = false;
+    bool bIsAiming = false;
+    bool bIsShooting = false;
+    bool bIsFlying = false;
+    bool bIsFloating = false;
+    bool bIsJumpPreliminary = false;
+    bool bIsSkipJumpStart = false;
 
-    static void RestoreAnimInstanceCaches(UObject* Character, UObject* AnimInst, const FAnimStateCache& StateCache) {
+    // Preserved delegate invocation lists across runtime AnimInstance swaps:
+    // 0x328: OnPlayMontageNotifyBegin
+    // 0x338: OnPlayMontageNotifyEnd
+    // 0x348: OnMontageNotifyBeginDelegate (Broadcast by FUN_142d47ff0)
+    // 0x358: OnMontageNotifyEndDelegate   (Broadcast by FUN_142d48050)
+    TArray<FScriptDelegate> PlayNotifyBegin;
+    TArray<FScriptDelegate> PlayNotifyEnd;
+    TArray<FScriptDelegate> PalNotifyBegin;
+    TArray<FScriptDelegate> PalNotifyEnd;
+};
+
+
+static void RestoreAnimInstanceCaches(UObject* Character, UObject* AnimInst, const FAnimStateCache& StateCache) {
         if (!Character || !AnimInst || !IsValidPalActor(Character) || !Utils::IsObjectValid(AnimInst)) return;
 
         // 1. RESTORE STATE FLAGS (CRITICAL for preserving Riding/Combat states across swaps)
@@ -549,6 +637,7 @@ struct FAnimStateCache {
         }
     }
 
+    
 static void EnsureMontageEndedBound(UObject* AnimInst) {
 	if (!AnimInst || !Utils::IsObjectValid(AnimInst)) return;
 
@@ -1701,58 +1790,64 @@ static bool VerifyAssetPersistence(UObject* Character, UObject* MeshComp, UObjec
 	return bAllPersisted;
 }
 
-static void BindNativeMontageNotifies(UObject* AnimInst) {
+// =========================================================================
+// NATIVE MONTAGE NOTIFY BINDING (Using Ghidra Offsets)
+// =========================================================================
+static void BindNativeMontageNotifies(UObject* AnimInst, const FAnimStateCache& StateCache, UObject* Character) {
     if (!AnimInst || !Utils::IsObjectValid(AnimInst)) return;
 
     // Direct memory offsets verified from UPalAnimInstance::NativeBeginPlay (FUN_142d41ad0):
-    // this + 0x328 : OnPlayMontageNotifyBegin (FMulticastScriptDelegate)
-    // this + 0x338 : OnPlayMontageNotifyEnd   (FMulticastScriptDelegate)
-    auto* pNotifyBegin = reinterpret_cast<FMulticastScriptDelegate*>(
-        reinterpret_cast<uint8_t*>(AnimInst) + 0x328
-    );
-    auto* pNotifyEnd = reinterpret_cast<FMulticastScriptDelegate*>(
-        reinterpret_cast<uint8_t*>(AnimInst) + 0x338
-    );
+    auto* pPlayBegin = reinterpret_cast<FMulticastScriptDelegate*>(reinterpret_cast<uint8_t*>(AnimInst) + 0x328);
+    auto* pPlayEnd   = reinterpret_cast<FMulticastScriptDelegate*>(reinterpret_cast<uint8_t*>(AnimInst) + 0x338);
+    auto* pPalBegin  = reinterpret_cast<FMulticastScriptDelegate*>(reinterpret_cast<uint8_t*>(AnimInst) + 0x348);
+    auto* pPalEnd    = reinterpret_cast<FMulticastScriptDelegate*>(reinterpret_cast<uint8_t*>(AnimInst) + 0x358);
 
-    // 1. Bind OnNotifyBeginReceived to this + 0x328
-    UFunction* BeginFunc = AnimInst->GetFunctionByNameInChain(STR("OnNotifyBeginReceived"));
-    if (BeginFunc && pNotifyBegin) {
-        FName BeginFName(STR("OnNotifyBeginReceived"), FNAME_Find);
+    // 1. Transfer listeners to 0x348 / 0x358 if any were cached
+    if (pPalBegin && StateCache.PalNotifyBegin.Num() > 0) {
+        pPalBegin->InvocationList = StateCache.PalNotifyBegin;
+        DP_LOG(Default, "[AnimNotify] Transferred {} listener(s) to OnMontageNotifyBeginDelegate (0x348).", pPalBegin->InvocationList.Num());
+    }
+    if (pPalEnd && StateCache.PalNotifyEnd.Num() > 0) {
+        pPalEnd->InvocationList = StateCache.PalNotifyEnd;
+    }
+
+    // 2. Bind 0x328 -> OnNotifyBeginReceived
+    if (pPlayBegin) {
+        FName BeginFName(STR("OnNotifyBeginReceived"), FNAME_Add);
         bool bAlreadyBound = false;
-        for (int32_t i = 0; i < pNotifyBegin->InvocationList.Num(); ++i) {
-            if (pNotifyBegin->InvocationList[i].GetFunctionName() == BeginFName) {
+        for (int32_t i = 0; i < pPlayBegin->InvocationList.Num(); ++i) {
+            if (pPlayBegin->InvocationList[i].GetFunctionName() == BeginFName) {
                 bAlreadyBound = true;
                 break;
             }
         }
         if (!bAlreadyBound) {
             FScriptDelegate Delegate;
-            Delegate.BindUFunction(AnimInst, FName(STR("OnNotifyBeginReceived"), FNAME_Add));
-            pNotifyBegin->InvocationList.Add(Delegate);
-            DP_LOG(Default, "[AnimInit] Successfully bound OnPlayMontageNotifyBegin (offset 0x328) -> OnNotifyBeginReceived!");
+            Delegate.BindUFunction(AnimInst, BeginFName);
+            pPlayBegin->InvocationList.Add(Delegate);
+            DP_LOG(Default, "[AnimNotify] Successfully bound OnPlayMontageNotifyBegin (0x328) -> OnNotifyBeginReceived.");
         }
     }
 
-    // 2. Bind OnNotifyEndReceived to this + 0x338
-    UFunction* EndFunc = AnimInst->GetFunctionByNameInChain(STR("OnNotifyEndReceived"));
-    if (EndFunc && pNotifyEnd) {
-        FName EndFName(STR("OnNotifyEndReceived"), FNAME_Find);
+    // 3. Bind 0x338 -> OnNotifyEndReceived
+    if (pPlayEnd) {
+        FName EndFName(STR("OnNotifyEndReceived"), FNAME_Add);
         bool bAlreadyBound = false;
-        for (int32_t i = 0; i < pNotifyEnd->InvocationList.Num(); ++i) {
-            if (pNotifyEnd->InvocationList[i].GetFunctionName() == EndFName) {
+        for (int32_t i = 0; i < pPlayEnd->InvocationList.Num(); ++i) {
+            if (pPlayEnd->InvocationList[i].GetFunctionName() == EndFName) {
                 bAlreadyBound = true;
                 break;
             }
         }
         if (!bAlreadyBound) {
             FScriptDelegate Delegate;
-            Delegate.BindUFunction(AnimInst, FName(STR("OnNotifyEndReceived"), FNAME_Add));
-            pNotifyEnd->InvocationList.Add(Delegate);
-            DP_LOG(Default, "[AnimInit] Successfully bound OnPlayMontageNotifyEnd (offset 0x338) -> OnNotifyEndReceived!");
+            Delegate.BindUFunction(AnimInst, EndFName);
+            pPlayEnd->InvocationList.Add(Delegate);
+            DP_LOG(Default, "[AnimNotify] Successfully bound OnPlayMontageNotifyEnd (0x338) -> OnNotifyEndReceived.");
         }
     }
 
-    // 3. Ensure OnMontageEnded is bound to OnMontageEndedCallback (reflected property)
+    // 4. Ensure OnMontageEnded is bound to OnMontageEndedCallback
     FProperty* EndedProp = Utils::GetProperty(AnimInst, STR("OnMontageEnded"), true);
     UFunction* EndedCallbackFunc = AnimInst->GetFunctionByNameInChain(STR("OnMontageEndedCallback"));
     if (EndedProp && EndedCallbackFunc) {
@@ -1770,12 +1865,13 @@ static void BindNativeMontageNotifies(UObject* AnimInst) {
                 FScriptDelegate Delegate;
                 Delegate.BindUFunction(AnimInst, FName(STR("OnMontageEndedCallback"), FNAME_Add));
                 pEnded->InvocationList.Add(Delegate);
-                DP_LOG(Default, "[AnimInit] Successfully bound OnMontageEnded -> OnMontageEndedCallback!");
             }
         }
     }
 }
-
+// =========================================================================
+// APPLY MESH & ANIM
+// =========================================================================
 static void ApplyMeshAndAnim(const FMeshApplyParams& Params, bool bNeedsAnimRebuild) {
     if (!Params.MeshComp || !Utils::IsObjectValid(Params.MeshComp)) return;
 
@@ -1793,7 +1889,7 @@ static void ApplyMeshAndAnim(const FMeshApplyParams& Params, bool bNeedsAnimRebu
         }
     }
 
-    // 2. Extract state cache
+    // 2. Extract state cache and BACK UP ALL 4 NOTIFY DELEGATE INVOCATION LISTS
     FAnimStateCache StateCache;
     UObject* OldAnimInst = nullptr;
     Utils::CallFunction(Params.MeshComp, STR("GetAnimInstance"), &OldAnimInst);
@@ -1809,6 +1905,17 @@ static void ApplyMeshAndAnim(const FMeshApplyParams& Params, bool bNeedsAnimRebu
         Utils::GetPropertyValue<bool>(OldAnimInst, STR("IsFloating"), StateCache.bIsFloating, true);
         Utils::GetPropertyValue<bool>(OldAnimInst, STR("IsJumpPreliminary"), StateCache.bIsJumpPreliminary, true);
         Utils::GetPropertyValue<bool>(OldAnimInst, STR("IsSkipJumpStart"), StateCache.bIsSkipJumpStart, true);
+
+        // BACKUP NOTIFY DELEGATES FROM OLD INSTANCE
+        auto* pOldPlayBegin = reinterpret_cast<FMulticastScriptDelegate*>(reinterpret_cast<uint8_t*>(OldAnimInst) + 0x328);
+        auto* pOldPlayEnd   = reinterpret_cast<FMulticastScriptDelegate*>(reinterpret_cast<uint8_t*>(OldAnimInst) + 0x338);
+        auto* pOldPalBegin  = reinterpret_cast<FMulticastScriptDelegate*>(reinterpret_cast<uint8_t*>(OldAnimInst) + 0x348);
+        auto* pOldPalEnd    = reinterpret_cast<FMulticastScriptDelegate*>(reinterpret_cast<uint8_t*>(OldAnimInst) + 0x358);
+
+        if (pOldPlayBegin) StateCache.PlayNotifyBegin = pOldPlayBegin->InvocationList;
+        if (pOldPlayEnd)   StateCache.PlayNotifyEnd   = pOldPlayEnd->InvocationList;
+        if (pOldPalBegin)  StateCache.PalNotifyBegin  = pOldPalBegin->InvocationList;
+        if (pOldPalEnd)    StateCache.PalNotifyEnd    = pOldPalEnd->InvocationList;
 
         if (!bNeedsAnimRebuild) {
             FProperty* LinkedProp = Utils::GetProperty(Params.MeshComp, STR("LinkedInstances"), true);
@@ -1864,7 +1971,7 @@ static void ApplyMeshAndAnim(const FMeshApplyParams& Params, bool bNeedsAnimRebu
     // 6. Link Layers
     ReLinkAnimLayers(Params.MeshComp, Params.TargetCDO, Params.Character, Params.NewSkelMesh, CapturedImplClass);
 
-    // 7. Synchronize Actions and Waza
+    // 7. Synchronize Actions and Waza (Preserves WazaActionInstancedMap)
     if (bNeedsAnimRebuild) {
         SyncStaticCharacterParams(Params.TargetStaticParam, Params.Character);
     }
@@ -1890,18 +1997,18 @@ static void ApplyMeshAndAnim(const FMeshApplyParams& Params, bool bNeedsAnimRebu
         }
     }
 
-    // 9. Restore State & Bind Native Montage Notifies
+    // 9. Restore State & Re-establish Native Montage Notifies (0x328, 0x338, 0x348, 0x358)
     UObject* NewAnimInst = nullptr;
     Utils::CallFunction(Params.MeshComp, STR("GetAnimInstance"), &NewAnimInst);
     if (NewAnimInst && Utils::IsObjectValid(NewAnimInst) && IsValidPalActor(Params.Character)) {
         RestoreAnimInstanceCaches(Params.Character, NewAnimInst, StateCache);
-        BindNativeMontageNotifies(NewAnimInst);
+        BindNativeMontageNotifies(NewAnimInst, StateCache, Params.Character);
 
         UObject* PostProcessInst = nullptr;
         Utils::CallFunction(Params.MeshComp, STR("GetPostProcessInstance"), &PostProcessInst);
         if (PostProcessInst && Utils::IsObjectValid(PostProcessInst)) {
             RestoreAnimInstanceCaches(Params.Character, PostProcessInst, StateCache);
-            BindNativeMontageNotifies(PostProcessInst);
+            BindNativeMontageNotifies(PostProcessInst, StateCache, Params.Character);
         }
     }
 
@@ -1912,6 +2019,48 @@ static void ApplyMeshAndAnim(const FMeshApplyParams& Params, bool bNeedsAnimRebu
     Utils::CallFunction(Params.MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
     Utils::CallFunction(Params.Character, STR("RefreshSkin"));
+
+    // 11. UNSTICK COMBAT AI
+    UObject* ActionComp = nullptr;
+    Utils::GetPropertyValue<UObject*>(Params.Character, STR("ActionComponent"), ActionComp, true);
+    if (ActionComp && Utils::IsObjectValid(ActionComp)) {
+        UObject* CurrentAction = nullptr;
+        Utils::GetPropertyValue<UObject*>(ActionComp, STR("CurrentAction"), CurrentAction, true);
+        if (!CurrentAction) {
+            FProperty* FinishDelegateProp = Utils::GetProperty(ActionComp, STR("OnAllActionFinishDelegate"), true);
+            if (FinishDelegateProp) {
+                auto* Multicast = FinishDelegateProp->ContainerPtrToValuePtr<FMulticastScriptDelegate>(ActionComp);
+                if (Multicast && Multicast->InvocationList.Num() > 0) {
+                    TArray<FScriptDelegate> DelegatesCopy = Multicast->InvocationList;
+                    for (int32_t i = 0; i < DelegatesCopy.Num(); ++i) {
+                        UObject* TargetObj = DelegatesCopy[i].GetUObject();
+                        FName FuncName = DelegatesCopy[i].GetFunctionName();
+                        if (TargetObj && Utils::IsObjectValid(TargetObj)) {
+                            std::wstring fnStr = FuncName.ToString();
+                            if (fnStr == L"StartNextAction_Event" || fnStr.find(L"Action") != std::wstring::npos) {
+                                UFunction* TargetFunc = TargetObj->GetFunctionByNameInChain(fnStr.c_str());
+                                if (TargetFunc) {
+                                    alignas(8) uint8_t ParamsBuf[32] = {0};
+                                    Utils::SafeProcessEvent(TargetObj, TargetFunc, ParamsBuf);
+                                    DP_LOG(Default, "[AI Recovery] Dispatched '{}' on '{}' to resume combat loop.", fnStr, TargetObj->GetName());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 12. Notify the AI Controller of character change
+    UObject* Controller = nullptr;
+    if (Utils::GetPropertyValue<UObject*>(Params.Character, STR("Controller"), Controller, true) && Controller) {
+        UFunction* OnChangedCharFunc = Controller->GetFunctionByNameInChain(STR("OnChangedActiveCharacter"));
+        if (OnChangedCharFunc) {
+            struct { UObject* NewChar; } P{ Params.Character };
+            Utils::SafeProcessEvent(Controller, OnChangedCharFunc, &P);
+        }
+    }
 }
 
 static void SetPalNickname(UObject* IndivParam, const std::wstring& NewNameStr, const std::wstring& InstanceID, bool IsWild, UObject* Character) {

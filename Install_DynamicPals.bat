@@ -59,10 +59,138 @@ function Get-ModStatus {
     }
 }
 
+function Get-WorkshopUE4SSFolder($PalworldPath) {
+    $PalModSettingsPath = Join-Path $PalworldPath "Mods\PalModSettings.ini"
+    if (-not (Test-Path $PalModSettingsPath)) {
+        return $null
+    }
+
+    $IniContent = Get-Content $PalModSettingsPath -Raw
+    if ($IniContent -match "(?im)^\s*WorkshopRootDir\s*=\s*(.*)$") {
+        $RawPath = $matches[1].Trim().Trim('"').Trim("'")
+        
+        # If blank or path does not exist, do not assume workshop
+        if ([string]::IsNullOrWhiteSpace($RawPath) -or -not (Test-Path $RawPath)) {
+            return $null
+        }
+
+        # If folder has no files at all, do not assume workshop
+        $HasFiles = Get-ChildItem -Path $RawPath -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $HasFiles) {
+            return $null
+        }
+
+        # Look specifically for UE4SS.dll in any of the Workshop ID folders
+        $FoundUE4SS = Get-ChildItem -Path $RawPath -Filter "UE4SS.dll" -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($FoundUE4SS) {
+            return $FoundUE4SS.Directory.FullName
+        }
+    }
+
+    return $null
+}
+
+function Uninstall-ManualUE4SS($Win64Dir) {
+    $ManualDwmapi = Join-Path $Win64Dir "dwmapi.dll"
+    $ManualDll = Join-Path $Win64Dir "ue4ss\UE4SS.dll"
+    $ManualRootDll = Join-Path $Win64Dir "UE4SS.dll"
+
+    try {
+        $RemovedAny = $false
+        if (Test-Path $ManualDwmapi) {
+            Remove-Item -Path $ManualDwmapi -Force -ErrorAction Stop
+            Write-Host "Deleted: $ManualDwmapi" -ForegroundColor Green
+            $RemovedAny = $true
+        }
+        if (Test-Path $ManualDll) {
+            Remove-Item -Path $ManualDll -Force -ErrorAction Stop
+            Write-Host "Deleted: $ManualDll" -ForegroundColor Green
+            $RemovedAny = $true
+        }
+        if (Test-Path $ManualRootDll) {
+            Remove-Item -Path $ManualRootDll -Force -ErrorAction Stop
+            Write-Host "Deleted: $ManualRootDll" -ForegroundColor Green
+            $RemovedAny = $true
+        }
+
+        if ($RemovedAny) {
+            Write-Host "`nDuplicate manual UE4SS successfully uninstalled!" -ForegroundColor Green
+        } else {
+            Write-Host "`nNo manual UE4SS binaries found to delete." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "`nFailed to remove manual UE4SS files. Ensure Palworld is closed! Error: $_" -ForegroundColor Red
+    }
+}
+
+function Check-DuplicateUE4SS($PalworldPath, $Win64Dir) {
+    $WorkshopUe4ssDir = Get-WorkshopUE4SSFolder $PalworldPath
+
+    $ManualDwmapi = Join-Path $Win64Dir "dwmapi.dll"
+    $ManualDll = Join-Path $Win64Dir "ue4ss\UE4SS.dll"
+    $ManualRootDll = Join-Path $Win64Dir "UE4SS.dll"
+
+    $HasWorkshop = ($null -ne $WorkshopUe4ssDir)
+    $HasManual = (Test-Path $ManualDwmapi) -or (Test-Path $ManualDll) -or (Test-Path $ManualRootDll)
+
+    if ($HasWorkshop -and $HasManual) {
+        Write-Host "`n==========================================================" -ForegroundColor Red
+        Write-Host "           [WARNING] DUPLICATE UE4SS DETECTED!            " -ForegroundColor Red
+        Write-Host "==========================================================" -ForegroundColor Red
+        Write-Host "UE4SS was detected in BOTH Steam Workshop and manual Win64 locations:" -ForegroundColor Yellow
+        Write-Host " - Workshop folder: $WorkshopUe4ssDir" -ForegroundColor Gray
+        Write-Host " - Win64 folder   : $Win64Dir" -ForegroundColor Gray
+        Write-Host "`nRunning both versions causes Palworld to load UE4SS twice and crash!" -ForegroundColor Red
+
+        $Choice = Read-Host "`nDo you want to uninstall the manual build by deleting 'dwmapi.dll' and 'ue4ss/UE4SS.dll'? (Y/n)"
+        if ([string]::IsNullOrWhiteSpace($Choice) -or $Choice -match '^(y|yes)$') {
+            Uninstall-ManualUE4SS $Win64Dir
+            Start-Sleep -Seconds 2
+        }
+    }
+}
+
+function Resolve-UE4SSRoot($PalworldPath, $Win64Dir) {
+    $WorkshopUe4ssDir = Get-WorkshopUE4SSFolder $PalworldPath
+
+    if ($WorkshopUe4ssDir) {
+        return @{
+            Root       = $WorkshopUe4ssDir
+            IsWorkshop = $true
+        }
+    }
+
+    return @{
+        Root       = (Join-Path $Win64Dir "ue4ss")
+        IsWorkshop = $false
+    }
+}
+
 function Install-DynamicPals($PalworldPath, $Ue4ssRoot, $ModDir, $RemoteVersion) {
-    # -------------------------------------------------------------
-    # 1. Download and Extract the Base Release ZIP
-    # -------------------------------------------------------------
+    Write-Host "`nSelect Dynamic Pals Build to Install:"
+    Write-Host "[1] " -NoNewline
+    Write-Host "Auto-Updating" -ForegroundColor Green -NoNewline
+    Write-Host " (Recommended - checks for updates on launch)"
+
+    Write-Host "[2] " -NoNewline
+    Write-Host "Offline Build" -ForegroundColor Red -NoNewline
+    Write-Host " (No external network checks on launch)"
+
+    $BuildChoice = Read-Host "Enter choice (1 or 2, default is 1)"
+
+    $DllUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/main/dlls/main.dll"
+    $DllOfflineUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/main/dlls/main_offline.dll"
+
+    if ($BuildChoice -eq "2") {
+        $SelectedDllUrl = $DllOfflineUrl
+        $BuildName = "Offline Build"
+        $BuildColor = "Red"
+    } else {
+        $SelectedDllUrl = $DllUrl
+        $BuildName = "Auto-Updating"
+        $BuildColor = "Green"
+    }
+
     Write-Host "`nDownloading Dynamic Pals Base Package (Folders & Assets)..." -ForegroundColor Cyan
     
     $BaseZipUrl = "https://github.com/GoldenCarrotMLP/dynamic-pals/releases/latest/download/DynamicPals_AutoUpdate.zip"
@@ -80,39 +208,32 @@ function Install-DynamicPals($PalworldPath, $Ue4ssRoot, $ModDir, $RemoteVersion)
         Write-Host "Warning: Could not download the base ZIP from GitHub Releases. Proceeding with bleeding-edge files only..." -ForegroundColor Yellow
     }
 
-    # -------------------------------------------------------------
-    # 2. Download and Apply Bleeding-Edge Main/Raw Files
-    # -------------------------------------------------------------
-    Write-Host "Fetching Latest Bleeding-Edge DLL and PAK (v$RemoteVersion)..." -ForegroundColor Cyan
+    Write-Host "Fetching Latest Bleeding-Edge DLL (" -NoNewline -ForegroundColor Cyan
+    Write-Host $BuildName -ForegroundColor $BuildColor -NoNewline
+    Write-Host ") and PAK (v$RemoteVersion)..." -ForegroundColor Cyan
     
     $DllDir = Join-Path $ModDir "dlls"
-    
-    # Pak file still goes to the main game content folder because UE natively mounts from there
     $LogicModsDir = Join-Path $PalworldPath "Pal\Content\Paks\LogicMods"
     
     New-Item -ItemType Directory -Force -Path $DllDir | Out-Null
     New-Item -ItemType Directory -Force -Path $LogicModsDir | Out-Null
 
-    $DllUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/main/dlls/main.dll"
     $PakUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/main/dlls/DynamicPals.pak"
 
     $DllPath = Join-Path $DllDir "main.dll"
     $PakTemp = Join-Path $env:TEMP "DynamicPals.pak"
 
     try {
-        Invoke-WebRequest -Uri $DllUrl -OutFile $DllPath -UseBasicParsing
+        Invoke-WebRequest -Uri $SelectedDllUrl -OutFile $DllPath -UseBasicParsing
         Invoke-WebRequest -Uri $PakUrl -OutFile $PakTemp -UseBasicParsing
 
         Set-Content -Path (Join-Path $DllDir "version.txt") -Value $RemoteVersion
 
-        # Clean old LogicMod Paks (including versioned ones from previous installer builds)
         Get-ChildItem -Path $LogicModsDir -Filter "DynamicPals*.pak" | Remove-Item -Force
 
-        # Move PAK cleanly to LogicMods strictly as DynamicPals.pak
         $FinalPakPath = Join-Path $LogicModsDir "DynamicPals.pak"
         Move-Item -Path $PakTemp -Destination $FinalPakPath -Force
 
-        # Ensure DynamicPals is enabled in mods.txt
         $ModsTxt = Join-Path $Ue4ssRoot "mods\mods.txt"
         if (Test-Path $ModsTxt) {
             $Content = Get-Content $ModsTxt -Raw
@@ -121,7 +242,9 @@ function Install-DynamicPals($PalworldPath, $Ue4ssRoot, $ModDir, $RemoteVersion)
             }
         }
 
-        Write-Host "Dynamic Pals successfully installed into: $ModDir" -ForegroundColor Green
+        Write-Host "Dynamic Pals (" -NoNewline -ForegroundColor Green
+        Write-Host $BuildName -ForegroundColor $BuildColor -NoNewline
+        Write-Host ") successfully installed into: $ModDir" -ForegroundColor Green
     } catch {
         Write-Host "Failed to install Dynamic Pals. Ensure the game is closed! Error: $_" -ForegroundColor Red
     }
@@ -129,28 +252,70 @@ function Install-DynamicPals($PalworldPath, $Ue4ssRoot, $ModDir, $RemoteVersion)
 
 function Install-UE4SS($Win64Dir, $Ue4ssRoot, $IsWorkshopLocation) {
     if ($IsWorkshopLocation) {
-        Write-Host "`n[NOTE] You are using Steam Workshop UE4SS." -ForegroundColor Yellow
-        Write-Host "Workshop UE4SS updates automatically via Steam."
-        $Proceed = Read-Host "Do you still want to overwrite with a standalone manual build? (y/N)"
-        if ($Proceed -ne 'y' -and $Proceed -ne 'Y') { return }
+        Write-Host "`n[NOTE] Steam Workshop UE4SS detected." -ForegroundColor Cyan
+        Write-Host "This will overwrite/update UE4SS directly in the Steam Workshop folder:" -ForegroundColor Gray
+        Write-Host "Target: $Ue4ssRoot" -ForegroundColor Gray
+        $Proceed = Read-Host "`nDo you want to proceed with updating the Workshop UE4SS? (Y/n)"
+        if ($Proceed -match '^(n|no)$') { return }
     }
 
     Write-Host "`nSelect UE4SS Branch to Install:"
-    Write-Host "[1] Palworld-Experimental (Recommended, stable out-of-the-box)"
-    Write-Host "[2] Latest-Experimental (Upstream experimental release)"
-    $Choice = Read-Host "Enter choice (1 or 2)"
+    Write-Host "[1] " -NoNewline
+    Write-Host "Palworld-Experimental" -ForegroundColor Green -NoNewline
+    Write-Host " (Recommended, stable out-of-the-box)"
 
-    $Url = "https://github.com/Okaetsu/RE-UE4SS/releases/download/experimental-palworld/UE4SS-Palworld.zip"
+    Write-Host "[2] " -NoNewline
+    Write-Host "Latest-Experimental" -ForegroundColor Red -NoNewline
+    Write-Host " (Upstream experimental release)"
+
+    $Choice = Read-Host "Enter choice (1 or 2, default is 1)"
+    if ([string]::IsNullOrWhiteSpace($Choice)) { $Choice = "1" }
+
+    $Headers = @{ "User-Agent" = "PowerShell-UE4SS-Installer" }
+    $Url = $null
+
     if ($Choice -eq "2") {
         Write-Host "Querying GitHub API for latest upstream release..." -ForegroundColor Cyan
-        $ApiUrl = "https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases/tags/experimental-latest"
-        $ReleaseData = Invoke-RestMethod -Uri $ApiUrl
-        foreach ($asset in $ReleaseData.assets) {
-            if ($asset.name.EndsWith(".zip") -and $asset.name -notmatch "^zDEV" -and $asset.name -notmatch "^zCustom" -and $asset.name -notmatch "^zMap") {
-                $Url = $asset.browser_download_url
-                break
+        $ApiUrl = "https://api.github.com/repos/UE4SS-RE/RE-UE4SS/releases/latest"
+        try {
+            $ReleaseData = Invoke-RestMethod -Uri $ApiUrl -Headers $Headers -UseBasicParsing
+            foreach ($asset in $ReleaseData.assets) {
+                if ($asset.name.EndsWith(".zip") -and $asset.name -notmatch "^zDEV" -and $asset.name -notmatch "^zCustom" -and $asset.name -notmatch "^zMap") {
+                    $Url = $asset.browser_download_url
+                    break
+                }
             }
+        } catch {
+            Write-Host "Failed to query upstream release API: $_" -ForegroundColor Red
+            return
         }
+    } else {
+        Write-Host "Querying GitHub API for latest Palworld release..." -ForegroundColor Cyan
+        $ApiUrl = "https://api.github.com/repos/Okaetsu/RE-UE4SS/releases/latest"
+        try {
+            $ReleaseData = Invoke-RestMethod -Uri $ApiUrl -Headers $Headers -UseBasicParsing
+
+            $TargetAsset = $ReleaseData.assets |
+                Where-Object { $_.name -like "*ue4ss*" -and $_.name.EndsWith(".zip") } |
+                Sort-Object -Property size |
+                Select-Object -First 1
+
+            if ($TargetAsset) {
+                Write-Host "Selected asset: $($TargetAsset.name) ($([math]::Round($TargetAsset.size / 1MB, 2)) MB)" -ForegroundColor Gray
+                $Url = $TargetAsset.browser_download_url
+            } else {
+                Write-Host "Could not find a valid UE4SS zip asset in the release." -ForegroundColor Red
+                return
+            }
+        } catch {
+            Write-Host "Failed to query Okaetsu release API: $_" -ForegroundColor Red
+            return
+        }
+    }
+
+    if (-not $Url) {
+        Write-Host "Error: No download URL could be resolved." -ForegroundColor Red
+        return
     }
 
     Write-Host "Downloading UE4SS..." -ForegroundColor Cyan
@@ -163,29 +328,48 @@ function Install-UE4SS($Win64Dir, $Ue4ssRoot, $IsWorkshopLocation) {
         if (Test-Path $ExtPath) { Remove-Item -Recurse -Force $ExtPath }
         Expand-Archive -Path $ZipPath -DestinationPath $ExtPath -Force
 
-        Write-Host "Deploying UE4SS..." -ForegroundColor Cyan
+        Write-Host "Deploying UE4SS to: $Ue4ssRoot" -ForegroundColor Cyan
         New-Item -ItemType Directory -Force -Path $Ue4ssRoot | Out-Null
 
+        # Check archive layout
         $OkaetsuDir = Join-Path $ExtPath "ue4ss"
-        $SourceDir = $ExtPath
-
         if (Test-Path $OkaetsuDir) {
-            $DwmApi = Join-Path $ExtPath "dwmapi.dll"
-            if (Test-Path $DwmApi) { Copy-Item $DwmApi -Destination (Join-Path $Win64Dir "dwmapi.dll") -Force }
             $SourceDir = $OkaetsuDir
+            $ProxyDll = Join-Path $ExtPath "dwmapi.dll"
+        } else {
+            $SourceDir = $ExtPath
+            $ProxyDll = Join-Path $ExtPath "dwmapi.dll"
         }
 
+        # If Workshop: remove any leftover Win64 dwmapi.dll to prevent double hooking
+        # If Standalone: copy dwmapi.dll to Win64
+        if ($IsWorkshopLocation) {
+            $OldDwmapi = Join-Path $Win64Dir "dwmapi.dll"
+            if (Test-Path $OldDwmapi) {
+                Remove-Item -Path $OldDwmapi -Force -ErrorAction SilentlyContinue
+                Write-Host "Cleaned up standalone proxy dwmapi.dll to avoid conflicts with Workshop." -ForegroundColor Yellow
+            }
+        } else {
+            if (Test-Path $ProxyDll) {
+                Copy-Item $ProxyDll -Destination (Join-Path $Win64Dir "dwmapi.dll") -Force
+            }
+        }
+
+        # Deploy UE4SS files directly into $Ue4ssRoot
         foreach ($item in Get-ChildItem $SourceDir) {
             if ($item.Name.ToLower() -eq "dwmapi.dll") {
-                Copy-Item $item.FullName -Destination (Join-Path $Win64Dir "dwmapi.dll") -Force
-            } else {
-                $DestPath = Join-Path $Ue4ssRoot $item.Name
-                if ($item.Name.ToLower() -eq "ue4ss-settings.ini" -and (Test-Path $DestPath)) {
-                    Write-Host "Keeping existing UE4SS-settings.ini..." -ForegroundColor Yellow
-                    continue
+                if (-not $IsWorkshopLocation) {
+                    Copy-Item $item.FullName -Destination (Join-Path $Win64Dir "dwmapi.dll") -Force
                 }
-                Copy-Item $item.FullName -Destination $DestPath -Recurse -Force
+                continue
             }
+
+            $DestPath = Join-Path $Ue4ssRoot $item.Name
+            if ($item.Name.ToLower() -eq "ue4ss-settings.ini" -and (Test-Path $DestPath)) {
+                Write-Host "Keeping existing UE4SS-settings.ini..." -ForegroundColor Yellow
+                continue
+            }
+            Copy-Item $item.FullName -Destination $DestPath -Recurse -Force
         }
 
         # Configure mods.txt
@@ -247,40 +431,10 @@ if (-not (Test-Path $Win64Dir)) {
     exit
 }
 
-# --- RESOLVE UE4SS ROOT (Manual vs Steam Workshop) ---
-$ManualUe4ss = Join-Path $Win64Dir "ue4ss"
-$WorkshopNativeUe4ss = Join-Path $PalworldPath "Mods\NativeMods\UE4SS"
+# Run duplicate installation detection and offer cleanup
+Check-DuplicateUE4SS $PalworldPath $Win64Dir
 
-$Ue4ssRoot = $ManualUe4ss
-$IsWorkshopLocation = $false
-
-# 1. Check if Palworld/Mods/NativeMods/UE4SS physically exists
-if ((Test-Path (Join-Path $WorkshopNativeUe4ss "UE4SS.dll")) -or (Test-Path $WorkshopNativeUe4ss)) {
-    $Ue4ssRoot = $WorkshopNativeUe4ss
-    $IsWorkshopLocation = $true
-} else {
-    # 2. Check if Steam Workshop Mod Manager is configured and has UE4SS subscribed
-    $PalModSettingsPath = Join-Path $PalworldPath "Mods\PalModSettings.ini"
-    if (Test-Path $PalModSettingsPath) {
-        $IniContent = Get-Content $PalModSettingsPath -Raw
-        if ($IniContent -match "(?im)WorkshopRootDir\s*=\s*(.+)") {
-            $WorkshopRootDir = $matches[1].Trim().Trim('"').Trim("'")
-            if (-not [string]::IsNullOrWhiteSpace($WorkshopRootDir) -and (Test-Path $WorkshopRootDir)) {
-                $FoundUE4SS = Get-ChildItem -Path $WorkshopRootDir -Filter "UE4SS.dll" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($FoundUE4SS) {
-                    # Workshop UE4SS detected; its active runtime folder is Palworld\Mods\NativeMods\UE4SS
-                    $Ue4ssRoot = $WorkshopNativeUe4ss
-                    $IsWorkshopLocation = $true
-                }
-            }
-        }
-    }
-}
-
-$ModDir = Join-Path $Ue4ssRoot "mods\DynamicPals"
 $RemoteVersionUrl = "https://raw.githubusercontent.com/GoldenCarrotMLP/dynamic-pals/refs/heads/main/dlls/version.txt"
-
-# Resolve network payload safely
 $RemoteResponse = Invoke-RestMethod -Uri $RemoteVersionUrl -UseBasicParsing -ErrorAction SilentlyContinue
 $RemoteVersionStr = ([string]$RemoteResponse).Trim()
 
@@ -288,6 +442,21 @@ $RemoteVersion = 0
 if ($RemoteVersionStr -match '^\d+$') { $RemoteVersion = [int]$RemoteVersionStr }
 
 while ($true) {
+    # Dynamically resolve active root & mode
+    $Config = Resolve-UE4SSRoot $PalworldPath $Win64Dir
+    $Ue4ssRoot = $Config.Root
+    $IsWorkshopLocation = $Config.IsWorkshop
+    $ModDir = Join-Path $Ue4ssRoot "mods\DynamicPals"
+
+    # Check if a duplicate exists currently
+    $ManualDwmapi = Join-Path $Win64Dir "dwmapi.dll"
+    $ManualDll = Join-Path $Win64Dir "ue4ss\UE4SS.dll"
+    $ManualRootDll = Join-Path $Win64Dir "UE4SS.dll"
+
+    $HasWorkshop = $IsWorkshopLocation -and (Test-Path (Join-Path $Ue4ssRoot "UE4SS.dll"))
+    $HasManual = (Test-Path $ManualDwmapi) -or (Test-Path $ManualDll) -or (Test-Path $ManualRootDll)
+    $IsDuplicate = ($HasWorkshop -and $HasManual)
+
     Write-Host "`n======================= STATUS ==========================="
     if ($IsWorkshopLocation) {
         Write-Host "Mode       : Steam Workshop Managed" -ForegroundColor Cyan
@@ -307,7 +476,7 @@ while ($true) {
             $HashInfo = $UE4SS_Hashes[$Hash]
             Write-Host "UE4SS      : Installed ($($HashInfo.Text))" -ForegroundColor $HashInfo.Color
         } else {
-            Write-Host "UE4SS      : Installed (Custom/Workshop Build)" -ForegroundColor Green
+            Write-Host "UE4SS      : Installed (Custom Build)" -ForegroundColor Yellow
         }
     } else {
         Write-Host "UE4SS      : Not Installed" -ForegroundColor Red
@@ -316,15 +485,24 @@ while ($true) {
     # Check Mod Status
     $StatusInfo = Get-ModStatus $ModDir $RemoteVersion
     Write-Host "DynamicPals: $($StatusInfo.Text)" -ForegroundColor $StatusInfo.Color
+
+    if ($IsDuplicate) {
+        Write-Host "Warning    : DUPLICATE UE4SS DETECTED (Workshop + Win64)!" -ForegroundColor Red
+    }
     Write-Host "=========================================================="
 
     if ($IsWorkshopLocation) {
-        Write-Host "`n[NOTICE] Workshop UE4SS detected. DynamicPals will install into NativeMods." -ForegroundColor Cyan
+        Write-Host "`n[NOTICE] Workshop UE4SS detected. DynamicPals will install into the Workshop folder." -ForegroundColor Cyan
     }
 
     Write-Host "`nSelect an option:"
     Write-Host "[1] Install / Update UE4SS"
     Write-Host "[2] Install / Update Dynamic Pals"
+    if ($IsDuplicate) {
+        Write-Host "[D] " -NoNewline
+        Write-Host "Uninstall Duplicate Manual UE4SS" -ForegroundColor Red -NoNewline
+        Write-Host " (Fix duplicate conflict)"
+    }
     Write-Host "[3] Exit"
 
     $Choice = Read-Host "`nEnter option"
@@ -339,6 +517,10 @@ while ($true) {
         } else {
             Write-Host "Could not fetch remote version from GitHub. Check your internet connection." -ForegroundColor Red
         }
+        Read-Host "`nPress Enter to return to menu..."
+        Clear-Host
+    } elseif ($IsDuplicate -and ($Choice -eq "d" -or $Choice -eq "D")) {
+        Uninstall-ManualUE4SS $Win64Dir
         Read-Host "`nPress Enter to return to menu..."
         Clear-Host
     } elseif ($Choice -eq "3") {
