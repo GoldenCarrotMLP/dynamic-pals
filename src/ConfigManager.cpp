@@ -120,6 +120,7 @@ namespace DynPals {
             if (dict.contains("Gender")) sc.Gender = Utils::StringToWString(dict.get("Gender").get<std::string>());
             if (dict.contains("SkinName")) sc.SkinName = Utils::StringToWString(dict.get("SkinName").get<std::string>());
             if (dict.contains("SetNickname")) sc.SetNickname = Utils::StringToWString(dict.get("SetNickname").get<std::string>());
+            if (dict.contains("IconAssetPath")) sc.IconAssetPath = Utils::StringToWString(dict.get("IconAssetPath").get<std::string>());
             
             sc.MinLevel = SafeGetInt(dict, "MinLevel", 1);
             sc.MaxLevel = SafeGetInt(dict, "MaxLevel", 999);
@@ -635,7 +636,28 @@ namespace DynPals {
         return results;
     }
 
+    int ConfigManager::FindConfigIndexBySwapID(const std::wstring& SwapID) const {
+        if (!SwapIdentity::IsDynamicSkin(SwapID)) return -1;
+
+        for (size_t i = 0; i < Configs.size(); ++i) {
+            if (SwapIdentity::MakeID(Configs[i]) == SwapID) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+
     int ConfigManager::FindConfigIndex(const std::wstring& PackName, const std::wstring& SkinName, const std::wstring& SwapLabel, const std::wstring& SkelMeshPath, const std::wstring& CharID) const {
+        // 1. Direct fast lookup if a unified 4-part ID was passed in either slot
+        if (SwapIdentity::IsDynamicSkin(SkinName)) {
+            int idx = FindConfigIndexBySwapID(SkinName);
+            if (idx != -1) return idx;
+        }
+        if (SwapIdentity::IsDynamicSkin(SwapLabel)) {
+            int idx = FindConfigIndexBySwapID(SwapLabel);
+            if (idx != -1) return idx;
+        }
+
         std::wstring lowerCharID = ToLower(CharID);
 
         if (!SwapLabel.empty()) {
@@ -769,5 +791,46 @@ namespace DynPals {
             }
         }
         return results;
+    }
+
+    std::wstring ConfigManager::GetIconAssetPathForSkin(const std::wstring& SkinOrSwapID) const {
+    if (SkinOrSwapID.empty() || SkinOrSwapID == L"None") return L"";
+
+    // 1. Exact match against the 4-part unique ID
+    if (SwapIdentity::IsDynamicSkin(SkinOrSwapID)) {
+        for (const auto& cfg : Configs) {
+            if (SwapIdentity::MakeID(cfg) == SkinOrSwapID) {
+                return cfg.IconAssetPath;
+            }
+        }
+    }
+
+    // 2. Fallback for raw labels or legacy skin names
+    std::wstring lowerKey = ToLower(SkinOrSwapID);
+    for (const auto& cfg : Configs) {
+        if (!cfg.IconAssetPath.empty()) {
+            if (ToLower(cfg.SwapLabel) == lowerKey || (!cfg.SkinName.empty() && ToLower(cfg.SkinName) == lowerKey)) {
+                return cfg.IconAssetPath;
+            }
+        }
+    }
+    return L"";
+}
+
+    std::wstring ConfigManager::GetIconAssetPathForSwap(const std::wstring& PackName, const std::wstring& SwapLabel) const {
+        if (SwapLabel.empty() || SwapLabel == L"None") return L"";
+        std::wstring lowerSwap = ToLower(SwapLabel);
+        std::wstring lowerPack = ToLower(PackName);
+
+        for (const auto& cfg : Configs) {
+            if (!cfg.IconAssetPath.empty()) {
+                if (ToLower(cfg.SwapLabel) == lowerSwap) {
+                    if (lowerPack.empty() || ToLower(cfg.PackName) == lowerPack) {
+                        return cfg.IconAssetPath;
+                    }
+                }
+            }
+        }
+        return L"";
     }
 }

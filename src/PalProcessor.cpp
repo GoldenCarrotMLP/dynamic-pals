@@ -1290,7 +1290,7 @@ static bool ResolvePalBlueprintPath(UObject* WorldContext, const std::wstring& C
 	return false;
 }
 
-static std::wstring ResolveAnimPath(UObject* Character, const std::wstring& AnimTarget, const std::wstring& CharID) {
+static std::wstring ResolveAnimPath(UObject* Character, const std::wstring& AnimTarget, const std::wstring& CharID = L"") {
 	if (AnimTarget.empty()) return L"";
 
 	auto ToLowerW = [](std::wstring str) {
@@ -2127,6 +2127,10 @@ static void SetPalNickname(UObject* IndivParam, const std::wstring& NewNameStr, 
 	DP_LOG(Default, "[Nickname] Applied name update for '{}' -> '{}' (Wild: {})", InstanceID, NewNameStr, IsWild ? L"True" : L"False");
 }
 
+static void SetPalNickname(UObject* IndivParam, const std::wstring& NewNameStr, bool IsWild, UObject* Character) {
+	SetPalNickname(IndivParam, NewNameStr, L"", IsWild, Character);
+}
+
 static void ApplyMaterialOverrides(UObject* MeshComp, const SwapConfig& swap, PalPersistData& persist) {
 	ClearMaterialOverrides(MeshComp);
 
@@ -2436,12 +2440,20 @@ bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int Explici
 	if (GCachedProps.GetGenderTypeFunc) Utils::SafeProcessEvent(id.IndivParam, GCachedProps.GetGenderTypeFunc, &GenderParams);
 	std::wstring GenderStr = (GenderParams.RetVal == 1) ? L"Male" : ((GenderParams.RetVal == 2) ? L"Female" : L"None");
 
-	struct {
-		FName RetVal;
-	} SkinParams{FName()};
-	if (GCachedProps.GetSkinNameFunc) Utils::SafeProcessEvent(id.IndivParam, GCachedProps.GetSkinNameFunc, &SkinParams);
-	std::wstring SkinName = SkinParams.RetVal.ToString();
-	if (SkinName == L"None") SkinName = L"";
+	struct { FName RetVal; } SkinParams{FName()};
+if (GCachedProps.GetSkinNameFunc) Utils::SafeProcessEvent(id.IndivParam, GCachedProps.GetSkinNameFunc, &SkinParams);
+std::wstring CurrentSkinName = SkinParams.RetVal.ToString();
+if (CurrentSkinName == L"None") CurrentSkinName = L"";
+
+// Distinguish legitimate in-game skin from our dynamic tag
+std::wstring LegitimateSkin = L"";
+if (SwapIdentity::IsDynamicSkin(CurrentSkinName)) {
+    // It's a DynamicPals skin; preserve previously stored legitimate skin if any
+    LegitimateSkin = ExistingData ? ExistingData->OriginalSkinName : L"";
+} else {
+    // It's an official in-game skin (or empty). Preserve it!
+    LegitimateSkin = CurrentSkinName;
+}
 
 	std::vector<std::wstring> Traits;
 	struct {
@@ -2468,7 +2480,7 @@ bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int Explici
 		currentSwap = ConfigManager::Get().FindConfigIndex(ExistingData->PackName, ExistingData->SkinName, ExistingData->SwapLabel, ExistingData->SkelMeshPath, CharID);
 	}
 
-	auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, SkinName, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);
+	auto evaluations = ConfigManager::Get().EvaluateAllSwaps(CharID, IsRare, GenderStr, Traits, LevelNum, LegitimateSkin, RankNum, FriendshipNum, IsWild, CurrentSwapLabel);
 	int newBestSwap = ConfigManager::Get().PickBestSwap(evaluations);
 
 	bool bManualLockState = ExistingData ? ExistingData->bIsManuallyLocked : false;
@@ -2576,7 +2588,7 @@ bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int Explici
 		auto& finalConfig = ConfigManager::Get().GetConfigs()[finalSwap];
 
 		bool bNeedsApply = (ExplicitSwapIndex != -1) || ForceReroll || (finalSwap != currentSwap) || bIsNewActor;
-		if (!bNeedsApply && activeIt != SwappedInstances.end() && activeIt->second != finalConfig.SwapLabel) {
+		if (!bNeedsApply && activeIt != SwappedInstances.end() && activeIt->second != SwapIdentity::MakeID(finalConfig)) {
 			bNeedsApply = true;
 		}
 
@@ -2688,6 +2700,7 @@ bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int Explici
 
 			PalPersistData newData = ExistingData ? *ExistingData : PalPersistData{ id.InstanceID, L"", L"", L"", {} };
 			newData.bIsManuallyLocked = bManualLockState;
+			newData.OriginalSkinName = LegitimateSkin;
 
 			newData.PackName = finalConfig.PackName;
 			newData.SkinName = finalConfig.SkinName;
@@ -2732,7 +2745,7 @@ bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int Explici
 			if (IsEvolutionEnd) bIsManualAction = false;
 
 			SaveManager::Get().SetPersistData(id.InstanceID, newData, bIsManualAction);
-			SwappedInstances[Character] = finalConfig.SwapLabel;
+			SwappedInstances[Character] = SwapIdentity::MakeID(finalConfig);
 
 			if (bIsManualAction) {
 				VFXManager::Get().PlaySwapEffect(Character, L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
@@ -2808,6 +2821,16 @@ bool PalProcessor::ExecuteSwap(UObject* Character, bool ForceReroll, int Explici
 
 					RefreshFacialModule(Character, MeshComp, VanillaCDO, nullptr);
 					ResetPhysicsAndDynamics(MeshComp);
+				}
+
+				// Restore original legitimate skin on vanilla fallback
+				if (id.IndivParam && Utils::IsObjectValid(id.IndivParam)) {
+					std::wstring restoreSkin = (ExistingData && !ExistingData->OriginalSkinName.empty()) ? ExistingData->OriginalSkinName : L"None";
+					FName RestoreFName(restoreSkin.c_str(), FNAME_Add);
+					Utils::CallFunction(id.IndivParam, STR("SetSkinName"), &RestoreFName);
+
+					struct { bool bApplied; } SkinAppliedParams{ restoreSkin != L"None" && !restoreSkin.empty() };
+					Utils::CallFunction(id.IndivParam, STR("SetSkinApplied"), &SkinAppliedParams);
 				}
 
 				if (!IsCompanionSync) {
@@ -2954,6 +2977,30 @@ void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPers
     RefreshFacialModule(Character, MeshComp, TargetCDO, &swap);
     ApplySizeMultiplier(MeshComp, swap, persist, vanillaDefs);
     ResetPhysicsAndDynamics(MeshComp);
+
+    // Update SkinName so native UI widgets (WBP_PalCharacterIconBase) route to the custom icon hook
+    FPalIdentity id = ResolvePalIdentity(Character);
+    if (id.IndivParam && Utils::IsObjectValid(id.IndivParam)) {
+        if (!swap.IconAssetPath.empty()) {
+            Utils::RegisterAssetFolder(swap.IconAssetPath);
+            Utils::LoadAssetSafely(swap.IconAssetPath);
+
+            std::wstring dynamicSkinID = SwapIdentity::MakeID(swap);
+FName SkinFName(dynamicSkinID.c_str(), FNAME_Add);
+Utils::CallFunction(id.IndivParam, STR("SetSkinName"), &SkinFName);
+
+            struct { bool bApplied; } SkinAppliedParams{ true };
+            Utils::CallFunction(id.IndivParam, STR("SetSkinApplied"), &SkinAppliedParams);
+        } else {
+            // Restore legitimate skin if previously worn, otherwise clear to None
+            std::wstring skinToRestore = !persist.OriginalSkinName.empty() ? persist.OriginalSkinName : L"None";
+            FName RestoreFName(skinToRestore.c_str(), FNAME_Add);
+            Utils::CallFunction(id.IndivParam, STR("SetSkinName"), &RestoreFName);
+
+            struct { bool bApplied; } SkinAppliedParams{ skinToRestore != L"None" && !skinToRestore.empty() };
+            Utils::CallFunction(id.IndivParam, STR("SetSkinApplied"), &SkinAppliedParams);
+        }
+    }
 }
 
 void PalProcessor::ResetPal(UObject* Character) {
@@ -3039,11 +3086,22 @@ void PalProcessor::ResetPal(UObject* Character) {
 		Utils::CallFunction(MeshComp, STR("SetDisablePostProcessBlueprint"), &DisablePP_False);
 
 		RefreshFacialModule(TargetPalObj, MeshComp, VanillaCDO, nullptr);
-		ResetPhysicsAndDynamics(MeshComp);
-	}
+        ResetPhysicsAndDynamics(MeshComp);
+    }
 
-	VFXManager::Get().PlaySwapEffect(Character, L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
-	DP_LOG(Default, "[PalProcessor] Successfully reset Pal '{}' (ID: '{}') to Vanilla and locked.", Character->GetName(), id.InstanceID);
+    // Reset skin state: restore original legitimate skin or set None
+    if (id.IndivParam && Utils::IsObjectValid(id.IndivParam)) {
+        std::wstring restoreSkin = (ExistingData && !ExistingData->OriginalSkinName.empty()) ? ExistingData->OriginalSkinName : L"None";
+        FName RestoreFName(restoreSkin.c_str(), FNAME_Add);
+        Utils::CallFunction(id.IndivParam, STR("SetSkinName"), &RestoreFName);
+
+        struct { bool bApplied; } SkinAppliedParams{ restoreSkin != L"None" && !restoreSkin.empty() };
+        Utils::CallFunction(id.IndivParam, STR("SetSkinApplied"), &SkinAppliedParams);
+    }
+
+    VFXManager::Get().PlaySwapEffect(Character, L"/Game/Pal/Effect/Common/LevelUp/NS_LevelUp_Pal");
+    DP_LOG(Default, "[PalProcessor] Successfully reset Pal '{}' (ID: '{}') to Vanilla and locked.", Character->GetName(), id.InstanceID);
 }
+
 
 }

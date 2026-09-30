@@ -110,6 +110,7 @@ namespace DynPals {
                     pd.SkinName = Utils::StringToWString(palNode.value("SkinName", ""));
                     pd.SwapLabel = Utils::StringToWString(palNode.value("SwapLabel", palNode.value("SkinLabel", ""))); 
                     pd.SkelMeshPath = Utils::StringToWString(palNode.value("SkelMeshPath", ""));
+                    pd.OriginalSkinName = Utils::StringToWString(palNode.value("OriginalSkinName", ""));
                     pd.bIsManuallyLocked = palNode.value("IsLocked", false);
                     pd.SizeMultiplier = palNode.value("SizeMultiplier", -1.0);
 
@@ -188,6 +189,7 @@ namespace DynPals {
                     palNode["SkinName"] = Utils::WStringToString(data.SkinName);
                     palNode["SwapLabel"] = Utils::WStringToString(data.SwapLabel); 
                     palNode["SkelMeshPath"] = Utils::WStringToString(data.SkelMeshPath);
+                    if (!data.OriginalSkinName.empty()) palNode["OriginalSkinName"] = Utils::WStringToString(data.OriginalSkinName);
                     palNode["IsLocked"] = data.bIsManuallyLocked; 
                     if (data.SizeMultiplier > 0.0) palNode["SizeMultiplier"] = data.SizeMultiplier;
                     

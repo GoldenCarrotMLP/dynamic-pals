@@ -8,6 +8,7 @@
         "Gender": "None",
         "SkinName": "",
         "SetNickname": "",
+        "IconAssetPath": "",
         "MinLevel": 1,
         "MaxLevel": 999,
         "MinTrust": 0,

@@ -23,6 +23,7 @@
 #include "VFXManager.hpp"
 #include "InputManager.hpp"
 #include "../include/NativeAsyncLoader.hpp" 
+#include "ConfigManager.hpp"
 
 using namespace RC;
 using namespace RC::Unreal;
@@ -103,7 +104,13 @@ static void CheckAndWarnConflictingMods() {
     } catch (...) {}
 }
 
-static void* ResolveNativeFromThunk(void* ThunkAddress) {
+// TargetCallIndex:
+//   -1 = Auto (dump all calls to log and use fallback heuristic)
+//    0 = 1st call (StepCompiledIn)
+//    1 = 2nd call (The native function: GetCharacterIconTextureBySkinName)
+//    2 = 3rd call (FString copy)
+//    3 = 4th call (Cleanup / FMemory::Free)
+static void* ResolveNativeFromThunk(void* ThunkAddress, int TargetCallIndex = -1, const wchar_t* FunctionName = STR("Unknown")) {
     if (!ThunkAddress) return nullptr;
 
     ZyanStatus status;
@@ -148,14 +155,37 @@ static void* ResolveNativeFromThunk(void* ThunkAddress) {
         offset += instruction.length;
     }
 
-    if (calls.empty()) return nullptr;
+    if (calls.empty()) {
+        DP_LOG(Warning, "[ThunkResolver] No calls found in thunk for '{}'", FunctionName);
+        return nullptr;
+    }
+
+    // --- LOG VISIBILITY: Print all functions found in the thunk ---
+    DP_LOG(Default, "[ThunkResolver] Found {} call target(s) in thunk for '{}':", calls.size(), FunctionName);
+    for (size_t i = 0; i < calls.size(); ++i) {
+        DP_LOG(Default, "  [{}] -> 0x{:p}", i, calls[i]);
+    }
+
+    // --- EXPLICIT INDEX SELECTION ---
+    if (TargetCallIndex >= 0) {
+        if (TargetCallIndex < static_cast<int>(calls.size())) {
+            void* selected = calls[TargetCallIndex];
+            DP_LOG(Default, "[ThunkResolver] Explicitly selected call [{}] -> 0x{:p}", TargetCallIndex, selected);
+            return selected;
+        } else {
+            DP_LOG(Error, "[ThunkResolver] Requested call index [{}] out of bounds! (Total: {})", TargetCallIndex, calls.size());
+            return nullptr;
+        }
+    }
+
+    // --- AUTO FALLBACK (When TargetCallIndex == -1) ---
     void* lastCallTarget = calls.back();
 
     status = ZydisDecoderDecodeFull(&decoder, lastCallTarget, 16, &instruction, operands);
     if (ZYAN_SUCCESS(status)) {
         if (instruction.mnemonic == ZYDIS_MNEMONIC_CMP && operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER && operands[0].reg.value == ZYDIS_REGISTER_RCX) {
             if (calls.size() > 1) {
-                return calls[calls.size() - 2];
+                lastCallTarget = calls[calls.size() - 2];
             }
         }
     }
@@ -164,21 +194,31 @@ static void* ResolveNativeFromThunk(void* ThunkAddress) {
         return nullptr; 
     }
 
+    DP_LOG(Default, "[ThunkResolver] Auto-selected fallback call -> 0x{:p}", lastCallTarget);
     return lastCallTarget;
 }
 
-static void* GetNativeAddress(const wchar_t* FunctionPath) {
+static void* GetNativeAddress(const wchar_t* FunctionPath, int TargetCallIndex = -1) {
     UFunction* FuncObj = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, FunctionPath);
-    if (!FuncObj) return nullptr;
+    if (!FuncObj) {
+        DP_LOG(Warning, "[GetNativeAddress] Failed to find UFunction: '{}'", FunctionPath);
+        return nullptr;
+    }
 
+    // UFunction::Func is at offset 0xD8 (the native exec thunk address)
     void* ThunkAddr = *reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(FuncObj) + 0xD8);
-    void* NativeAddr = ResolveNativeFromThunk(ThunkAddr);
+    DP_LOG(Verbose, "[GetNativeAddress] Thunk for '{}' is at 0x{:p}", FunctionPath, ThunkAddr);
 
+    void* NativeAddr = ResolveNativeFromThunk(ThunkAddr, TargetCallIndex, FunctionPath);
     if (NativeAddr) {
         return NativeAddr;
     }
+
     return ThunkAddr;
 }
+
+
+
 
 void __fastcall NativeMasterWazaUpdate_Hook(UObject* This, int32_t AddLevel, int32_t NowLevel) {
     Hook_MasterWazaUpdate.call<void, UObject*, int32_t, int32_t>(This, AddLevel, NowLevel);
@@ -498,6 +538,62 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context, void*)
     }
 }
 
+static SafetyHookInline Hook_GetCharacterIconTextureBySkinName;
+
+// Calling convention directly derived from Ghidra:
+// RCX = This (UPalDatabaseCharacterParameter*)
+// RDX = OutResult (48-byte buffer for TSoftObjectPtr)
+// R8  = SkinName (const FName*)
+void* __fastcall NativeGetCharacterIconTextureBySkinName_Hook(
+    UObject* This, 
+    void* OutResult, 
+    const FName* SkinName) 
+{
+    if (!This || !OutResult || !SkinName) {
+        return Hook_GetCharacterIconTextureBySkinName.call<void*, UObject*, void*, const FName*>(This, OutResult, SkinName);
+    }
+
+    std::wstring SkinStr = SkinName->ToString();
+
+    // 1. Call original function (populates OutResult)
+    void* OriginalRet = Hook_GetCharacterIconTextureBySkinName.call<void*, UObject*, void*, const FName*>(This, OutResult, SkinName);
+
+    // 2. Overwrite if this is a custom dynamic skin
+    if (SwapIdentity::IsDynamicSkin(SkinStr)) {
+        std::wstring CustomIconPath = ConfigManager::Get().GetIconAssetPathForSkin(SkinStr);
+        if (!CustomIconPath.empty() && OutResult) {
+            DP_LOG(Default, "[IconHook] Overwriting icon for '{}' -> '{}'", SkinStr, CustomIconPath);
+
+            std::wstring ResolvedPath = Utils::FormatAssetPath(CustomIconPath);
+            std::wstring PackagePart, AssetPart;
+
+            size_t DotPos = ResolvedPath.find(L'.');
+            if (DotPos != std::wstring::npos) {
+                PackagePart = ResolvedPath.substr(0, DotPos);
+                AssetPart = ResolvedPath.substr(DotPos + 1);
+            } else {
+                PackagePart = ResolvedPath;
+                size_t LastSlash = ResolvedPath.find_last_of(L'/');
+                AssetPart = (LastSlash != std::wstring::npos) ? ResolvedPath.substr(LastSlash + 1) : ResolvedPath;
+            }
+
+            // Zero out all 48 bytes (WeakPtr, Tag, and SubPath)
+            uint8_t* Buffer = reinterpret_cast<uint8_t*>(OutResult);
+            memset(Buffer, 0, 0x30);
+
+            // Populate the FTopLevelAssetPath fields matching Ghidra's offsets:
+            FName* PkgPtr   = reinterpret_cast<FName*>(Buffer + 0x10);
+            FName* AssetPtr = reinterpret_cast<FName*>(Buffer + 0x18);
+
+            *PkgPtr   = FName(PackagePart.c_str(), FNAME_Add);
+            *AssetPtr = FName(AssetPart.c_str(), FNAME_Add);
+            // Buffer + 0x20 is already zeroed (valid empty FString)
+        }
+    }
+
+    return OutResult;
+}
+
 void HooksManager::RegisterHooks() {
     UFunction* InitFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Pal.PalNPC:OnCompletedInitParam"));
     if (InitFunc) {
@@ -513,7 +609,7 @@ void HooksManager::RegisterHooks() {
     UFunction* FunnelOnActiveFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Pal.PalFunnelCharacter:OnActive"));
     if (FunnelOnActiveFunc) {
         FunnelOnActiveFunc->RegisterPostHook(OnPalSpawnedReady, nullptr);
-    }
+    }  
 
     UFunction* RestartFunc = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, STR("/Script/Engine.PlayerController:ClientRestart"));
     if (RestartFunc) {
@@ -528,6 +624,27 @@ void HooksManager::RegisterHooks() {
     if (SaveFunc) {
         SaveFunc->RegisterPostHook(OnStartedWorldAutoSave, nullptr);
     }
+
+    // TargetCallIndex = 1 selects the 2nd function called inside the thunk
+void* GetSkinIconAddr = GetNativeAddress(
+    STR("/Script/Pal.PalDatabaseCharacterParameter:GetCharacterIconTextureBySkinName"), 
+    2
+);
+
+if (GetSkinIconAddr) {
+    Hook_GetCharacterIconTextureBySkinName = safetyhook::create_inline(
+        GetSkinIconAddr, 
+        NativeGetCharacterIconTextureBySkinName_Hook
+    );
+
+    if (Hook_GetCharacterIconTextureBySkinName) {
+        DP_LOG(Default, "Successfully hooked GetCharacterIconTextureBySkinName at 0x{:p} with safetyhook.", GetSkinIconAddr);
+    } else {
+        DP_LOG(Error, "CRITICAL: Failed to attach safetyhook to GetCharacterIconTextureBySkinName at 0x{:p}.", GetSkinIconAddr);
+    }
+} else {
+    DP_LOG(Warning, "Could not resolve native address for GetCharacterIconTextureBySkinName.");
+}
 
     void* MasterWazaUpdateAddr = GetNativeAddress(STR("/Script/Pal.PalNPC:MasterWazaUpdateWhenLevelUp"));
     if (MasterWazaUpdateAddr) {

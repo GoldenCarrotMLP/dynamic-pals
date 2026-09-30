@@ -1,0 +1,1439 @@
+MSBuild version 17.14.40+3e7442088 for .NET Framework
+
+      Finished `release` profile [optimized] target(s) in 0.14s
+  Copying byproducts `patternsleuth_bind.lib` to H:/SteamLibrary/steamapps/common/Palworld/Pal/Binaries/Win64/ue4ss/Mods/DynamicPals/build/Game__Shipping__Win64/lib
+  fmt.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\fmt.lib
+  Helpers.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\Helpers.lib
+  File.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\File.lib
+  DynamicOutput.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\DynamicOutput.lib
+  Zycore.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\Zycore.lib
+  Zydis.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\Zydis.lib
+  ASMHelper.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\ASMHelper.lib
+  ArgsParser_DEV_TEST.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\bin\ArgsParser_DEV_TEST.exe
+  glfw.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\glfw3.lib
+  ImGui.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\ImGui.lib
+  ParserBase.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\ParserBase.lib
+  IniParser.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\IniParser.lib
+  Input.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\Input.lib
+  JSON.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\JSON.lib
+  LuaRaw.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\LuaRaw.lib
+  LuaMadeSimple.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\LuaMadeSimple.lib
+  asmjit.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\asmjit.lib
+  asmtk.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\asmtk.lib
+  PolyHook_2.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\PolyHook_2.lib
+  SinglePassSigScanner.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\SinglePassSigScanner.lib
+  Unreal.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\Unreal.lib
+  glad.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\glad.lib
+  UE4SS.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\bin\UE4SS.dll
+  dllmain.cpp
+  HooksManager.cpp
+  ConfigManager.cpp
+  SaveManager.cpp
+  PalProcessor.cpp
+  NotificationManager.cpp
+  AsyncHelper.cpp
+  VFXManager.cpp
+  FileWatcher.cpp
+  InputManager.cpp
+  UIBase.cpp
+  UIRegistry.cpp
+  TestUI.cpp
+  UIManager.cpp
+  NativeAsyncLoader.cpp
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/SaveManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/SaveManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/SaveManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/SaveManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/AsyncHelper.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/AsyncHelper.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/AsyncHelper.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/AsyncHelper.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/PalProcessor.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/PalProcessor.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/PalProcessor.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/PalProcessor.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/ConfigManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/ConfigManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/ConfigManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/ConfigManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/FileWatcher.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/FileWatcher.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/FileWatcher.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/FileWatcher.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036: 'const _Ty *': unknown size [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         with [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         [ [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:             _Ty=DynPals::SwapConfig [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         ] [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/ConfigManager.cpp')
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(26,22): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/ConfigManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(27,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/ConfigManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036: 'const _Ty *': unknown size [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         with [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         [ [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:             _Ty=DynPals::SwapConfig [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         ] [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/SaveManager.cpp')
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(26,22): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/SaveManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(27,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/SaveManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036: 'const _Ty *': unknown size [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         with [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         [ [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:             _Ty=DynPals::SwapConfig [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         ] [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/FileWatcher.cpp')
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(26,22): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/FileWatcher.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(27,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/FileWatcher.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036: 'const _Ty *': unknown size [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         with [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         [ [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:             _Ty=DynPals::SwapConfig [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         ] [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/PalProcessor.cpp')
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(26,22): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/PalProcessor.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(27,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/PalProcessor.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/InputManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/InputManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/InputManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/InputManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/UIBase.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/UIBase.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/UIBase.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/UIBase.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/UIManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/UIManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/UIManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/UIManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/NativeAsyncLoader.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/NativeAsyncLoader.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/NativeAsyncLoader.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/NativeAsyncLoader.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/VFXManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/VFXManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/VFXManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/VFXManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/NotificationManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/NotificationManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/NotificationManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/NotificationManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/UIRegistry.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/UIRegistry.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/UIRegistry.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/TestUI.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/UIRegistry.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/TestUI.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/TestUI.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/TestUI.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/HooksManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/HooksManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/HooksManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/HooksManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\InputManager.cpp(42,37): warning C4191: 'type cast': unsafe conversion from 'FARPROC' to 'DynPals::InputManager::PollGamepad::PFN_XInputGetState' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\InputManager.cpp(42,37): warning C4191:         Making a function call using the resulting pointer may cause your program to fail [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(62,21): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(119,46): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(120,42): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(121,44): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(122,47): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(123,49): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(125,13): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(126,13): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(127,13): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(128,13): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(129,13): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(130,13): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(132,13): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(133,13): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(137,17): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(141,55): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(144,59): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(149,44): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(150,49): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(153,48): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(154,50): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(156,13): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(159,63): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(161,58): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(165,59): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/dllmain.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/dllmain.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/dllmain.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(152,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/dllmain.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(208,21): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(219,21): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036: 'const _Ty *': unknown size [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         with [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         [ [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:             _Ty=DynPals::SwapConfig [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         ] [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/dllmain.cpp')
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(26,22): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/dllmain.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(27,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/dllmain.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(329,32): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(329,62): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(329,96): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(336,17): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(336,17): error C7595: 'fmt::v11::basic_fstring<wchar_t,unsigned __int64>::basic_fstring': call to immediate function is not a constant expression [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+      failure was caused by call of undefined function or one not declared 'constexpr'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+      see usage of 'fmt::v11::report_error'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(336,17):
+      the call stack of the evaluation (the oldest call first) is
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(336,17):
+          while evaluating function 'fmt::v11::basic_fstring<wchar_t,unsigned __int64>::basic_fstring<wchar_t[124],0>(const S (&))'
+          with
+          [
+              S=wchar_t [124]
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\xchar.h(89,40):
+          while evaluating function 'void fmt::v11::detail::parse_format_string<wchar_t,fmt::v11::detail::format_string_checker<Char,1,0,false>>(fmt::v11::basic_string_view<Char>,Handler &&)'
+          with
+          [
+              Char=wchar_t,
+              Handler=fmt::v11::detail::format_string_checker<wchar_t,1,0,false>
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1638,42):
+          while evaluating function 'const Char *fmt::v11::detail::parse_replacement_field<Char,Handler&>(const Char *,const Char *,fmt::v11::detail::format_string_checker<Char,1,0,false>&)'
+          with
+          [
+              Char=wchar_t,
+              Handler=fmt::v11::detail::format_string_checker<wchar_t,1,0,false>
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1595,51):
+          while evaluating function 'int fmt::v11::detail::format_string_checker<Char,1,0,false>::on_arg_id(void)'
+          with
+          [
+              Char=wchar_t
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1705,70):
+          while evaluating function 'int fmt::v11::detail::compile_parse_context<Char>::next_arg_id(void)'
+          with
+          [
+              Char=wchar_t
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1244,31):
+          while evaluating function 'int fmt::v11::parse_context<wchar_t>::next_arg_id(void)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(904,20):
+          while evaluating function 'void fmt::v11::parse_context<wchar_t>::do_check_arg_id(int)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+          while evaluating function 'void fmt::v11::report_error(const char *)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(340,39): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036: 'const _Ty *': unknown size [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         with [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         [ [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:             _Ty=DynPals::SwapConfig [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         ] [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/UIManager.cpp')
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(26,22): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/UIManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(27,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/UI/views/UIManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(352,24): error C2079: 'sc' uses undefined struct 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(362,13): error C2664: 'void DynPals::`anonymous-namespace'::ParseCommonSwapProperties(DynPals::SwapConfig &,const DynPals::`anonymous-namespace'::JsonDict &)': cannot convert argument 1 from '<error type>' to 'DynPals::SwapConfig &' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(118,14):
+      see declaration of 'DynPals::`anonymous-namespace'::ParseCommonSwapProperties'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(362,13):
+      while trying to match the argument list '(<error type>, DynPals::`anonymous-namespace'::JsonDict)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(366,17): error C7595: 'fmt::v11::basic_fstring<wchar_t>::basic_fstring': call to immediate function is not a constant expression [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+      failure was caused by call of undefined function or one not declared 'constexpr'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+      see usage of 'fmt::v11::report_error'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(366,17):
+      the call stack of the evaluation (the oldest call first) is
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(366,17):
+          while evaluating function 'fmt::v11::basic_fstring<wchar_t>::basic_fstring<wchar_t[148],0>(const S (&))'
+          with
+          [
+              S=wchar_t [148]
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\xchar.h(89,40):
+          while evaluating function 'void fmt::v11::detail::parse_format_string<wchar_t,fmt::v11::detail::format_string_checker<Char,0,0,false>>(fmt::v11::basic_string_view<Char>,Handler &&)'
+          with
+          [
+              Char=wchar_t,
+              Handler=fmt::v11::detail::format_string_checker<wchar_t,0,0,false>
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1638,42):
+          while evaluating function 'const Char *fmt::v11::detail::parse_replacement_field<Char,Handler&>(const Char *,const Char *,fmt::v11::detail::format_string_checker<Char,0,0,false>&)'
+          with
+          [
+              Char=wchar_t,
+              Handler=fmt::v11::detail::format_string_checker<wchar_t,0,0,false>
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1595,51):
+          while evaluating function 'int fmt::v11::detail::format_string_checker<Char,0,0,false>::on_arg_id(void)'
+          with
+          [
+              Char=wchar_t
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1705,70):
+          while evaluating function 'int fmt::v11::detail::compile_parse_context<Char>::next_arg_id(void)'
+          with
+          [
+              Char=wchar_t
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1244,31):
+          while evaluating function 'int fmt::v11::parse_context<wchar_t>::next_arg_id(void)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(904,20):
+          while evaluating function 'void fmt::v11::parse_context<wchar_t>::do_check_arg_id(int)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+          while evaluating function 'void fmt::v11::report_error(const char *)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(371,39): error C2660: 'DynPals::Utils::GenerateFallbackLabel': function does not take 1 arguments [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\Utils.hpp(173,25):
+      see declaration of 'DynPals::Utils::GenerateFallbackLabel'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(371,39):
+      while trying to match the argument list '()'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(377,13): error C2660: 'DynPals::`anonymous-namespace'::ValidateGender': function does not take 1 arguments [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(108,14):
+      see declaration of 'DynPals::`anonymous-namespace'::ValidateGender'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(377,13):
+      while trying to match the argument list '()'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(378,21): error C2665: 'std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back': no overloaded function could convert all the argument types [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\vector(936,23):
+      could be 'void std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back(_Ty &&)'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(378,21):
+          'void std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back(_Ty &&)': cannot convert argument 1 from '<error type>' to '_Ty &&'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(378,31):
+              Reason: cannot convert from '<error type>' to '_Ty'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(378,31):
+              use of undefined type 'DynPals::SwapConfig'
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+              see declaration of 'DynPals::SwapConfig'
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\vector(932,23):
+      or       'void std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back(const _Ty &)'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(378,21):
+          'void std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back(const _Ty &)': cannot convert argument 1 from '<error type>' to 'const _Ty &'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(378,31):
+              Reason: cannot convert from '<error type>' to 'const _Ty'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(378,31):
+              use of undefined type 'DynPals::SwapConfig'
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+              see declaration of 'DynPals::SwapConfig'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(378,21):
+      while trying to match the argument list '(<error type>)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(390,28): error C2079: 'sc' uses undefined struct 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(402,17): error C2664: 'void DynPals::`anonymous-namespace'::ParseCommonSwapProperties(DynPals::SwapConfig &,const DynPals::`anonymous-namespace'::JsonDict &)': cannot convert argument 1 from '<error type>' to 'DynPals::SwapConfig &' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(118,14):
+      see declaration of 'DynPals::`anonymous-namespace'::ParseCommonSwapProperties'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(402,17):
+      while trying to match the argument list '(<error type>, DynPals::`anonymous-namespace'::JsonDict)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(406,21): error C7595: 'fmt::v11::basic_fstring<wchar_t>::basic_fstring': call to immediate function is not a constant expression [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+      failure was caused by call of undefined function or one not declared 'constexpr'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+      see usage of 'fmt::v11::report_error'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(406,21):
+      the call stack of the evaluation (the oldest call first) is
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(406,21):
+          while evaluating function 'fmt::v11::basic_fstring<wchar_t>::basic_fstring<wchar_t[98],0>(const S (&))'
+          with
+          [
+              S=wchar_t [98]
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\xchar.h(89,40):
+          while evaluating function 'void fmt::v11::detail::parse_format_string<wchar_t,fmt::v11::detail::format_string_checker<Char,0,0,false>>(fmt::v11::basic_string_view<Char>,Handler &&)'
+          with
+          [
+              Char=wchar_t,
+              Handler=fmt::v11::detail::format_string_checker<wchar_t,0,0,false>
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1638,42):
+          while evaluating function 'const Char *fmt::v11::detail::parse_replacement_field<Char,Handler&>(const Char *,const Char *,fmt::v11::detail::format_string_checker<Char,0,0,false>&)'
+          with
+          [
+              Char=wchar_t,
+              Handler=fmt::v11::detail::format_string_checker<wchar_t,0,0,false>
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1595,51):
+          while evaluating function 'int fmt::v11::detail::format_string_checker<Char,0,0,false>::on_arg_id(void)'
+          with
+          [
+              Char=wchar_t
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1705,70):
+          while evaluating function 'int fmt::v11::detail::compile_parse_context<Char>::next_arg_id(void)'
+          with
+          [
+              Char=wchar_t
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1244,31):
+          while evaluating function 'int fmt::v11::parse_context<wchar_t>::next_arg_id(void)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(904,20):
+          while evaluating function 'void fmt::v11::parse_context<wchar_t>::do_check_arg_id(int)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+          while evaluating function 'void fmt::v11::report_error(const char *)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(411,43): error C2660: 'DynPals::Utils::GenerateFallbackLabel': function does not take 1 arguments [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\Utils.hpp(173,25):
+      see declaration of 'DynPals::Utils::GenerateFallbackLabel'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(411,43):
+      while trying to match the argument list '()'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(417,17): error C2660: 'DynPals::`anonymous-namespace'::ValidateGender': function does not take 1 arguments [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(108,14):
+      see declaration of 'DynPals::`anonymous-namespace'::ValidateGender'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(417,17):
+      while trying to match the argument list '()'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(418,25): error C2665: 'std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back': no overloaded function could convert all the argument types [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\vector(936,23):
+      could be 'void std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back(_Ty &&)'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(418,25):
+          'void std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back(_Ty &&)': cannot convert argument 1 from '<error type>' to '_Ty &&'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(418,35):
+              Reason: cannot convert from '<error type>' to '_Ty'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(418,35):
+              use of undefined type 'DynPals::SwapConfig'
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+              see declaration of 'DynPals::SwapConfig'
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\vector(932,23):
+      or       'void std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back(const _Ty &)'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(418,25):
+          'void std::vector<DynPals::SwapConfig,std::allocator<DynPals::SwapConfig>>::push_back(const _Ty &)': cannot convert argument 1 from '<error type>' to 'const _Ty &'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(418,35):
+              Reason: cannot convert from '<error type>' to 'const _Ty'
+          with
+          [
+              _Ty=DynPals::SwapConfig
+          ]
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(418,35):
+              use of undefined type 'DynPals::SwapConfig'
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+              see declaration of 'DynPals::SwapConfig'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(418,25):
+      while trying to match the argument list '(<error type>)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(438,26): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(446,25): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(446,50): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(449,29): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(449,96): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(449,62): error C4473: 'swprintf' : not enough arguments passed for format string [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(449,62):
+      placeholders and their parameters expect 2 variadic arguments, but 1 were provided
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(449,62):
+      the missing variadic argument 2 is required by format string '%d'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(450,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(450,40): error C4473: 'swprintf' : not enough arguments passed for format string [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(450,40):
+      placeholders and their parameters expect 2 variadic arguments, but 1 were provided
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(450,40):
+      the missing variadic argument 2 is required by format string '%d'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(452,24): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(452,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(454,21): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(454,54): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(458,41): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(458,64): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(461,28): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(461,91): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(461,60): error C4473: 'swprintf' : not enough arguments passed for format string [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(461,60):
+      placeholders and their parameters expect 2 variadic arguments, but 1 were provided
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(461,60):
+      the missing variadic argument 2 is required by format string '%d'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(462,71): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(462,40): error C4473: 'swprintf' : not enough arguments passed for format string [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(462,40):
+      placeholders and their parameters expect 2 variadic arguments, but 1 were provided
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(462,40):
+      the missing variadic argument 2 is required by format string '%d'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(464,24): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(464,44): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(466,21): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(466,54): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(470,42): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(470,67): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(473,29): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(473,96): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(473,62): error C4473: 'swprintf' : not enough arguments passed for format string [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(473,62):
+      placeholders and their parameters expect 2 variadic arguments, but 1 were provided
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(473,62):
+      the missing variadic argument 2 is required by format string '%d'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(474,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(474,40): error C4473: 'swprintf' : not enough arguments passed for format string [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(474,40):
+      placeholders and their parameters expect 2 variadic arguments, but 1 were provided
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(474,40):
+      the missing variadic argument 2 is required by format string '%d'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(476,24): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(476,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(480,39): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(503,71): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(511,40): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(511,74): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(517,44): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(517,26): error C2064: term does not evaluate to a function taking 1 arguments [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(517,26):
+      class does not define an 'operator()' or a user defined conversion operator to a pointer-to-function or reference-to-function that takes appropriate number of arguments
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(517,26):
+      while trying to match the argument list '(const std::wstring)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\ConfigManager.cpp(517,26): error C1003: error count exceeds 100; stopping compilation [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(949,78): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(961,72): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(961,82): error C2676: binary '[': 'std::map<std::wstring,std::vector<SwapEvaluation,std::allocator<SwapEvaluation>>,std::less<std::wstring>,std::allocator<std::pair<const std::wstring,std::vector<SwapEvaluation,std::allocator<SwapEvaluation>>>>>' does not define this operator or a conversion to a type acceptable to the predefined operator [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1026,29): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1026,20): error C2530: 'matRep': references must be initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1026,20): error C3531: 'matRep': a symbol whose type contains 'auto' must have an initializer [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1026,27): error C2143: syntax error: missing ';' before ':' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1026,56): error C2143: syntax error: missing ';' before ')' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1032,6): error C7595: 'fmt::v11::basic_fstring<wchar_t,RC::Unreal::int32 &>::basic_fstring': call to immediate function is not a constant expression [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+      failure was caused by call of undefined function or one not declared 'constexpr'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+      see usage of 'fmt::v11::report_error'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1032,6):
+      the call stack of the evaluation (the oldest call first) is
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1032,6):
+          while evaluating function 'fmt::v11::basic_fstring<wchar_t,RC::Unreal::int32 &>::basic_fstring<wchar_t[86],0>(const S (&))'
+          with
+          [
+              S=wchar_t [86]
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\xchar.h(89,40):
+          while evaluating function 'void fmt::v11::detail::parse_format_string<wchar_t,fmt::v11::detail::format_string_checker<Char,1,0,false>>(fmt::v11::basic_string_view<Char>,Handler &&)'
+          with
+          [
+              Char=wchar_t,
+              Handler=fmt::v11::detail::format_string_checker<wchar_t,1,0,false>
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1638,42):
+          while evaluating function 'const Char *fmt::v11::detail::parse_replacement_field<Char,Handler&>(const Char *,const Char *,fmt::v11::detail::format_string_checker<Char,1,0,false>&)'
+          with
+          [
+              Char=wchar_t,
+              Handler=fmt::v11::detail::format_string_checker<wchar_t,1,0,false>
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1595,51):
+          while evaluating function 'int fmt::v11::detail::format_string_checker<Char,1,0,false>::on_arg_id(void)'
+          with
+          [
+              Char=wchar_t
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1705,70):
+          while evaluating function 'int fmt::v11::detail::compile_parse_context<Char>::next_arg_id(void)'
+          with
+          [
+              Char=wchar_t
+          ]
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(1244,31):
+          while evaluating function 'int fmt::v11::parse_context<wchar_t>::next_arg_id(void)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(904,20):
+          while evaluating function 'void fmt::v11::parse_context<wchar_t>::do_check_arg_id(int)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\_deps\fmt-src\include\fmt\base.h(2441,48):
+          while evaluating function 'void fmt::v11::report_error(const char *)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(985,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(986,44): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(988,29): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1044,22): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1044,52): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1045,38): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1080,29): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1080,24): error C2530: 'mr': references must be initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1080,24): error C3531: 'mr': a symbol whose type contains 'auto' must have an initializer [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1080,27): error C2143: syntax error: missing ';' before ':' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1080,56): error C2143: syntax error: missing ';' before ')' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1092,30): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1092,25): error C2530: 'mr': references must be initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1092,25): error C3531: 'mr': a symbol whose type contains 'auto' must have an initializer [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1092,28): error C2143: syntax error: missing ';' before ':' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1092,57): error C2143: syntax error: missing ';' before ')' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1206,17): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1206,47): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1208,53): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1208,82): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1208,35): error C2672: 'std::clamp': no matching overloaded function found [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\algorithm(10958,33):
+      could be 'const _Ty &std::clamp(const _Ty &,const _Ty &,const _Ty &)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1208,35):
+          'const _Ty &std::clamp(const _Ty &,const _Ty &,const _Ty &)': expects 3 arguments - 1 provided
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\algorithm(10930,33):
+      or       'const _Ty &std::clamp(const _Ty &,const _Ty &,const _Ty &,_Pr)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1208,35):
+          'const _Ty &std::clamp(const _Ty &,const _Ty &,const _Ty &,_Pr)': expects 4 arguments - 1 provided
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1210,69): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1210,98): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1260,18): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1264,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1264,28): error C2530: 'morph': references must be initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1264,28): error C3531: 'morph': a symbol whose type contains 'auto' must have an initializer [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1264,34): error C2143: syntax error: missing ';' before ':' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1264,61): error C2143: syntax error: missing ';' before ')' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1266,88): error C2676: binary '[': 'std::map<std::wstring,double,std::less<std::wstring>,std::allocator<std::pair<const std::wstring,double>>>' does not define this operator or a conversion to a type acceptable to the predefined operator [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1267,25): error C2664: 'void DynPals::UIManager::RefreshUI::<lambda_1>::operator ()(RC::Unreal::UObject *,RC::Unreal::UObject *,float,float,float,float) const': cannot convert argument 2 from 'float' to 'RC::Unreal::UObject *' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(855,145):
+      see declaration of 'DynPals::UIManager::RefreshUI::<lambda_1>::operator ()'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1267,25):
+      while trying to match the argument list '(RC::Unreal::UObject *, float)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1274,41): error C2660: 'DynPals::UI::Slider::UpdateValue': function does not take 1 arguments [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\UI\Components\Slider.hpp(25,14):
+      see declaration of 'DynPals::UI::Slider::UpdateValue'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1274,41):
+      while trying to match the argument list '(float)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1285,45): error C3493: 'morphName' cannot be implicitly captured because no default capture mode has been specified [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1292,47): error C3493: 'morphName' cannot be implicitly captured because no default capture mode has been specified [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1285,45): error C2065: 'morphName': undeclared identifier [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1292,47): error C2065: 'morphName': undeclared identifier [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1322,56): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1322,17): error C2664: 'void DynPals::UIManager::RefreshUI::<lambda_1>::operator ()(RC::Unreal::UObject *,RC::Unreal::UObject *,float,float,float,float) const': cannot convert argument 2 from 'float' to 'RC::Unreal::UObject *' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(855,145):
+      see declaration of 'DynPals::UIManager::RefreshUI::<lambda_1>::operator ()'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1322,17):
+      while trying to match the argument list '(RC::Unreal::UObject *, float)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1325,63): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1329,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1333,46): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1334,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1351,89): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\UI\views\UIManager.cpp(1352,28): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036: 'const _Ty *': unknown size [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         with [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         [ [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:             _Ty=DynPals::SwapConfig [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(25,36): error C2036:         ] [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/HooksManager.cpp')
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(26,22): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/HooksManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\ConfigManager.hpp(27,45): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+  (compiling source file '../src/HooksManager.cpp')
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2133,19): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2133,13): error C2530: 'mat': references must be initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2133,13): error C3531: 'mat': a symbol whose type contains 'auto' must have an initializer [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2133,17): error C2143: syntax error: missing ';' before ':' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2133,38): error C2143: syntax error: missing ';' before ')' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2141,8): error C3536: 'savedMatIt': cannot be used before it is initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2141,19): error C2446: '!=': no conversion from 'std::_Tree_iterator<std::_Tree_val<std::_Tree_simple_types<std::pair<const std::string,RC::StringType>>>>' to '<error type>' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2141,40):
+      No user-defined-conversion operator available that can perform this conversion, or the operator cannot be called
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2151,30): error C2676: binary '[': 'std::map<std::string,std::wstring,std::less<std::string>,std::allocator<std::pair<const std::string,RC::StringType>>>' does not define this operator or a conversion to a type acceptable to the predefined operator [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2158,28): error C2676: binary '[': 'std::map<std::string,std::wstring,std::less<std::string>,std::allocator<std::pair<const std::string,RC::StringType>>>' does not define this operator or a conversion to a type acceptable to the predefined operator [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2190,8): error C3536: 'colorIt': cannot be used before it is initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2190,16): error C2446: '!=': no conversion from 'std::_Tree_iterator<std::_Tree_val<std::_Tree_simple_types<std::pair<const std::string,FLinearColor_UE5>>>>' to '<error type>' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2190,42):
+      No user-defined-conversion operator available that can perform this conversion, or the operator cannot be called
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2224,34): error C2676: binary '[': 'std::map<std::string,FLinearColor_UE5,std::less<std::string>,std::allocator<std::pair<const std::string,FLinearColor_UE5>>>' does not define this operator or a conversion to a type acceptable to the predefined operator [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2275,6): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2280,21): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2280,13): error C2530: 'morph': references must be initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2280,13): error C3531: 'morph': a symbol whose type contains 'auto' must have an initializer [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2280,19): error C2143: syntax error: missing ';' before ':' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2280,41): error C2143: syntax error: missing ';' before ')' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2286,7): error C3536: 'iVal': cannot be used before it is initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2286,12): error C2446: '!=': no conversion from 'std::_Tree_iterator<std::_Tree_val<std::_Tree_simple_types<std::pair<const std::wstring,double>>>>' to '<error type>' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2286,35):
+      No user-defined-conversion operator available that can perform this conversion, or the operator cannot be called
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2315,32): error C2676: binary '[': 'std::map<std::wstring,double,std::less<std::wstring>,std::allocator<std::pair<const std::wstring,double>>>' does not define this operator or a conversion to a type acceptable to the predefined operator [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2331,7): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2331,32): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2334,41): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2334,65): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2337,22): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2491,86): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2502,10): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2505,29): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2505,23): error C2530: 'req': references must be initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2505,23): error C3531: 'req': a symbol whose type contains 'auto' must have an initializer [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2505,27): error C2143: syntax error: missing ';' before ':' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2505,48): error C2143: syntax error: missing ';' before ')' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2506,11): error C2664: 'bool DynPals::IEquals(std::wstring_view,std::wstring_view)': cannot convert argument 1 from '<error type>' to 'std::wstring_view' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2506,19):
+      'std::basic_string_view<wchar_t,std::char_traits<wchar_t>>::basic_string_view': no overloaded function could convert all the argument types
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\__msvc_string_view.hpp(1376,5):
+          could be 'std::basic_string_view<wchar_t,std::char_traits<wchar_t>>::basic_string_view(std::nullptr_t)'
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2506,19):
+              'std::basic_string_view<wchar_t,std::char_traits<wchar_t>>::basic_string_view(std::nullptr_t)': cannot convert argument 1 from '<error type>' to 'std::nullptr_t'
+                  H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2506,19):
+                  only a null pointer constant can be converted to nullptr_t
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\__msvc_string_view.hpp(1372,20):
+          or       'std::basic_string_view<wchar_t,std::char_traits<wchar_t>>::basic_string_view(const wchar_t *const ) noexcept'
+              H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2506,19):
+              'std::basic_string_view<wchar_t,std::char_traits<wchar_t>>::basic_string_view(const wchar_t *const ) noexcept': cannot convert argument 1 from '<error type>' to 'const wchar_t *const '
+                  H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2506,19):
+                  Conversion from integral type to pointer type requires reinterpret_cast, C-style cast or parenthesized function-style cast
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\__msvc_string_view.hpp(1390,5):
+          or       'std::basic_string_view<wchar_t,std::char_traits<wchar_t>>::basic_string_view(_Iter,_Sent) noexcept(<expr>)'
+          H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2506,19):
+          while trying to match the argument list '(<error type>)'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1350,13):
+      see declaration of 'DynPals::IEquals'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2506,11):
+      while trying to match the argument list '(<error type>, std::wstring)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2625,20): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2627,63): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2627,36): error C2660: 'DynPals::ResolveAnimPath': function does not take 2 arguments [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1293,21):
+      see declaration of 'DynPals::ResolveAnimPath'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2627,36):
+      while trying to match the argument list '(RC::Unreal::UObject *, std::wstring)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2640,27): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2640,21): error C2530: 'mat': references must be initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2640,21): error C3531: 'mat': a symbol whose type contains 'auto' must have an initializer [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2640,25): error C2143: syntax error: missing ';' before ':' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2640,53): error C2143: syntax error: missing ';' before ')' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2647,11): error C3536: 'savedMatIt': cannot be used before it is initialized [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2647,22): error C2446: '!=': no conversion from 'std::_Tree_iterator<std::_Tree_val<std::_Tree_simple_types<std::pair<const std::string,RC::StringType>>>>' to '<error type>' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2647,49):
+      No user-defined-conversion operator available that can perform this conversion, or the operator cannot be called
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2678,28): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2679,28): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2680,29): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2681,32): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2701,23): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2702,23): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2703,24): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2704,27): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2713,9): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2734,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2734,6): error C2660: 'DynPals::SetPalNickname': function does not take 4 arguments [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2066,13):
+      see declaration of 'DynPals::SetPalNickname'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2734,6):
+      while trying to match the argument list '(RC::Unreal::UObject *, std::wstring, bool, RC::Unreal::UObject *)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2874,64): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2874,37): error C2660: 'DynPals::ResolveAnimPath': function does not take 2 arguments [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(1293,21):
+      see declaration of 'DynPals::ResolveAnimPath'
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2874,37):
+      while trying to match the argument list '(RC::Unreal::UObject *, std::wstring)'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2938,10): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2939,49): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2980,14): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2981,40): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\src\PalProcessor.cpp(2982,36): error C2027: use of undefined type 'DynPals::SwapConfig' [H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\DynamicPals_Offline.vcxproj]
+      H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\include\DataTypes.hpp(25,49):
+      see declaration of 'DynPals::SwapConfig'
+  
+  EventViewerMod.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\bin\EventViewerMod.dll
+  raw_pdb.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\lib\raw_pdb.lib
+  Examples.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\bin\Examples.exe
+  KismetDebuggerMod.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\bin\KismetDebuggerMod.dll
+  UnrealVTableDumper.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\bin\UnrealVTableDumper.exe
+  proxy_generator.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\bin\proxy_generator.exe
+  proxy.vcxproj -> H:\SteamLibrary\steamapps\common\Palworld\Pal\Binaries\Win64\ue4ss\Mods\DynamicPals\build\Game__Shipping__Win64\bin\dwmapi.dll

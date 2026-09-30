@@ -9,8 +9,65 @@
 #include <Unreal/FText.hpp> 
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <fmt/format.h> 
+#include <fmt/xchar.h>
 
+struct SwapConfig;
+
+// --- ADD: SwapIdentity Helper & FPalCharacterIconDataRow ---
 namespace DynPals {
+
+    struct SwapIdentity {
+        static constexpr const wchar_t* Prefix = L"DynamicPals:";
+        static constexpr const wchar_t* Delimiter = L"::";
+
+        // Builds: "DynamicPals:<PackName>::<CharID>::<SwapLabel>::<ModelPath>"
+        static std::wstring MakeID(const std::wstring& PackName, const std::wstring& CharID, const std::wstring& SwapLabel, const std::wstring& ModelPath) {
+            return std::wstring(Prefix) + PackName + Delimiter + CharID + Delimiter + SwapLabel + Delimiter + ModelPath;
+        }
+
+        static std::wstring MakeID(const ::SwapConfig& Config);
+
+        // Checks if a string begins with "DynamicPals:"
+        static bool IsDynamicSkin(const std::wstring& SkinIdentifier) {
+            return SkinIdentifier.rfind(Prefix, 0) == 0;
+        }
+
+        // Deconstructs the 4-part ID back into its source components
+        static bool ParseID(const std::wstring& FullID, std::wstring& OutPackName, std::wstring& OutCharID, std::wstring& OutSwapLabel, std::wstring& OutModelPath) {
+            if (!IsDynamicSkin(FullID)) return false;
+
+            std::wstring body = FullID.substr(std::wcslen(Prefix));
+            const size_t delimLen = std::wcslen(Delimiter);
+
+            size_t d1 = body.find(Delimiter);
+            if (d1 == std::wstring::npos) return false;
+
+            size_t d2 = body.find(Delimiter, d1 + delimLen);
+            if (d2 == std::wstring::npos) return false;
+
+            size_t d3 = body.find(Delimiter, d2 + delimLen);
+            if (d3 == std::wstring::npos) return false;
+
+            OutPackName  = body.substr(0, d1);
+            OutCharID    = body.substr(d1 + delimLen, d2 - (d1 + delimLen));
+            OutSwapLabel = body.substr(d2 + delimLen, d3 - (d2 + delimLen));
+            OutModelPath = body.substr(d3 + delimLen);
+            return true;
+        }
+    };
+
+    // Matches FPalCharacterIconDataRow (0x38 bytes: 8-byte FTableRowBase + 48-byte TSoftObjectPtr)
+    struct FPalCharacterIconDataRow {
+        uint8_t Pad_TableRowBase[0x08]; // 0x00 - FTableRowBase
+        int32_t WeakPtr_ObjectIndex;    // 0x08 - FWeakObjectPtr
+        int32_t WeakPtr_SerialNumber;   // 0x0C
+        int32_t TagAtLastTest;          // 0x10
+        int32_t Pad_0014;               // 0x14
+        RC::Unreal::FName PackageName;  // 0x18 - FTopLevelAssetPath::PackageName
+        RC::Unreal::FName AssetName;    // 0x20 - FTopLevelAssetPath::AssetName
+        RC::Unreal::FString SubPath;    // 0x28 - FSoftObjectPath::SubPathString
+    }; // Total size: 0x38
+
     void EnqueueUIToast(const std::wstring& Message, uint8_t PriorityType, uint8_t ToneType);
 
     struct DynPalsGuid {
@@ -73,6 +130,7 @@ struct SwapConfig {
     std::wstring SkinName = L"";   
     std::wstring SwapLabel = L"";  // UI Display Name
     std::wstring SetNickname = L"";
+    std::wstring IconAssetPath = L"";
     int MinLevel = 1;
     int MaxLevel = 999;
     int MinTrust = 0;        
@@ -93,6 +151,14 @@ struct SwapConfig {
     std::wstring Extra = L"{}";  
 };
 
+namespace DynPals {
+    using SwapConfig = ::SwapConfig;
+}
+
+inline std::wstring DynPals::SwapIdentity::MakeID(const ::SwapConfig& Config) {
+    return MakeID(Config.PackName, Config.CharacterID, Config.SwapLabel, Config.SkelMeshPath);
+}
+
 struct SwapEvaluation {
     int ConfigIndex;
     bool IsValid;
@@ -112,6 +178,7 @@ struct PalPersistData {
     std::wstring SkinName;
     std::wstring SwapLabel;
     std::wstring SkelMeshPath;
+    std::wstring OriginalSkinName; 
     std::map<std::wstring, double> MorphSet;
     std::map<std::string, std::wstring> MatSet;
     std::map<std::string, FLinearColor_UE5> MatColorSet;

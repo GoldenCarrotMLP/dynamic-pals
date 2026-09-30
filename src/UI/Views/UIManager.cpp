@@ -915,6 +915,11 @@ namespace DynPals {
                 SkinName = SkinParams.RetVal.ToString();
                 if (SkinName == L"None") SkinName = L"";
 
+                // Strip synthetic dynamic ID so the UI matchmaker evaluates against the real skin
+                if (SwapIdentity::IsDynamicSkin(SkinName)) {
+                    SkinName = (currentPersist && !currentPersist->OriginalSkinName.empty()) ? currentPersist->OriginalSkinName : L"";
+                }
+
                 struct { TArray<FName> RetVal; } TraitsParams;
                 Utils::CallFunction(IndivParam, STR("GetPassiveSkillList"), &TraitsParams);
                 for (int32_t i = 0; i < TraitsParams.RetVal.Num(); ++i) {

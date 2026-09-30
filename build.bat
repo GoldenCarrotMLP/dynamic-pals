@@ -1,0 +1,1 @@
+cmake --build build --config Game__Shipping__Win64 > output.txt && start steam://launch/1623730
