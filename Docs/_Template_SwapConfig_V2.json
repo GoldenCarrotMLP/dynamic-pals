@@ -16,12 +16,12 @@
         "MinRank": 0,
         "MaxRank": 999,
         "SpawnWeight": 1,
-        "LuckyStarReq": false,
-        "IsWildPal": false,
+        "LuckyStarReq": null,
+        "IsWildPal": null,
         "MinSizeMultiplier": 1,
         "MaxSizeMultiplier": 1,
         "ReqSwap": [
-          "TraitExample"
+          "SwapLabelExample"
         ],
         "PassiveSkills": [
           "TraitExample"

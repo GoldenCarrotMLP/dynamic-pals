@@ -93,6 +93,8 @@ if ($file -match '(?s)struct\s+SwapConfig\s*\{(.*?)\};') {
             $val = if ($Matches[3]) { $Matches[3].Trim() } else { $null }
             
             if ($name -eq 'PackName') { continue }
+            # Internal-only fields (set by ConfigManager, never read from JSON)
+            if ($name -eq 'SourceJson') { continue }
             
             # Align C++ Struct array names with the JSON array keys ConfigManager actually expects
             if ($name -eq 'MatReplaceList') { $name = 'MatReplace' }
@@ -106,15 +108,14 @@ if ($file -match '(?s)struct\s+SwapConfig\s*\{(.*?)\};') {
                 } elseif ($type -like '*MorphTarget*') {
                     $morphTypeVal = if ($aliases.ContainsKey('MorphType')) { $aliases['MorphType'] } else { 'Free' }
                     $json[$name] = ,@{'Max'=1; 'Min'=0; 'Target'='MorphName'; 'Type'=$morphTypeVal; 'Set'=1}
+                } elseif ($name -eq 'ReqSwap') {
+                    $json[$name] = ,('SwapLabelExample')
                 } else {
                     $json[$name] = ,('TraitExample')
                 }
             } elseif ($type -like '*std::optional*') {
-                if ($type -like '*bool*') {
-                    $json[$name] = $false 
-                } else {
-                    $json[$name] = $null
-                }
+                # null = "don't care" (std::nullopt). Emitting false would silently filter to non-rare / tamed Pals only.
+                $json[$name] = $null
             } elseif ($type -eq 'int') {
                 $json[$name] = if ($val) { [int]$val } else { 0 }
             } elseif ($type -eq 'double') {

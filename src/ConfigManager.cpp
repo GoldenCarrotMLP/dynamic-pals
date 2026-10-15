@@ -227,9 +227,19 @@ namespace DynPals {
         LoadConfigJSONs();
     }
 
+    std::wstring ConfigManager::GetJsonNameFromID(const std::wstring& SwapID) const {
+    auto it = SwapIDToJsonMap.find(SwapIdentity::ToIdentity(SwapID));
+    if (it != SwapIDToJsonMap.end()) {
+        return it->second;
+    }
+    return L"";
+}
+
     void ConfigManager::LoadConfigJSONs() {
         Configs.clear();
         WarnedCharIDs.clear();
+        SwapIDToJsonMap.clear();       
+        ConfigSourceFiles.clear();
         
         std::wstring PathV1 = ConfigPath + L"SwapJSON/";
         std::wstring PathV2 = ConfigPath + L"ModelJSON/";
@@ -250,11 +260,12 @@ namespace DynPals {
             if (!std::filesystem::exists(targetPath)) continue;
 
             for (const auto& entry : fs::recursive_directory_iterator(targetPath)) {
-                if (entry.is_regular_file()) {
-                    std::wstring filepath = entry.path().wstring();
-                    std::wstring filename = entry.path().filename().wstring();
+        if (entry.is_regular_file()) {
+            std::wstring filepath = entry.path().wstring();
+            std::wstring filename = entry.path().filename().wstring(); // e.g. "palbaker-Kitsunebi.json"
 
-                    if (ToLower(entry.path().extension().wstring()) == L".json") {
+            if (ToLower(entry.path().extension().wstring()) == L".json") {
+                
                         if (filename.rfind(L"_", 0) == 0 || filename.find(L"Template") != std::wstring::npos) {
                             continue;
                         }
@@ -305,10 +316,10 @@ namespace DynPals {
                             }
 
                             if (configData.contains("SkelMeshSwap") && configData.at("SkelMeshSwap").is_array()) {
-                                ParseSwaps(packName, configData.at("SkelMeshSwap"));
+                                ParseSwaps(packName, configData.at("SkelMeshSwap"), filename); // <--- Pass filename
                                 loadedPacksCount++;
                             } else if (configData.contains("SkinList") && configData.at("SkinList").is_object()) {
-                                ParseSwapsV2(packName, configData.at("SkinList"));
+                                ParseSwapsV2(packName, configData.at("SkinList"), filename);   // <--- Pass filename
                                 loadedPacksCount++;
                             } else {
                                 DP_LOG(Warning, "Skipping config (missing 'SkelMeshSwap' or 'SkinList' root): '{}'\n", filename);
@@ -342,15 +353,24 @@ namespace DynPals {
             }
         }
 
+            // Populate the in-memory lookup map
+        SwapIDToJsonMap.clear();
+        for (const auto& cfg : Configs) {
+            std::wstring fullID = SwapIdentity::MakeID(cfg);
+            SwapIDToJsonMap[fullID] = cfg.SourceJson;
+        }
+
         DP_LOG(Default, "Successfully loaded {} skin packs dynamically.\n", loadedPacksCount);
         DP_LOG(Default, "Complete matchmaking table compiled with {} swaps.\n", Configs.size());
     }
 
-    void ConfigManager::ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray) {
+    void ConfigManager::ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray, const std::wstring& JsonFileName) {
         for (auto& swapJson : swapArray) {
             JsonDict dict(swapJson);
             SwapConfig sc;
-            sc.PackName = PackName; 
+            sc.SourceJson = JsonFileName; // <--- Set here
+            sc.PackName = PackName;
+
             
             if (dict.contains("CharacterID")) sc.CharacterID = Utils::StringToWString(dict.get("CharacterID").get<std::string>());
             if (dict.contains("SkelMeshPath")) sc.SkelMeshPath = Utils::StringToWString(dict.get("SkelMeshPath").get<std::string>());
@@ -379,17 +399,18 @@ namespace DynPals {
         }
     }
     
-    void ConfigManager::ParseSwapsV2(const std::wstring& PackName, const nlohmann::json& skinListObj) {
-        for (auto& [charIdStr, skinsObj] : skinListObj.items()) {
-            if (!skinsObj.is_object()) continue;
-            std::wstring charID = Utils::StringToWString(charIdStr);
-            
-            for (auto& [skinLabelStr, swapJson] : skinsObj.items()) {
-                if (!swapJson.is_object()) continue;
-                JsonDict dict(swapJson);
-                SwapConfig sc;
-                sc.PackName = PackName;
-                sc.CharacterID = charID;
+    void ConfigManager::ParseSwapsV2(const std::wstring& PackName, const nlohmann::json& skinListObj, const std::wstring& JsonFileName) {
+    for (auto& [charIdStr, skinsObj] : skinListObj.items()) {
+        if (!skinsObj.is_object()) continue;
+        std::wstring charID = Utils::StringToWString(charIdStr);
+        
+        for (auto& [skinLabelStr, swapJson] : skinsObj.items()) {
+            if (!swapJson.is_object()) continue;
+            JsonDict dict(swapJson);
+            SwapConfig sc;
+            sc.SourceJson = JsonFileName; // <--- Set here
+            sc.PackName = PackName;
+            sc.CharacterID = charID;
                 
                 sc.SwapLabel = Utils::StringToWString(skinLabelStr); 
 
@@ -638,9 +659,10 @@ namespace DynPals {
 
     int ConfigManager::FindConfigIndexBySwapID(const std::wstring& SwapID) const {
         if (!SwapIdentity::IsDynamicSkin(SwapID)) return -1;
+        const std::wstring CanonicalID = SwapIdentity::ToIdentity(SwapID);
 
         for (size_t i = 0; i < Configs.size(); ++i) {
-            if (SwapIdentity::MakeID(Configs[i]) == SwapID) {
+            if (SwapIdentity::MakeID(Configs[i]) == CanonicalID) {
                 return static_cast<int>(i);
             }
         }
@@ -798,8 +820,9 @@ namespace DynPals {
 
     // 1. Exact match against the 4-part unique ID
     if (SwapIdentity::IsDynamicSkin(SkinOrSwapID)) {
+        const std::wstring CanonicalID = SwapIdentity::ToIdentity(SkinOrSwapID);
         for (const auto& cfg : Configs) {
-            if (SwapIdentity::MakeID(cfg) == SkinOrSwapID) {
+            if (SwapIdentity::MakeID(cfg) == CanonicalID) {
                 return cfg.IconAssetPath;
             }
         }

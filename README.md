@@ -83,11 +83,14 @@ Upon successful compilation, the compiled `main.dll` and the dynamically updated
 ## How to Install the Mod
 
 1. Ensure [UE4SS](https://github.com/Okaetsu/RE-UE4SS) is installed in your Palworld directory (`Pal/Binaries/Win64/`).
-2. Create a folder named `DynamicPals` in your `Mods` directory: 
-   `Pal/Binaries/Win64/Mods/DynamicPals/`
-3. Copy your compiled `main.dll` and `version.txt` into:
-   `Pal/Binaries/Win64/Mods/DynamicPals/dlls/`
-4. Add `DynamicPals : 1` to your `mods.txt` file located in `Pal/Binaries/Win64/Mods/mods.txt`.
+2. Create a folder named `DynamicPals` in your UE4SS `Mods` directory: 
+   `Pal/Binaries/Win64/ue4ss/Mods/DynamicPals/`
+3. Copy your compiled `main.dll`, `version.txt` and `DynamicPals.pak` into:
+   `Pal/Binaries/Win64/ue4ss/Mods/DynamicPals/dlls/`
+4. Copy `DynamicPals.pak` into `Pal/Content/Paks/LogicMods/` as well (the auto-update build does this for you on first launch; restart the game once afterwards).
+5. Enable the mod with an `enabled.txt` file in the `DynamicPals` folder, or add `DynamicPals : 1` to `Pal/Binaries/Win64/ue4ss/Mods/mods.txt`.
+
+The release zips produced by the build (`DynamicPals_AutoUpdate.zip` / `DynamicPals.zip`) already contain this folder layout.
 
 ---
 
@@ -95,14 +98,19 @@ Upon successful compilation, the compiled `main.dll` and the dynamically updated
 
 * **`Alt + N`:** Toggles the manual customization menu when looking at a Pal.
 * **`Escape` (while menu is open):** Safely closes the menu, re-hiding the mouse cursor and returning input capture to the game camera.
+* **Reroll Pal:** Unbound by default. Assign a key in the menu's settings tab to reroll the Pal in your crosshair instantly.
+
+All hotkeys can be rebound from the settings tab of the `Alt + N` menu.
 
 ---
 
 ## Creating Skin Configuration Packs
 
-Configurations are stored as JSON files inside your project's content directory at:
-`Paks/~mods/SwapJSON/` for classic alternatic jsons
-`Paks/~mods/ModelJSON/` for newer PalMagic jsons
+Configurations are stored as JSON files inside the game's content directory at:
+`Pal/Content/Paks/~mods/SwapJSON/` for classic Altermatic (V1) jsons
+`Pal/Content/Paks/~mods/ModelJSON/` for newer PalMagic (V2) jsons
+
+See [Docs/FORMAT_V1.md](./Docs/FORMAT_V1.md) and [Docs/FORMAT_V2.md](./Docs/FORMAT_V2.md) for the full schemas.
 
 ---
 ## Credits

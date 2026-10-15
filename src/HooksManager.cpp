@@ -163,14 +163,14 @@ static void* ResolveNativeFromThunk(void* ThunkAddress, int TargetCallIndex = -1
     // --- LOG VISIBILITY: Print all functions found in the thunk ---
     DP_LOG(Default, "[ThunkResolver] Found {} call target(s) in thunk for '{}':", calls.size(), FunctionName);
     for (size_t i = 0; i < calls.size(); ++i) {
-        DP_LOG(Default, "  [{}] -> 0x{:p}", i, calls[i]);
+        DP_LOG(Default, "  [{}] -> {:p}", i, calls[i]);
     }
 
     // --- EXPLICIT INDEX SELECTION ---
     if (TargetCallIndex >= 0) {
         if (TargetCallIndex < static_cast<int>(calls.size())) {
             void* selected = calls[TargetCallIndex];
-            DP_LOG(Default, "[ThunkResolver] Explicitly selected call [{}] -> 0x{:p}", TargetCallIndex, selected);
+            DP_LOG(Default, "[ThunkResolver] Explicitly selected call [{}] -> {:p}", TargetCallIndex, selected);
             return selected;
         } else {
             DP_LOG(Error, "[ThunkResolver] Requested call index [{}] out of bounds! (Total: {})", TargetCallIndex, calls.size());
@@ -338,6 +338,31 @@ static void OnEngineTick(Unreal::Hook::TCallbackIterationData<void>&, Unreal::UE
                 }
             } else {
                 bTestMenuKeyPressed = false;
+            }
+
+            // Direct Reroll Pal Hotkey
+            // Direct Reroll Pal Hotkey
+            static bool bRerollKeyPressed = false;
+            if (InputManager::Get().IsHotkeyDownFast(PlayerController, Settings.RerollModVK, Settings.RerollKeyVK, Settings.bRerollIsGamepad, Settings.RerollModifier, Settings.RerollKey)) {
+                if (!bRerollKeyPressed) {
+                    bRerollKeyPressed = true;
+                    DP_LOG(Default, "[Hotkey] Direct Reroll hotkey pressed (Key: '{}', Mod: '{}')", Settings.RerollKey, Settings.RerollModifier);
+
+                    UObject* AimedPal = Utils::GetAimedPal(PlayerController);
+                    if (AimedPal && Utils::IsObjectValid(AimedPal)) {
+                        DP_LOG(Default, "[Hotkey] Aimed Pal resolved: '{}'. Rerolling now...", AimedPal->GetName());
+                        PalProcessor::Get().ProcessPal(AimedPal, true);
+                    } else {
+                        DP_LOG(Warning, "[Hotkey] Direct Reroll pressed, but no Pal is in your crosshairs.");
+                        NotificationManager::Get().EnqueueToast(
+                            L"No Pal in view to reroll.", 
+                            EPalLogPriority::Normal, 
+                            EPalLogContentToneType::Negative
+                        );
+                    }
+                }
+            } else {
+                bRerollKeyPressed = false;
             }
         }
     }
@@ -538,6 +563,71 @@ static void OnClientRestart(UnrealScriptFunctionCallableContext& Context, void*)
     }
 }
 
+static SafetyHookInline Hook_GetCharacterIconTextureByIndividualHandle;
+
+// MSVC x64 Calling Convention:
+// RCX = This (UPalDatabaseCharacterParameter*)
+// RDX = OutResult (48-byte buffer for TSoftObjectPtr)
+// R8  = IndividualHandle (UPalIndividualCharacterHandle*)
+void* __fastcall NativeGetCharacterIconTextureByIndividualHandle_Hook(UObject* This, void* OutResult, UObject* IndividualHandle) 
+{
+    // Call the original native method first to populate OutResult with the vanilla icon
+    void* OriginalRet = Hook_GetCharacterIconTextureByIndividualHandle.call<void*, UObject*, void*, UObject*>(This, OutResult, IndividualHandle);
+
+    if (!This || !OutResult || !IndividualHandle || !Utils::IsObjectValid(IndividualHandle)) {
+        return OriginalRet;
+    }
+
+    // Extract the InstanceID (GUID) from the Handle
+    FPalInstanceID IDStruct;
+    bool bGotID = Utils::GetPropertyValue<FPalInstanceID>(IndividualHandle, STR("ID"), IDStruct, true);
+    
+    if (!bGotID) {
+        // Fallback property name just in case
+        bGotID = Utils::GetPropertyValue<FPalInstanceID>(IndividualHandle, STR("IndividualId"), IDStruct, true);
+    }
+    
+    if (bGotID && IDStruct.InstanceId.IsValid()) {
+        std::wstring instanceIdStr = Utils::GuidToWString(IDStruct.InstanceId);
+        
+        // Ask the SaveManager what skin this specific Pal has
+        PalPersistData* pData = SaveManager::Get().GetPersistData(instanceIdStr);
+        
+        if (pData && pData->HasSavedSwap()) {
+            std::wstring customIconPath = ConfigManager::Get().GetIconAssetPathForSwap(pData->PackName, pData->SwapLabel);
+            
+            if (!customIconPath.empty()) {
+                //DP_LOG(Verbose, "[IconHook] PalBox MATCH for InstanceID '{}'! Overwriting with: '{}'", instanceIdStr, customIconPath);
+                
+                std::wstring ResolvedPath = Utils::FormatAssetPath(customIconPath);
+                std::wstring PackagePart, AssetPart;
+
+                size_t DotPos = ResolvedPath.find(L'.');
+                if (DotPos != std::wstring::npos) {
+                    PackagePart = ResolvedPath.substr(0, DotPos);
+                    AssetPart = ResolvedPath.substr(DotPos + 1);
+                } else {
+                    PackagePart = ResolvedPath;
+                    size_t LastSlash = ResolvedPath.find_last_of(L'/');
+                    AssetPart = (LastSlash != std::wstring::npos) ? ResolvedPath.substr(LastSlash + 1) : ResolvedPath;
+                }
+
+                // Overwrite the returned TSoftObjectPtr memory directly (48 bytes)
+                uint8_t* Buffer = reinterpret_cast<uint8_t*>(OutResult);
+                memset(Buffer, 0, 0x30); 
+
+                FName* PkgPtr = reinterpret_cast<FName*>(Buffer + 0x10);
+                FName* AssetPtr = reinterpret_cast<FName*>(Buffer + 0x18);
+
+                *PkgPtr = FName(PackagePart.c_str(), FNAME_Add);
+                *AssetPtr = FName(AssetPart.c_str(), FNAME_Add);
+            }
+        }
+    }
+
+    return OutResult;
+}
+
 static SafetyHookInline Hook_GetCharacterIconTextureBySkinName;
 
 // Calling convention directly derived from Ghidra:
@@ -562,7 +652,7 @@ void* __fastcall NativeGetCharacterIconTextureBySkinName_Hook(
     if (SwapIdentity::IsDynamicSkin(SkinStr)) {
         std::wstring CustomIconPath = ConfigManager::Get().GetIconAssetPathForSkin(SkinStr);
         if (!CustomIconPath.empty() && OutResult) {
-            DP_LOG(Default, "[IconHook] Overwriting icon for '{}' -> '{}'", SkinStr, CustomIconPath);
+           //DP_LOG(Default, "[IconHook] Overwriting icon for '{}' -> '{}'", SkinStr, CustomIconPath);
 
             std::wstring ResolvedPath = Utils::FormatAssetPath(CustomIconPath);
             std::wstring PackagePart, AssetPart;
@@ -645,6 +735,25 @@ if (GetSkinIconAddr) {
 } else {
     DP_LOG(Warning, "Could not resolve native address for GetCharacterIconTextureBySkinName.");
 }
+
+
+// -------------------------------------------------------------------------
+    // Hook 2: GetCharacterIconTextureByIndividualHandle (Palbox & Pause Menu)
+    // -------------------------------------------------------------------------
+    void* GetIconByHandleAddr = GetNativeAddress(
+        STR("/Script/Pal.PalDatabaseCharacterParameter:GetCharacterIconTextureByIndividualHandle"), 
+        3 // <--- Auto-Detect Mode!
+    );
+
+    if (GetIconByHandleAddr) {
+        Hook_GetCharacterIconTextureByIndividualHandle = safetyhook::create_inline(
+            GetIconByHandleAddr, 
+            NativeGetCharacterIconTextureByIndividualHandle_Hook
+        );
+        if (Hook_GetCharacterIconTextureByIndividualHandle) {
+            DP_LOG(Default, "Successfully hooked GetCharacterIconTextureByIndividualHandle at 0x{:p}", GetIconByHandleAddr);
+        }
+    }
 
     void* MasterWazaUpdateAddr = GetNativeAddress(STR("/Script/Pal.PalNPC:MasterWazaUpdateWhenLevelUp"));
     if (MasterWazaUpdateAddr) {

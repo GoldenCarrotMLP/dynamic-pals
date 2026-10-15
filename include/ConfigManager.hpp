@@ -35,8 +35,9 @@ namespace DynPals {
         }
 
         std::vector<int> GetConfigsForCharID(const std::wstring& CharID) const;
-        void ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray);
-        void ParseSwapsV2(const std::wstring& PackName, const nlohmann::json& skinListObj);
+        void ParseSwaps(const std::wstring& PackName, const nlohmann::json& swapArray, const std::wstring& JsonFileName);
+        void ParseSwapsV2(const std::wstring& PackName, const nlohmann::json& skinListObj, const std::wstring& JsonFileName);
+
 
         void Initialize(const std::wstring& BasePath);
         void LoadConfigJSONs();
@@ -49,6 +50,9 @@ namespace DynPals {
         std::wstring GetIconAssetPathForSwap(const std::wstring& PackName, const std::wstring& SwapLabel) const;
 
         const std::vector<SwapConfig>& GetConfigs() const { return Configs; }
+        std::wstring GetJsonNameFromID(const std::wstring& SwapID) const;
+        const std::map<std::wstring, std::wstring>& GetSwapIDToJsonMap() const { return SwapIDToJsonMap; }
+
 
     private:
         ConfigManager() = default;
@@ -57,6 +61,10 @@ namespace DynPals {
 
         std::wstring ConfigPath;
         std::vector<SwapConfig> Configs;
+
+        std::map<std::wstring, std::wstring> SwapIDToJsonMap;
+        std::vector<std::wstring> ConfigSourceFiles;
+        
         mutable std::set<std::wstring> WarnedCharIDs; 
     };
 }

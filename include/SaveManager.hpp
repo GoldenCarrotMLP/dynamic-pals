@@ -8,26 +8,35 @@
 namespace DynPals {
 
     struct DynPalsSettings {
-        bool bFocusPal = true;
-        double CameraRotation = 180.0;
-        bool bRelativeCamera = true;
-        
-        std::wstring MenuKey = L"N";
-        std::wstring MenuModifier = L"LeftAlt"; 
-        std::wstring TestMenuKey = L"G";
-        std::wstring TestMenuModifier = L"LeftAlt";
+    bool bFocusPal = true;
+    double CameraRotation = 180.0;
+    bool bRelativeCamera = true;
+    
+    std::wstring MenuKey = L"N";
+    std::wstring MenuModifier = L"LeftAlt"; 
+    std::wstring TestMenuKey = L"G";
+    std::wstring TestMenuModifier = L"LeftAlt";
 
-        // Pre-cached hotkey data for 0.001ms integer checks on the engine tick
-        int MenuKeyVK = 'N';
-        int MenuModVK = 0x12; // VK_MENU
-        bool bMenuIsGamepad = false;
+    // --- ADD REROLL KEYBIND (Unset by default) ---
+    std::wstring RerollKey = L"None";
+    std::wstring RerollModifier = L"None";
 
-        int TestKeyVK = 'G';
-        int TestModVK = 0x12; // VK_MENU
-        bool bTestIsGamepad = false;
+    // Pre-cached hotkey data
+    int MenuKeyVK = 'N';
+    int MenuModVK = 0x12; // VK_MENU
+    bool bMenuIsGamepad = false;
 
-        void CacheKeybinds();
-    };
+    int TestKeyVK = 'G';
+    int TestModVK = 0x12;
+    bool bTestIsGamepad = false;
+
+    // --- ADD PRE-CACHED VKs ---
+    int RerollKeyVK = 0;
+    int RerollModVK = 0;
+    bool bRerollIsGamepad = false;
+
+    void CacheKeybinds();
+};
 
     class SaveManager {
     public:

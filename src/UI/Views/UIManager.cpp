@@ -495,12 +495,15 @@ namespace DynPals {
     }
 
 
-    std::wstring UIManager::FormatKeybindText(const std::wstring& Modifier, const std::wstring& Key) {
-        std::wstring result = L"[ ";
-        if (!Modifier.empty()) result += Modifier + L" + ";
-        result += Key + L" ]";
-        return result;
+        std::wstring UIManager::FormatKeybindText(const std::wstring& Modifier, const std::wstring& Key) {
+    if (Key.empty() || Key == L"None") {
+        return L"[ Unset ]";
     }
+    std::wstring result = L"[ ";
+    if (!Modifier.empty() && Modifier != L"None") result += Modifier + L" + ";
+    result += Key + L" ]";
+    return result;
+}
 
     void UIManager::SwitchTab(int32_t NewTab) {
         ActiveTab = NewTab;
@@ -551,8 +554,14 @@ namespace DynPals {
                     if (BindTestMenuBtn && BindTestMenuBtn->GetWidget()) {
                         Utils::SetTextSafely(BindTestMenuBtn->GetWidget(), STR("SetText"), FormatKeybindText(Mod, Key));
                     }
+                } else if (Target == 2) { // <--- Added: Handles Reroll Button
+                    Settings.RerollKey = Key;
+                    Settings.RerollModifier = Mod;
+                    if (BindRerollBtn && BindRerollBtn->GetWidget()) {
+                        Utils::SetTextSafely(BindRerollBtn->GetWidget(), STR("SetText"), FormatKeybindText(Mod, Key));
+                    }
                 }
-                Settings.CacheKeybinds(); // Instantly update cached integer VK codes
+                Settings.CacheKeybinds(); // Updates RerollKeyVK to 'K' (0x4B)
                 SaveManager::Get().SaveWorldData();
 
                 if (CaptureOverlay) {
@@ -637,6 +646,9 @@ namespace DynPals {
             }
         }
     }
+
+
+
 
     void UIManager::BuildWidget() {
         if (!CurrentPlayerController || !TargetPal) return;
@@ -741,18 +753,36 @@ namespace DynPals {
         SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(SizeSliderContainer), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
         SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(DynamicMorphBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 10); });
         SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(DynamicLogBox), [](DynPals::BoxSlotBuilder& Slot) { Slot.Padding(0, 10, 0, 10); });
+        // End of Tab 0
         SettingsBuilder.AddToVerticalBox(DynPals::WidgetBuilder(WidgetTrashBin));
         SettingsTabContainer = SettingsBuilder.Build();
 
         // --- 3. BUILD TAB 1 CONTENT (PREFERENCES) ---
         auto& Settings = SaveManager::Get().Settings;
-        UObject* MenuBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(FormatKeybindText(Settings.MenuModifier, Settings.MenuKey)).DesiredSizeOverride(200.0f, 45.0f).UnlockButtonSize(200.0f).Build();
+
+        UObject* MenuBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget)
+            .Text(FormatKeybindText(Settings.MenuModifier, Settings.MenuKey))
+            .DesiredSizeOverride(200.0f, 45.0f)
+            .UnlockButtonSize(200.0f)
+            .Build();
         BindMenuBtn = std::make_unique<UI::Button>(MenuBtnObj);
         BindMenuBtn->OnClicked([this]() { StartKeyCapture(0); });
 
-        UObject* TestMenuBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget).Text(FormatKeybindText(Settings.TestMenuModifier, Settings.TestMenuKey)).DesiredSizeOverride(200.0f, 45.0f).UnlockButtonSize(200.0f).Build();
+        UObject* TestMenuBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget)
+            .Text(FormatKeybindText(Settings.TestMenuModifier, Settings.TestMenuKey))
+            .DesiredSizeOverride(200.0f, 45.0f)
+            .UnlockButtonSize(200.0f)
+            .Build();
         BindTestMenuBtn = std::make_unique<UI::Button>(TestMenuBtnObj);
         BindTestMenuBtn->OnClicked([this]() { StartKeyCapture(1); });
+
+        UObject* BindRerollBtnObj = WidgetBuilder(UI::Assets::Blueprints::CommonButton, MyWidget)
+            .Text(FormatKeybindText(Settings.RerollModifier, Settings.RerollKey))
+            .DesiredSizeOverride(200.0f, 45.0f)
+            .UnlockButtonSize(200.0f)
+            .Build();
+        BindRerollBtn = std::make_unique<UI::Button>(BindRerollBtnObj);
+        BindRerollBtn->OnClicked([this]() { StartKeyCapture(2); });
 
         auto PrefsBuilder = UI::VerticalBox(MyWidget);
         PrefsBuilder.AddToVerticalBox(UI::Text(MyWidget).Text(L"Global Keybinds").Font(PalFontCache, L"Bold", 20).TextColor(Emerald), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
@@ -760,12 +790,18 @@ namespace DynPals {
         auto BindRow1 = UI::HorizontalBox(MyWidget)
             .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Main Menu Toggle").Font(PalFontCache, L"Medium", 18).TextColor(White), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 20, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
             .AddToHorizontalBox(DynPals::WidgetBuilder(MenuBtnObj));
+
         auto BindRow2 = UI::HorizontalBox(MyWidget)
             .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Test Menu Toggle").Font(PalFontCache, L"Medium", 18).TextColor(White), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 20, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
             .AddToHorizontalBox(DynPals::WidgetBuilder(TestMenuBtnObj));
 
+        auto BindRow3 = UI::HorizontalBox(MyWidget)
+            .AddToHorizontalBox(UI::Text(MyWidget).Text(L"Direct Reroll Pal").Font(PalFontCache, L"Medium", 18).TextColor(White), [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 20, 0).VerticalAlignment(EBuilderVerticalAlignment::VAlign_Center); })
+            .AddToHorizontalBox(DynPals::WidgetBuilder(BindRerollBtnObj));
+
         PrefsBuilder.AddToVerticalBox(BindRow1, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
         PrefsBuilder.AddToVerticalBox(BindRow2, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
+        PrefsBuilder.AddToVerticalBox(BindRow3, [](BoxSlotBuilder& Slot) { Slot.Padding(0, 0, 0, 15); });
         PreferencesTabContainer = PrefsBuilder.Build();
 
         // --- 4. COMBINE INTO MAIN SCROLL BOX ---
@@ -1451,6 +1487,7 @@ namespace DynPals {
         } else if (ActiveTab == 1) {
             if (BindMenuBtn)     BindMenuBtn->Tick();
             if (BindTestMenuBtn) BindTestMenuBtn->Tick();
+            if (BindRerollBtn)   BindRerollBtn->Tick();
         }
         
         CacheScrollOffset();

@@ -16,14 +16,19 @@ using namespace RC::Unreal;
 namespace DynPals {
 
     void DynPalsSettings::CacheKeybinds() {
-        bMenuIsGamepad = (MenuKey.rfind(L"Gamepad_", 0) == 0);
-        MenuKeyVK = InputManager::Get().KeyNameToVK(MenuKey);
-        MenuModVK = InputManager::Get().KeyNameToVK(MenuModifier);
+    bMenuIsGamepad = (MenuKey.rfind(L"Gamepad_", 0) == 0);
+    MenuKeyVK = InputManager::Get().KeyNameToVK(MenuKey);
+    MenuModVK = InputManager::Get().KeyNameToVK(MenuModifier);
 
-        bTestIsGamepad = (TestMenuKey.rfind(L"Gamepad_", 0) == 0);
-        TestKeyVK = InputManager::Get().KeyNameToVK(TestMenuKey);
-        TestModVK = InputManager::Get().KeyNameToVK(TestMenuModifier);
-    }
+    bTestIsGamepad = (TestMenuKey.rfind(L"Gamepad_", 0) == 0);
+    TestKeyVK = InputManager::Get().KeyNameToVK(TestMenuKey);
+    TestModVK = InputManager::Get().KeyNameToVK(TestMenuModifier);
+
+    // --- CACHE REROLL KEYBIND ---
+    bRerollIsGamepad = (RerollKey.rfind(L"Gamepad_", 0) == 0);
+    RerollKeyVK = InputManager::Get().KeyNameToVK(RerollKey);
+    RerollModVK = InputManager::Get().KeyNameToVK(RerollModifier);
+}
 
     void SaveManager::Initialize(const std::wstring& BasePath) {
         ConfigPath = BasePath + L"Paks/~mods/"; 
@@ -91,6 +96,10 @@ namespace DynPals {
                 Settings.MenuModifier = Utils::StringToWString(data.at("Settings").value("MenuModifier", "LeftAlt"));
                 Settings.TestMenuKey = Utils::StringToWString(data.at("Settings").value("TestMenuKey", "G"));
                 Settings.TestMenuModifier = Utils::StringToWString(data.at("Settings").value("TestMenuModifier", "LeftAlt"));
+
+                Settings.RerollKey = Utils::StringToWString(data.at("Settings").value("RerollKey", "None"));
+                Settings.RerollModifier = Utils::StringToWString(data.at("Settings").value("RerollModifier", "None"));
+
             } else {
                 Settings.bFocusPal = true;
                 Settings.CameraRotation = 180.0;
@@ -174,6 +183,9 @@ namespace DynPals {
             settingsObj["MenuModifier"] = Utils::WStringToString(settingsCopy.MenuModifier);
             settingsObj["TestMenuKey"] = Utils::WStringToString(settingsCopy.TestMenuKey);
             settingsObj["TestMenuModifier"] = Utils::WStringToString(settingsCopy.TestMenuModifier);
+
+            settingsObj["RerollKey"] = Utils::WStringToString(settingsCopy.RerollKey);
+            settingsObj["RerollModifier"] = Utils::WStringToString(settingsCopy.RerollModifier);
 
             out["Settings"] = settingsObj;
             

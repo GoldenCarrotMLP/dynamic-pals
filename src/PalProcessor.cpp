@@ -2985,7 +2985,8 @@ void PalProcessor::ApplySwap(UObject* Character, const SwapConfig& swap, PalPers
             Utils::RegisterAssetFolder(swap.IconAssetPath);
             Utils::LoadAssetSafely(swap.IconAssetPath);
 
-            std::wstring dynamicSkinID = SwapIdentity::MakeID(swap);
+            // Display tag includes the source JSON for networked inspection; identity lookups strip it via ToIdentity()
+            std::wstring dynamicSkinID = SwapIdentity::MakeSkinTag(swap);
 FName SkinFName(dynamicSkinID.c_str(), FNAME_Add);
 Utils::CallFunction(id.IndivParam, STR("SetSkinName"), &SkinFName);
 

@@ -2,7 +2,9 @@
 #include <string>
 #include <vector>
 #include <map>
-#include <optional> 
+#include <optional>
+#include <string_view>
+#include <cwctype>
 #include <Unreal/UObjectGlobals.hpp>
 #include <Unreal/FString.hpp> 
 #include <Unreal/NameTypes.hpp> 
@@ -27,15 +29,40 @@ namespace DynPals {
 
         static std::wstring MakeID(const ::SwapConfig& Config);
 
+        // Display-only tag written to the Pal's native SkinName (replicates over network):
+        // "DynamicPals:<JsonFileName>.json::<PackName>::<CharID>::<SwapLabel>::<ModelPath>"
+        // NOT an identity - always run it through ToIdentity() before comparing against MakeID().
+        static std::wstring MakeSkinTag(const ::SwapConfig& Config);
+
         // Checks if a string begins with "DynamicPals:"
         static bool IsDynamicSkin(const std::wstring& SkinIdentifier) {
             return SkinIdentifier.rfind(Prefix, 0) == 0;
         }
 
-        // Deconstructs the 4-part ID back into its source components
-        static bool ParseID(const std::wstring& FullID, std::wstring& OutPackName, std::wstring& OutCharID, std::wstring& OutSwapLabel, std::wstring& OutModelPath) {
-            if (!IsDynamicSkin(FullID)) return false;
+        // Strips the optional "<JsonFileName>.json::" source segment, returning the canonical 4-part ID.
+        // Plain 4-part IDs and non-dynamic strings are returned unchanged.
+        static std::wstring ToIdentity(const std::wstring& SkinTag) {
+            if (!IsDynamicSkin(SkinTag)) return SkinTag;
 
+            const size_t prefixLen = std::wcslen(Prefix);
+            size_t d1 = SkinTag.find(Delimiter, prefixLen);
+            if (d1 == std::wstring::npos) return SkinTag;
+
+            std::wstring_view firstSeg(SkinTag.data() + prefixLen, d1 - prefixLen);
+            static constexpr std::wstring_view Ext = L".json";
+            if (firstSeg.size() < Ext.size()) return SkinTag;
+            for (size_t i = 0; i < Ext.size(); ++i) {
+                if (std::towlower(firstSeg[firstSeg.size() - Ext.size() + i]) != Ext[i]) return SkinTag;
+            }
+
+            return std::wstring(Prefix) + SkinTag.substr(d1 + std::wcslen(Delimiter));
+        }
+
+        // Deconstructs the 4-part ID (or a source-tagged skin tag) back into its identity components
+        static bool ParseID(const std::wstring& InID, std::wstring& OutPackName, std::wstring& OutCharID, std::wstring& OutSwapLabel, std::wstring& OutModelPath) {
+            if (!IsDynamicSkin(InID)) return false;
+
+            const std::wstring FullID = ToIdentity(InID);
             std::wstring body = FullID.substr(std::wcslen(Prefix));
             const size_t delimLen = std::wcslen(Delimiter);
 
@@ -122,6 +149,7 @@ struct MorphTarget {
 };
 
 struct SwapConfig {
+    std::wstring SourceJson = L""; 
     std::wstring PackName = L"Default Pack";
     std::wstring CharacterID;
     std::wstring SkelMeshPath;
@@ -157,6 +185,11 @@ namespace DynPals {
 
 inline std::wstring DynPals::SwapIdentity::MakeID(const ::SwapConfig& Config) {
     return MakeID(Config.PackName, Config.CharacterID, Config.SwapLabel, Config.SkelMeshPath);
+}
+
+inline std::wstring DynPals::SwapIdentity::MakeSkinTag(const ::SwapConfig& Config) {
+    if (Config.SourceJson.empty()) return MakeID(Config);
+    return std::wstring(Prefix) + Config.SourceJson + Delimiter + MakeID(Config).substr(std::wcslen(Prefix));
 }
 
 struct SwapEvaluation {

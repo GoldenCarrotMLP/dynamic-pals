@@ -191,7 +191,13 @@ namespace DynPals::Utils {
     }
 
     inline std::wstring StringToWString(const std::string& str) { return std::wstring(str.begin(), str.end()); }
-    inline std::string WStringToString(const std::wstring& wstr) { return std::string(wstr.begin(), wstr.end()); }
+    inline std::string WStringToString(const std::wstring& wstr) {
+    if (wstr.empty()) return "";
+    int sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
+    std::string result(sizeNeeded, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), result.data(), sizeNeeded, nullptr, nullptr);
+    return result;
+}
     inline std::wstring FStringToWString(const FString& fstr) { const TCHAR* data = fstr.GetCharArray().GetData(); return data ? std::wstring(data) : L""; }
     inline std::wstring GuidToWString(const DynPalsGuid& Guid) { wchar_t buf[64]; swprintf(buf, 64, L"%08X%08X%08X%08X", Guid.A, Guid.B, Guid.C, Guid.D); return std::wstring(buf); }
 
@@ -631,6 +637,75 @@ inline UObject* LoadAssetInternal(const std::wstring& AssetPath, bool bAllowBloc
         }
 
         return nullptr;
+    }
+
+    inline RC::Unreal::UObject* GetAimedPal(RC::Unreal::UObject* PlayerController, double MaxDistance = 5000.0) {
+        if (!PlayerController || !IsObjectValid(PlayerController)) return nullptr;
+
+        RC::Unreal::UObject* PlayerPawn = nullptr;
+        CallFunction(PlayerController, STR("K2_GetPawn"), &PlayerPawn);
+        if (!PlayerPawn) return nullptr;
+
+        struct { FVector_UE5 Location; FRotator_UE5 Rotation; } ViewPointParams;
+        CallFunction(PlayerController, STR("GetPlayerViewPoint"), &ViewPointParams);
+        
+        FVector_UE5 CameraLoc = ViewPointParams.Location;
+        FRotator_UE5 CameraRot = ViewPointParams.Rotation;
+
+        double PitchRad = CameraRot.Pitch * 0.01745329251; 
+        double YawRad = CameraRot.Yaw * 0.01745329251;
+        double CosPitch = std::cos(PitchRad);
+
+        FVector_UE5 CameraForward{
+            std::cos(YawRad) * CosPitch,
+            std::sin(YawRad) * CosPitch,
+            std::sin(PitchRad)
+        };
+
+        std::vector<RC::Unreal::UObject*> AllPals;
+        RC::Unreal::UObjectGlobals::FindAllOf(STR("PalCharacter"), AllPals);
+
+        RC::Unreal::UObject* aimedPal = nullptr;
+        double highestDot = -1.0;
+        RC::Unreal::UObject* closestPal = nullptr;
+        double closestDistSq = 999999999.0;
+        double maxDistSq = MaxDistance * MaxDistance;
+
+        for (RC::Unreal::UObject* Pal : AllPals) {
+            if (Pal == PlayerPawn || !IsObjectValid(Pal)) continue;
+
+            bool bHidden = false;
+            GetPropertyValue<bool>(Pal, STR("bHidden"), bHidden, true);
+            bool bBeingDestroyed = false;
+            GetPropertyValue<bool>(Pal, STR("bActorIsBeingDestroyed"), bBeingDestroyed, true);
+
+            if (bHidden || bBeingDestroyed) continue;
+
+            struct { FVector_UE5 RetVal; } PalLocParams;
+            CallFunction(Pal, STR("K2_GetActorLocation"), &PalLocParams);
+            FVector_UE5 PalLoc = PalLocParams.RetVal;
+
+            FVector_UE5 Dir{ PalLoc.X - CameraLoc.X, PalLoc.Y - CameraLoc.Y, PalLoc.Z - CameraLoc.Z };
+            double distSq = (Dir.X * Dir.X) + (Dir.Y * Dir.Y) + (Dir.Z * Dir.Z);
+
+            if (distSq > maxDistSq) continue;
+
+            double dist = std::sqrt(distSq);
+            FVector_UE5 DirNorm{ Dir.X / dist, Dir.Y / dist, Dir.Z / dist };
+            double dot = CameraForward.X * DirNorm.X + CameraForward.Y * DirNorm.Y + CameraForward.Z * DirNorm.Z;
+
+            if (dot >= 0.80 && dot > highestDot) {
+                highestDot = dot;
+                aimedPal = Pal;
+            }
+
+            if (distSq < closestDistSq) {
+                closestDistSq = distSq;
+                closestPal = Pal;
+            }
+        }
+
+        return aimedPal ? aimedPal : closestPal;
     }
 
     inline std::vector<std::wstring> GetAssetsInVirtualFolder(const std::wstring& FolderPath) {

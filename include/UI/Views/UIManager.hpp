@@ -54,6 +54,7 @@ namespace DynPals {
 
         std::unique_ptr<class DynPals::UI::Button> BindMenuBtn;
         std::unique_ptr<class DynPals::UI::Button> BindTestMenuBtn;
+        std::unique_ptr<class DynPals::UI::Button> BindRerollBtn;
 
         void SwitchTab(int32_t NewTab);
         void StartKeyCapture(int Target);

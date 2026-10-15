@@ -39,7 +39,7 @@ namespace DynPals {
             if (!hXInput) hXInput = LoadLibraryA("xinput9_1_0.dll");
             if (!hXInput) hXInput = LoadLibraryA("xinput1_3.dll");
             if (hXInput) {
-                pfnXInputGetState = (PFN_XInputGetState)GetProcAddress(hXInput, "XInputGetState");
+                pfnXInputGetState = reinterpret_cast<PFN_XInputGetState>(reinterpret_cast<void*>(GetProcAddress(hXInput, "XInputGetState")));
             }
         }
         if (!pfnXInputGetState) return false;
